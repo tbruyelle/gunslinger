@@ -57,6 +57,10 @@ Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml`
 - `assets/vassal/` — VASSAL module assets (tokens, cards, markers).
 - `scripts/fetch_assets.py` — Asset download script.
 
+## TODO
+
+- **Merge asset sources**: `assets/` (TTS) and `assets/vassal/` contain overlapping images (same cards/tokens from two sources). Consolidate into a single flat directory to avoid duplication and simplify asset references in game code. Prefer the higher-resolution source per image type.
+
 ## Key Design Reference
 
 The `rules.pdf` is the authoritative source for game mechanics. Core systems to be aware of:
