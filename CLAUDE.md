@@ -35,17 +35,19 @@ All assets are already downloaded. Do not re-run the full pipeline unless `tts_m
 - Board maps: `board_A.png` … `board_H.png` + `board_AA.png` … `board_HH.png` + `board_UFC*.png` — high-res scans at **1600×2232** (sourced from cryhavocgames.net GSL Maps pack, higher quality than TTS mod)
 - Card sprite sheets: 14 sheets, largest at 6030×5516 (603×788 per card)
 
-### `assets/vassal/` (from VASSAL module v1.9.2)
-Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml` piece definitions. All **296 PNGs + 17 JPGs**. Key groups:
-- `result_card_NNN.png` — 108 individual result cards (180×245 px)
-- `action_card_a{N}[_back].png` — action cards A1–A12
-- `char_*.png` — 40 character tokens (95×95 px); names derived from `piece;C;X;IMG;NAME` XML pattern
-- `animal_*.png` — 9 animal tokens
-- `counter_*.png` — 22 counters
+### `assets/local/` (from VASSAL module v1.9.2, partially merged)
+Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml` piece definitions. Originally `assets/vassal/`; merge into `assets/` is in progress. Currently contains:
+- `char_*.png` — 40 character tokens (95×95 px)
+- `animal_*.png` — 9 animal tokens + dead variants
 - `activity_*.png` — 9 activity markers (aim, facing, load, move, etc.)
-- `legend_sheet_{N}[_back].png` — 5 legend sheets (1100×1204 px)
 - `state_*.png` — 4 state markers (down, passed_out, surrendered, dead)
 - `obj_*.png` — 3 objects (bale, chair, table)
+- `legend_sheet_{N}[_back].png` — legend sheets (1100×1204 px)
+- `card_back.png`, `token_stage.png`
+- Player aid JPGs, Gunsmith tables, critters reference sheets
+- Some unmerged `*_custom_token.jpg/png` files
+
+Already moved to `assets/`: `result_card_NNN.png` (108 cards), `action_card_a{N}[_back].png`, `counter_b{N}[_*].png`, `splash_screen.png`.
 
 **Note on transparency**: VASSAL GIFs were converted to PNG. Source images have binary transparency ([0, 255] alpha only — no anti-aliasing). Smooth edges would require post-processing the alpha channel.
 
@@ -54,12 +56,12 @@ Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml`
 - `tts_mod.json` — Tabletop Simulator mod save (v12.0.4); source of all image URLs.
 - `rules.pdf` — The 36-page original Gunslinger rulebook (primary design reference).
 - `assets/` — Downloaded game artwork and `catalog.json`.
-- `assets/vassal/` — VASSAL module assets (tokens, cards, markers).
+- `assets/local/` — VASSAL module assets not yet merged (tokens, markers, player aids).
 - `scripts/fetch_assets.py` — Asset download script.
 
 ## TODO
 
-- **Merge asset sources**: `assets/` (TTS) and `assets/vassal/` contain overlapping images (same cards/tokens from two sources). Consolidate into a single flat directory to avoid duplication and simplify asset references in game code. Prefer the higher-resolution source per image type.
+- **Finish merging asset sources**: `assets/local/` still contains chars, animals, activity markers, states, objects, legend sheets, and some unmatched `*_custom_token` files. Consolidate remaining files into `assets/` and remove `assets/local/`. Prefer the higher-resolution source per image type.
 
 ## Key Design Reference
 
