@@ -1,0 +1,17 @@
+{
+  "name": "gunslinger",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w shared && npm run build -w client && npm run build -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
