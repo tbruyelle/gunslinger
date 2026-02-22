@@ -20,91 +20,72 @@ const BOARD_DIMS: Record<string, Dims> = {
 
 const BOARDS = Object.keys(BOARD_DIMS);
 
-// ── Layout constants ───────────────────────────────────────────────────────────
+// ── Fixed layout sizes (do not change with viewport) ───────────────────────────
 
-const CW         = 1280;
-const CH         = 800;
-const TOPBAR_H   = 50;
-const STRIP_H    = 158;
-const ARR_Y      = TOPBAR_H;
-const ARR_H      = CH - TOPBAR_H - STRIP_H; // 592
-const STRIP_Y    = ARR_Y + ARR_H;           // 642
-
+const TOPBAR_H      = 50;
+const STRIP_H       = 158;
 const THUMB_CELL_W  = 92;
 const THUMB_IMG_W   = 80;
 const THUMB_IMG_H   = 104;
 const THUMB_LABEL_H = 16;
 const STRIP_PAD_L   = 10;
-
 const ROT_DURATION  = 250;
-const HANDLE_OFFSET = 20; // px outside board edge for "+" buttons
+const HANDLE_OFFSET = 20;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface PlacedBoard {
-  id:       number;
-  key:      string;
-  rotation: number; // 0 | 90 | 180 | 270
-  lx:       number; // top-left x in layout-space (source pixels)
-  ly:       number; // top-left y in layout-space
+  id: number; key: string; rotation: number; lx: number; ly: number;
 }
-
 type SlotDir = "right" | "left" | "bottom" | "top";
-
-interface Slot {
-  lx:     number;
-  ly:     number;
-  fromId: number; // id of the board this slot attaches to
-  dir:    SlotDir;
-}
-
+interface Slot { lx: number; ly: number; fromId: number; dir: SlotDir }
 interface PlacedEntry {
-  id:        number;
-  img:       Phaser.GameObjects.Image;
-  closeBg:   Phaser.GameObjects.Arc;
-  closeTxt:  Phaser.GameObjects.Text;
+  id: number; img: Phaser.GameObjects.Image;
+  closeBg: Phaser.GameObjects.Arc; closeTxt: Phaser.GameObjects.Text;
   closeZone: Phaser.GameObjects.Zone;
 }
-
 interface ThumbItem {
-  img:    Phaser.GameObjects.Image;
-  border: Phaser.GameObjects.Rectangle;
-  label:  Phaser.GameObjects.Text;
-  zone:   Phaser.GameObjects.Zone;
-  key:    string;
+  img: Phaser.GameObjects.Image; border: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text; zone: Phaser.GameObjects.Zone; key: string;
 }
 
 // ── Scene ──────────────────────────────────────────────────────────────────────
 
 export class SetupScene extends Phaser.Scene {
-  // State
+  // State (preserved across resize)
   private placed:          PlacedBoard[] = [];
   private nextId           = 0;
   private pendingKey:      string | null = null;
   private pendingRotation  = 0;
-  private rotating         = new Set<number>(); // board ids animating
-
-  // Dynamic display objects (rebuilt in refreshDisplay)
-  private placedEntries:   PlacedEntry[] = [];
-  private dynObjects:      Phaser.GameObjects.GameObject[] = []; // handles, hints, previews
-
-  // Strip
-  private thumbs:          ThumbItem[] = [];
+  private rotating         = new Set<number>();
   private stripOffset      = 0;
 
-  // Persistent UI
+  // Display objects (rebuilt on resize / state change)
+  private placedEntries:   PlacedEntry[] = [];
+  private dynObjects:      Phaser.GameObjects.GameObject[] = [];
+  private thumbs:          ThumbItem[] = [];
   private placeholder!:    Phaser.GameObjects.Text;
   private nextBtn!:        Phaser.GameObjects.Text;
 
   constructor() { super({ key: "SetupScene" }); }
 
+  // ── Responsive helpers ────────────────────────────────────────────────────
+
+  private get cw()     { return this.scale.width; }
+  private get ch()     { return this.scale.height; }
+  private get stripY() { return this.ch - STRIP_H; }
+  private get arrH()   { return this.ch - TOPBAR_H - STRIP_H; }
+
   // ── Preload ────────────────────────────────────────────────────────────────
 
   preload() {
-    const barW = 680, bx = CW / 2 - barW / 2, by = CH / 2;
-    const bg   = this.add.rectangle(CW / 2, by, barW + 4, 20, 0x2a1500);
+    const w = this.scale.width, h = this.scale.height;
+    const barW = Math.min(680, w - 40);
+    const bx = w / 2 - barW / 2, by = h / 2;
+
+    const bg   = this.add.rectangle(w / 2, by, barW + 4, 20, 0x2a1500);
     const fill = this.add.rectangle(bx, by, 2, 18, 0xd4a044).setOrigin(0, 0.5);
-    const lbl  = this.add.text(CW / 2, by - 30, "Loading boards…", {
+    const lbl  = this.add.text(w / 2, by - 30, "Loading boards…", {
       fontSize: "17px", color: "#d4a044",
     }).setOrigin(0.5);
 
@@ -124,30 +105,50 @@ export class SetupScene extends Phaser.Scene {
     this.pendingKey      = null;
     this.pendingRotation = 0;
     this.rotating.clear();
-    this.placedEntries   = [];
-    this.dynObjects      = [];
     this.stripOffset     = 0;
 
-    this.add.rectangle(0, 0,           CW, CH,    0x1a1008).setOrigin(0);
-    this.add.rectangle(0, ARR_Y,       CW, ARR_H, 0x120b04).setOrigin(0);
-    this.add.rectangle(0, STRIP_Y - 2, CW, 2,     0x3a2510).setOrigin(0);
+    this.buildAll();
+    this.setupInput();
+
+    const onResize = () => this.buildAll();
+    this.scale.on("resize", onResize);
+    this.events.on("shutdown", () => this.scale.off("resize", onResize));
+  }
+
+  /** Destroy all display objects and rebuild from current state + viewport. */
+  private buildAll() {
+    this.children.removeAll(true);
+    this.tweens.killAll();
+    this.placedEntries = [];
+    this.dynObjects    = [];
+    this.thumbs        = [];
+    this.rotating.clear();
+
+    const w = this.cw, h = this.ch;
+
+    // Backgrounds
+    this.add.rectangle(0, 0,              w, h,          0x1a1008).setOrigin(0);
+    this.add.rectangle(0, TOPBAR_H,       w, this.arrH,  0x120b04).setOrigin(0);
+    this.add.rectangle(0, this.stripY - 2, w, 2,         0x3a2510).setOrigin(0);
 
     this.placeholder = this.add
-      .text(CW / 2, ARR_Y + ARR_H / 2, "Select a board below to start building the map", {
-        fontSize: "16px", color: "#444",
-      })
+      .text(w / 2, TOPBAR_H + this.arrH / 2,
+        "Select a board below to start building the map", {
+          fontSize: "16px", color: "#444",
+        })
       .setOrigin(0.5);
 
     this.buildStrip();
     this.buildTopBar();
-    this.setupInput();
+    this.refreshDisplay();
+    this.refreshStripBorders();
   }
 
   // ── Top bar ────────────────────────────────────────────────────────────────
 
   private buildTopBar() {
-    this.add.rectangle(0, 0, CW, TOPBAR_H, 0x0f0804).setOrigin(0);
-    this.add.text(CW / 2, TOPBAR_H / 2, "Setup — Board Selection", {
+    this.add.rectangle(0, 0, this.cw, TOPBAR_H, 0x0f0804).setOrigin(0);
+    this.add.text(this.cw / 2, TOPBAR_H / 2, "Setup — Board Selection", {
       fontSize: "20px", color: "#d4a044", fontStyle: "bold",
     }).setOrigin(0.5);
 
@@ -160,25 +161,22 @@ export class SetupScene extends Phaser.Scene {
     back.on("pointerup",   () => this.scene.start("LobbyScene"));
 
     this.nextBtn = this.add
-      .text(CW - 20, TOPBAR_H / 2, "Next →", { fontSize: "17px", color: "#555" })
+      .text(this.cw - 20, TOPBAR_H / 2, "Next →", { fontSize: "17px", color: "#555" })
       .setOrigin(1, 0.5)
       .setInteractive({ useHandCursor: true });
     this.nextBtn.on("pointerup", () => {
-      if (this.placed.length > 0) {
+      if (this.placed.length > 0)
         this.scene.start("MatchmakingScene", { boards: this.placed });
-      }
     });
   }
 
   // ── Geometry helpers ───────────────────────────────────────────────────────
 
-  /** Effective displayed dimensions after rotation (w↔h swapped at 90°/270°). */
   private effSize(key: string, rot: number): { effW: number; effH: number } {
     const d = BOARD_DIMS[key];
     return rot % 180 === 0 ? { effW: d.w, effH: d.h } : { effW: d.h, effH: d.w };
   }
 
-  /** Would a rect at (lx,ly) size (w,h) overlap any placed board (except excludeId)? */
   private overlaps(lx: number, ly: number, w: number, h: number, excludeId?: number): boolean {
     for (const b of this.placed) {
       if (b.id === excludeId) continue;
@@ -188,12 +186,9 @@ export class SetupScene extends Phaser.Scene {
     return false;
   }
 
-  /**
-   * Display transform: maps layout-space coordinates to screen pixels.
-   * Returns uniform scale + origin so that all placed boards fit the arrangement area.
-   */
   private displayTransform(): { scale: number; ox: number; oy: number } {
-    if (this.placed.length === 0) return { scale: 1, ox: CW / 2, oy: ARR_Y + ARR_H / 2 };
+    if (this.placed.length === 0)
+      return { scale: 1, ox: this.cw / 2, oy: TOPBAR_H + this.arrH / 2 };
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const b of this.placed) {
@@ -206,13 +201,12 @@ export class SetupScene extends Phaser.Scene {
 
     const lw    = maxX - minX;
     const lh    = maxY - minY;
-    const scale = Math.min((ARR_H - 30) / lh, (CW - 30) / lw);
-    const ox    = (CW - lw * scale) / 2 - minX * scale;
-    const oy    = ARR_Y + (ARR_H - lh * scale) / 2 - minY * scale;
+    const scale = Math.min((this.arrH - 30) / lh, (this.cw - 30) / lw);
+    const ox    = (this.cw - lw * scale) / 2 - minX * scale;
+    const oy    = TOPBAR_H + (this.arrH - lh * scale) / 2 - minY * scale;
     return { scale, ox, oy };
   }
 
-  /** Convert layout-space rect to screen center. */
   private layoutToScreen(
     lx: number, ly: number, effW: number, effH: number,
     scale: number, ox: number, oy: number,
@@ -235,24 +229,16 @@ export class SetupScene extends Phaser.Scene {
     for (const b of this.placed) {
       const { effW: bW, effH: bH } = this.effSize(b.key, b.rotation);
 
-      // Right: pending left edge (pH) must match board right edge (bH)
       if (pH === bH && !this.overlaps(b.lx + bW, b.ly, pW, pH))
         slots.push({ lx: b.lx + bW, ly: b.ly, fromId: b.id, dir: "right" });
-
-      // Left
       if (pH === bH && !this.overlaps(b.lx - pW, b.ly, pW, pH))
         slots.push({ lx: b.lx - pW, ly: b.ly, fromId: b.id, dir: "left" });
-
-      // Bottom: pending top edge (pW) must match board bottom edge (bW)
       if (pW === bW && !this.overlaps(b.lx, b.ly + bH, pW, pH))
         slots.push({ lx: b.lx, ly: b.ly + bH, fromId: b.id, dir: "bottom" });
-
-      // Top
       if (pW === bW && !this.overlaps(b.lx, b.ly - pH, pW, pH))
         slots.push({ lx: b.lx, ly: b.ly - pH, fromId: b.id, dir: "top" });
     }
 
-    // Deduplicate slots at the same position (multiple boards can generate the same slot)
     const seen = new Set<string>();
     return slots.filter(s => {
       const k = `${s.lx},${s.ly}`;
@@ -265,7 +251,6 @@ export class SetupScene extends Phaser.Scene {
   // ── Display ────────────────────────────────────────────────────────────────
 
   private refreshDisplay() {
-    // Tear down dynamic objects
     this.rotating.clear();
     this.placedEntries.forEach(e => {
       this.tweens.killTweensOf(e.img);
@@ -281,14 +266,9 @@ export class SetupScene extends Phaser.Scene {
     this.placeholder.setVisible(n === 0 && !hasPending);
     this.nextBtn.setColor(n > 0 ? "#d4a044" : "#555");
 
-    // ── First-board placement preview ──────────────────────────────────────
-    if (n === 0 && hasPending) {
-      this.drawFirstBoardPreview();
-      return;
-    }
+    if (n === 0 && hasPending) { this.drawFirstBoardPreview(); return; }
     if (n === 0) return;
 
-    // ── Draw placed boards ────────────────────────────────────────────────
     const { scale, ox, oy } = this.displayTransform();
 
     for (const b of this.placed) {
@@ -315,20 +295,15 @@ export class SetupScene extends Phaser.Scene {
       this.placedEntries.push({ id: b.id, img, closeBg, closeTxt, closeZone });
     }
 
-    // ── Handles for pending board ─────────────────────────────────────────
-    if (hasPending) {
-      this.drawHandles(scale, ox, oy);
-    }
+    if (hasPending) this.drawHandles(scale, ox, oy);
   }
-
-  // ── First board: show a clickable preview centered ─────────────────────
 
   private drawFirstBoardPreview() {
     const key = this.pendingKey!;
     const { effW, effH } = this.effSize(key, this.pendingRotation);
-    const previewScale = Math.min((ARR_H - 60) / effH, (CW - 60) / effW);
-    const cx = CW / 2;
-    const cy = ARR_Y + ARR_H / 2;
+    const previewScale = Math.min((this.arrH - 60) / effH, (this.cw - 60) / effW);
+    const cx = this.cw / 2;
+    const cy = TOPBAR_H + this.arrH / 2;
 
     const img = this.add.image(cx, cy, key)
       .setScale(previewScale)
@@ -356,13 +331,11 @@ export class SetupScene extends Phaser.Scene {
     this.dynObjects.push(img, label, zone);
   }
 
-  // ── Attachment handles ("+") ───────────────────────────────────────────
-
   private drawHandles(scale: number, ox: number, oy: number) {
     const slots = this.computeSlots();
 
     if (slots.length === 0) {
-      const hint = this.add.text(CW / 2, STRIP_Y - 18,
+      const hint = this.add.text(this.cw / 2, this.stripY - 18,
         "No valid position — try rotating the pending board (scroll in empty area)", {
           fontSize: "12px", color: "#666",
         }).setOrigin(0.5, 1);
@@ -370,9 +343,8 @@ export class SetupScene extends Phaser.Scene {
       return;
     }
 
-    // Pending info
     const name = this.pendingKey!.replace("board_", "");
-    const info = this.add.text(CW / 2, STRIP_Y - 18,
+    const info = this.add.text(this.cw / 2, this.stripY - 18,
       `Placing: Board ${name}  ·  ${this.pendingRotation}°  ·  scroll in empty area to rotate`, {
         fontSize: "11px", color: "#777",
       }).setOrigin(0.5, 1);
@@ -384,7 +356,6 @@ export class SetupScene extends Phaser.Scene {
       const fromB = this.placed.find(b => b.id === slot.fromId)!;
       const { effW: bW, effH: bH } = this.effSize(fromB.key, fromB.rotation);
 
-      // Preview outline where the board would go
       const { cx: px, cy: py, dw: pw, dh: ph } = this.layoutToScreen(
         slot.lx, slot.ly, pW, pH, scale, ox, oy,
       );
@@ -395,7 +366,6 @@ export class SetupScene extends Phaser.Scene {
       g.strokeRect(px - pw / 2, py - ph / 2, pw, ph);
       this.dynObjects.push(g);
 
-      // "+" handle at the midpoint of the attachment edge, just outside the board
       const bScreen = this.layoutToScreen(fromB.lx, fromB.ly, bW, bH, scale, ox, oy);
       let hx: number, hy: number;
       switch (slot.dir) {
@@ -450,11 +420,6 @@ export class SetupScene extends Phaser.Scene {
     this.refreshStripBorders();
   }
 
-  /**
-   * Animate a 180° rotation of a placed board.
-   * Once connected, rotating 90° would swap portrait↔landscape and break the
-   * edge-length match with neighbours.  Only 180° preserves all connections.
-   */
   private rotatePlacedBoard(boardId: number, delta: number) {
     if (this.rotating.has(boardId)) return;
     const board = this.placed.find(b => b.id === boardId);
@@ -466,7 +431,6 @@ export class SetupScene extends Phaser.Scene {
     const entry = this.placedEntries.find(e => e.id === boardId);
     if (!entry) { this.rotating.delete(boardId); return; }
 
-    // Tween angle in place; rebuild display after animation settles
     this.tweens.add({
       targets: entry.img,
       angle: entry.img.angle + delta,
@@ -478,12 +442,10 @@ export class SetupScene extends Phaser.Scene {
       },
     });
 
-    // Hide handles + overlays during rotation (positions are stale)
     this.dynObjects.forEach(o => o.destroy());
     this.dynObjects = [];
   }
 
-  /** Return board id at screen (px, py), or -1. */
   private placedBoardAt(px: number, py: number): number {
     if (this.placed.length === 0) return -1;
     const { scale, ox, oy } = this.displayTransform();
@@ -499,8 +461,8 @@ export class SetupScene extends Phaser.Scene {
   // ── Strip ──────────────────────────────────────────────────────────────────
 
   private buildStrip() {
-    this.add.rectangle(0, STRIP_Y, CW, STRIP_H, 0x0d0704).setOrigin(0);
-    const thumbCY = STRIP_Y + (STRIP_H - THUMB_LABEL_H) / 2;
+    this.add.rectangle(0, this.stripY, this.cw, STRIP_H, 0x0d0704).setOrigin(0);
+    const thumbCY = this.stripY + (STRIP_H - THUMB_LABEL_H) / 2;
 
     this.thumbs = BOARDS.map(key => {
       const d     = BOARD_DIMS[key];
@@ -530,7 +492,7 @@ export class SetupScene extends Phaser.Scene {
 
   private refreshStripPositions() {
     const totalW     = BOARDS.length * THUMB_CELL_W + STRIP_PAD_L;
-    const maxOffset  = Math.max(0, totalW - CW);
+    const maxOffset  = Math.max(0, totalW - this.cw);
     this.stripOffset = Phaser.Math.Clamp(this.stripOffset, 0, maxOffset);
 
     this.thumbs.forEach((t, i) => {
@@ -551,7 +513,7 @@ export class SetupScene extends Phaser.Scene {
 
   private selectPending(key: string) {
     if (this.pendingKey === key) {
-      this.pendingKey = null; // cancel
+      this.pendingKey = null;
     } else {
       this.pendingKey = key;
       this.pendingRotation = 0;
@@ -566,16 +528,15 @@ export class SetupScene extends Phaser.Scene {
     this.input.on(
       "wheel",
       (pointer: Phaser.Input.Pointer, _: unknown, _dx: number, dy: number) => {
-        if (pointer.y >= STRIP_Y) {
+        if (pointer.y >= this.stripY) {
           this.stripOffset += dy * 0.5;
           this.refreshStripPositions();
           return;
         }
-        if (pointer.y < ARR_Y) return;
+        if (pointer.y < TOPBAR_H) return;
 
         const delta = dy > 0 ? 90 : -90;
 
-        // Over a placed board → rotate 180° (preserves edge connections)
         const boardId = this.placedBoardAt(pointer.x, pointer.y);
         if (boardId >= 0) {
           const placedDelta = delta > 0 ? 180 : -180;
@@ -583,7 +544,6 @@ export class SetupScene extends Phaser.Scene {
           return;
         }
 
-        // Over empty area with pending → rotate 90° (free to choose orientation before placing)
         if (this.pendingKey) {
           this.pendingRotation = ((this.pendingRotation + delta) % 360 + 360) % 360;
           this.refreshDisplay();

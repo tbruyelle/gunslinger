@@ -7,10 +7,13 @@ import { GameScene } from "./scenes/GameScene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
-  width: 1280,
-  height: 800,
   backgroundColor: "#1a1008",
-  parent: document.body,
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    parent: document.body,
+    width: "100%",
+    height: "100%",
+  },
   scene: [BootScene, LobbyScene, SetupScene, MatchmakingScene, GameScene],
 };
 
