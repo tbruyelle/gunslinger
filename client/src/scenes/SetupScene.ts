@@ -22,26 +22,38 @@ const BOARDS = Object.keys(BOARD_DIMS);
 
 // ── Layout constants ───────────────────────────────────────────────────────────
 
-const CW = 1280;
-const CH = 800;
-const TOPBAR_H = 50;
-const STRIP_H  = 158;
-const ARR_Y    = TOPBAR_H;
-const ARR_H    = CH - TOPBAR_H - STRIP_H; // 592
-const STRIP_Y  = ARR_Y + ARR_H;           // 642
-const BOARD_GAP = 6;
+const CW         = 1280;
+const CH         = 800;
+const TOPBAR_H   = 50;
+const STRIP_H    = 158;
+const ARR_Y      = TOPBAR_H;
+const ARR_H      = CH - TOPBAR_H - STRIP_H; // 592
+const STRIP_Y    = ARR_Y + ARR_H;           // 642
+const BOARD_GAP  = 6;
 
-// Strip thumbnail cell: fixed size, image scaled to fit inside
-const THUMB_CELL_W = 92;
-const THUMB_CELL_H = 116;
-const THUMB_IMG_W  = 80;
-const THUMB_IMG_H  = 104;
+const THUMB_CELL_W  = 92;
+const THUMB_IMG_W   = 80;
+const THUMB_IMG_H   = 104;
 const THUMB_LABEL_H = 16;
-const STRIP_PAD_L  = 10;
+const STRIP_PAD_L   = 10;
+
+const ROT_DURATION = 250; // ms
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface SelectedBoard { key: string; flipped: boolean }
+interface SelectedBoard {
+  key:      string;
+  rotation: number; // target: 0 | 90 | 180 | 270
+}
+
+/** Persistent display objects for one board in the arrangement area. */
+interface ArrEntry {
+  img:       Phaser.GameObjects.Image;
+  hint:      Phaser.GameObjects.Text;
+  closeBg:   Phaser.GameObjects.Arc;
+  closeTxt:  Phaser.GameObjects.Text;
+  closeZone: Phaser.GameObjects.Zone;
+}
 
 interface ThumbItem {
   img:    Phaser.GameObjects.Image;
@@ -51,13 +63,23 @@ interface ThumbItem {
   key:    string;
 }
 
+/** Per-board layout (in the arrangement area). */
+interface BoardSlot {
+  cx:    number; // center x
+  cy:    number; // center y (constant: vertical center of arrangement area)
+  scale: number; // uniform scale applied to the image
+  effW:  number; // effective displayed width  (after rotation)
+  effH:  number; // effective displayed height (after rotation)
+}
+
 // ── Scene ──────────────────────────────────────────────────────────────────────
 
 export class SetupScene extends Phaser.Scene {
   private selected:    SelectedBoard[] = [];
   private stripOffset  = 0;
-  private thumbs:      ThumbItem[] = [];
-  private arrObjects:  Phaser.GameObjects.GameObject[] = [];
+  private thumbs:      ThumbItem[]  = [];
+  private arrEntries:  ArrEntry[]   = [];
+  private rotating     = new Set<number>(); // indices currently mid-animation
   private placeholder!: Phaser.GameObjects.Text;
   private nextBtn!:     Phaser.GameObjects.Text;
 
@@ -89,11 +111,12 @@ export class SetupScene extends Phaser.Scene {
   create() {
     this.selected    = [];
     this.stripOffset = 0;
-    this.arrObjects  = [];
+    this.arrEntries  = [];
+    this.rotating.clear();
 
-    this.add.rectangle(0, 0, CW, CH,      0x1a1008).setOrigin(0);
-    this.add.rectangle(0, ARR_Y, CW, ARR_H, 0x120b04).setOrigin(0);
-    this.add.rectangle(0, STRIP_Y - 2, CW, 2, 0x3a2510).setOrigin(0);
+    this.add.rectangle(0, 0,        CW, CH,     0x1a1008).setOrigin(0);
+    this.add.rectangle(0, ARR_Y,    CW, ARR_H,  0x120b04).setOrigin(0);
+    this.add.rectangle(0, STRIP_Y - 2, CW, 2,   0x3a2510).setOrigin(0);
 
     this.placeholder = this.add
       .text(CW / 2, ARR_Y + ARR_H / 2, "Click a board below to add it to the map", {
@@ -102,7 +125,7 @@ export class SetupScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.buildStrip();
-    this.buildTopBar(); // built last → renders on top of boards
+    this.buildTopBar(); // built last → on top
 
     this.setupInput();
   }
@@ -134,98 +157,168 @@ export class SetupScene extends Phaser.Scene {
     });
   }
 
-  // ── Arrangement area ───────────────────────────────────────────────────────
+  // ── Arrangement — full rebuild (add / remove) ──────────────────────────────
 
   private refreshArrangement() {
-    this.arrObjects.forEach(o => (o as Phaser.GameObjects.GameObject).destroy());
-    this.arrObjects = [];
+    this.rotating.clear();
+    this.arrEntries.forEach(e => {
+      this.tweens.killTweensOf(e.img);
+      e.img.destroy(); e.hint.destroy();
+      e.closeBg.destroy(); e.closeTxt.destroy(); e.closeZone.destroy();
+    });
+    this.arrEntries = [];
 
     const n = this.selected.length;
     this.placeholder.setVisible(n === 0);
     this.nextBtn.setColor(n > 0 ? "#d4a044" : "#555");
     if (n === 0) return;
 
-    const rects  = this.arrBoardRects();
-    const cy     = ARR_Y + ARR_H / 2;
+    const slots = this.computeSlots();
 
-    this.selected.forEach(({ key, flipped }, i) => {
-      const { x: bx, bw, bh } = rects[i];
-      const cx  = bx + bw / 2;
-      const top = cy - bh / 2;
+    slots.forEach(({ cx, cy, scale, effW, effH }, i) => {
+      const { key, rotation } = this.selected[i];
+      const top = cy - effH * scale / 2;
 
-      const img = this.add.image(cx, cy, key).setDisplaySize(bw, bh).setFlipX(flipped);
+      const img = this.add.image(cx, cy, key)
+        .setScale(scale)
+        .setAngle(rotation);
 
-      // "scroll to flip" hint — bottom-center of the board
       const hint = this.add
-        .text(cx, top + bh - 5, "↔  scroll to flip", {
-          fontSize: "9px", color: "#666",
-          stroke: "#000", strokeThickness: 2,
+        .text(cx, top + effH * scale - 5, "scroll to rotate", {
+          fontSize: "9px", color: "#666", stroke: "#000", strokeThickness: 2,
         })
         .setOrigin(0.5, 1);
 
-      // × remove button — top-right corner
-      const xr  = bx + bw - 9;
-      const yt  = top + 9;
-      const xBg = this.add.circle(xr, yt, 8, 0x550000, 0.9);
-      const xTx = this.add
+      const xr = cx + effW * scale / 2 - 9;
+      const yt = top + 9;
+
+      const closeBg  = this.add.circle(xr, yt, 8, 0x550000, 0.9);
+      const closeTxt = this.add
         .text(xr, yt, "×", { fontSize: "12px", color: "#fff", fontStyle: "bold" })
         .setOrigin(0.5);
-      const xZone = this.add
+      const closeZone = this.add
         .zone(xr, yt, 20, 20)
         .setInteractive({ useHandCursor: true });
-      xZone.on("pointerup", () => {
+
+      closeZone.on("pointerup", () => {
         this.selected.splice(i, 1);
         this.refreshArrangement();
         this.refreshStripBorders();
       });
 
-      this.arrObjects.push(img, hint, xBg, xTx, xZone);
+      this.arrEntries.push({ img, hint, closeBg, closeTxt, closeZone });
     });
+  }
+
+  // ── Arrangement — animated rotation ───────────────────────────────────────
+
+  private rotateBoard(idx: number, delta: number) {
+    if (this.rotating.has(idx)) return; // ignore while already rotating
+    this.rotating.add(idx);
+
+    this.selected[idx].rotation =
+      ((this.selected[idx].rotation + delta) % 360 + 360) % 360;
+
+    const slots = this.computeSlots();
+
+    this.arrEntries.forEach((entry, i) => {
+      const { cx, cy, scale, effW, effH } = slots[i];
+      const top = cy - effH * scale / 2;
+      const xr  = cx + effW * scale / 2 - 9;
+      const yt  = top + 9;
+
+      // Rotate the target board; reposition all boards simultaneously
+      const targetAngle = i === idx
+        ? entry.img.angle + delta   // additive → always a 90° arc, no short-path ambiguity
+        : entry.img.angle;
+
+      this.tweens.killTweensOf(entry.img);
+      this.tweens.add({
+        targets:  entry.img,
+        angle:    targetAngle,
+        x:        cx,
+        scaleX:   scale,
+        scaleY:   scale,
+        duration: ROT_DURATION,
+        ease:     "Power2.Out",
+        onComplete: i === idx ? () => this.rotating.delete(idx) : undefined,
+      });
+
+      // Animate hint and close button to their new positions
+      this.tweens.killTweensOf(entry.hint);
+      this.tweens.add({
+        targets: entry.hint,
+        x: cx, y: top + effH * scale - 5,
+        duration: ROT_DURATION, ease: "Power2.Out",
+      });
+
+      this.tweens.killTweensOf(entry.closeBg);
+      this.tweens.killTweensOf(entry.closeTxt);
+      this.tweens.add({
+        targets:  [entry.closeBg, entry.closeTxt],
+        x: xr, y: yt,
+        duration: ROT_DURATION, ease: "Power2.Out",
+      });
+
+      // Snap zone immediately (invisible, no need to animate hit area)
+      entry.closeZone.setPosition(xr, yt);
+    });
+  }
+
+  // ── Layout ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Effective displayed dimensions of a board at a given rotation.
+   * At 90°/270° the board is in landscape, so w and h are swapped.
+   */
+  private effSize(key: string, rotation: number): { effW: number; effH: number } {
+    const d = BOARD_DIMS[key];
+    return rotation % 180 === 0
+      ? { effW: d.w, effH: d.h }
+      : { effW: d.h, effH: d.w };
   }
 
   /**
-   * Compute display rects for all selected boards, laid out side-by-side and
-   * scaled to fill the arrangement area height (clamped by available width).
+   * Compute a uniform scale that fits all selected boards side-by-side in the
+   * arrangement area, then return each board's center + scale.
    */
-  private arrBoardRects(): Array<{ x: number; bw: number; bh: number }> {
-    const n       = this.selected.length;
-    const maxH    = ARR_H - 20;
-    const aspectSum = this.selected.reduce((s, { key }) => {
-      const d = BOARD_DIMS[key];
-      return s + d.w / d.h;
-    }, 0);
+  private computeSlots(): BoardSlot[] {
+    const n = this.selected.length;
+    if (n === 0) return [];
 
-    const totalWAtMaxH = aspectSum * maxH + (n - 1) * BOARD_GAP;
-    const dispH = totalWAtMaxH <= CW
-      ? maxH
-      : (CW - (n - 1) * BOARD_GAP) / aspectSum;
+    const effSizes = this.selected.map(({ key, rotation }) => this.effSize(key, rotation));
 
-    const sizes   = this.selected.map(({ key }) => {
-      const d = BOARD_DIMS[key];
-      return { bw: Math.round(d.w / d.h * dispH), bh: Math.round(dispH) };
-    });
-    const totalW  = sizes.reduce((s, sz) => s + sz.bw, 0) + (n - 1) * BOARD_GAP;
-    const startX  = (CW - totalW) / 2;
-    const cy      = ARR_Y + ARR_H / 2;
+    // Largest effective height drives the height constraint
+    const maxEffH  = Math.max(...effSizes.map(e => e.effH));
+    const scaleByH = (ARR_H - 20) / maxEffH;
 
-    let curX = startX;
-    return sizes.map(({ bw, bh }) => {
-      const rect = { x: curX, bw, bh };
-      curX += bw + BOARD_GAP;
-      void cy;
-      return rect;
+    // Sum of effective widths drives the width constraint
+    const totalEffW = effSizes.reduce((s, e) => s + e.effW, 0);
+    const scaleByW  = (CW - (n - 1) * BOARD_GAP) / totalEffW;
+
+    const scale  = Math.min(scaleByH, scaleByW);
+    const totalW = totalEffW * scale + (n - 1) * BOARD_GAP;
+    const cy     = ARR_Y + ARR_H / 2;
+
+    let curX = (CW - totalW) / 2;
+    return effSizes.map(({ effW, effH }) => {
+      const cx = curX + effW * scale / 2;
+      curX += effW * scale + BOARD_GAP;
+      return { cx, cy, scale, effW, effH };
     });
   }
 
-  /** Return index of the arrangement board under (px, py), or -1. */
+  /** Return the arrangement index of the board at (px, py), or -1. */
   private arrBoardAt(px: number, py: number): number {
-    if (this.selected.length === 0) return -1;
-    const rects = this.arrBoardRects();
-    const cy    = ARR_Y + ARR_H / 2;
-    return rects.findIndex(({ x, bw, bh }) =>
-      px >= x && px < x + bw &&
-      py >= cy - bh / 2 && py < cy + bh / 2
-    );
+    return this.arrEntries.findIndex((entry, i) => {
+      const { key, rotation } = this.selected[i];
+      const { effW, effH } = this.effSize(key, rotation);
+      const s = entry.img.scaleX;
+      return (
+        Math.abs(px - entry.img.x) < (effW * s) / 2 &&
+        Math.abs(py - entry.img.y) < (effH * s) / 2
+      );
+    });
   }
 
   // ── Strip ──────────────────────────────────────────────────────────────────
@@ -235,10 +328,8 @@ export class SetupScene extends Phaser.Scene {
 
     const thumbCY = STRIP_Y + (STRIP_H - THUMB_LABEL_H) / 2;
 
-    this.thumbs = BOARDS.map((key) => {
+    this.thumbs = BOARDS.map(key => {
       const d      = BOARD_DIMS[key];
-      const aspect = d.w / d.h;
-      // Fit image inside THUMB_IMG_W × THUMB_IMG_H cell (letterbox)
       const scale  = Math.min(THUMB_IMG_W / d.w, THUMB_IMG_H / d.h);
 
       const border = this.add
@@ -247,9 +338,10 @@ export class SetupScene extends Phaser.Scene {
 
       const img = this.add.image(0, thumbCY, key).setScale(scale);
 
-      const name  = key.replace("board_", "");
       const label = this.add
-        .text(0, thumbCY + THUMB_IMG_H / 2 + 5, name, { fontSize: "11px", color: "#777" })
+        .text(0, thumbCY + THUMB_IMG_H / 2 + 5, key.replace("board_", ""), {
+          fontSize: "11px", color: "#777",
+        })
         .setOrigin(0.5, 0);
 
       const zone = this.add
@@ -260,7 +352,6 @@ export class SetupScene extends Phaser.Scene {
       zone.on("pointerout",  () => img.clearTint());
       zone.on("pointerup",   () => this.toggleBoard(key));
 
-      void aspect; // used only for doc purposes
       return { img, border, label, zone, key };
     });
 
@@ -268,8 +359,8 @@ export class SetupScene extends Phaser.Scene {
   }
 
   private refreshStripPositions() {
-    const totalW    = BOARDS.length * THUMB_CELL_W + STRIP_PAD_L;
-    const maxOffset = Math.max(0, totalW - CW);
+    const totalW     = BOARDS.length * THUMB_CELL_W + STRIP_PAD_L;
+    const maxOffset  = Math.max(0, totalW - CW);
     this.stripOffset = Phaser.Math.Clamp(this.stripOffset, 0, maxOffset);
 
     this.thumbs.forEach((t, i) => {
@@ -287,7 +378,7 @@ export class SetupScene extends Phaser.Scene {
     });
   }
 
-  // ── State helpers ──────────────────────────────────────────────────────────
+  // ── State ──────────────────────────────────────────────────────────────────
 
   private isSelected(key: string): boolean {
     return this.selected.some(b => b.key === key);
@@ -298,7 +389,7 @@ export class SetupScene extends Phaser.Scene {
     if (idx >= 0) {
       this.selected.splice(idx, 1);
     } else {
-      this.selected.push({ key, flipped: false });
+      this.selected.push({ key, rotation: 0 });
     }
     this.refreshArrangement();
     this.refreshStripBorders();
@@ -311,15 +402,13 @@ export class SetupScene extends Phaser.Scene {
       "wheel",
       (pointer: Phaser.Input.Pointer, _: unknown, _dx: number, dy: number) => {
         if (pointer.y >= STRIP_Y) {
-          // Scroll the selection strip left/right
           this.stripOffset += dy * 0.5;
           this.refreshStripPositions();
         } else if (pointer.y >= ARR_Y) {
-          // Flip the board under the cursor
           const idx = this.arrBoardAt(pointer.x, pointer.y);
           if (idx >= 0) {
-            this.selected[idx].flipped = !this.selected[idx].flipped;
-            this.refreshArrangement();
+            const delta = dy > 0 ? 90 : -90;
+            this.rotateBoard(idx, delta);
           }
         }
       },
