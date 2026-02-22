@@ -23,11 +23,11 @@ const BOARDS = Object.keys(BOARD_DIMS);
 // ── Fixed layout sizes (do not change with viewport) ───────────────────────────
 
 const TOPBAR_H      = 50;
-const STRIP_H       = 158;
-const THUMB_CELL_W  = 92;
-const THUMB_IMG_W   = 80;
-const THUMB_IMG_H   = 104;
-const THUMB_LABEL_H = 16;
+const STRIP_H       = 220;
+const THUMB_CELL_W  = 138;
+const THUMB_IMG_W   = 120;
+const THUMB_IMG_H   = 156;
+const THUMB_LABEL_H = 22;
 const STRIP_PAD_L   = 10;
 const ROT_DURATION  = 250;
 const HANDLE_OFFSET = 20;
@@ -474,7 +474,7 @@ export class SetupScene extends Phaser.Scene {
       const img   = this.add.image(0, thumbCY, key).setScale(scale);
       const label = this.add
         .text(0, thumbCY + THUMB_IMG_H / 2 + 5, key.replace("board_", ""), {
-          fontSize: "11px", color: "#777",
+          fontSize: "16px", color: "#777",
         }).setOrigin(0.5, 0);
       const zone = this.add
         .zone(0, thumbCY, THUMB_IMG_W, THUMB_IMG_H)
