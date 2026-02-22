@@ -37,7 +37,6 @@ All assets are already downloaded. Do not re-run the full pipeline unless `tts_m
 
 ### `assets/local/` (from VASSAL module v1.9.2, partially merged)
 Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml` piece definitions. Originally `assets/vassal/`; merge into `assets/` is in progress. Currently contains:
-- `char_*.png` — 40 character tokens (95×95 px)
 - `animal_*.png` — 9 animal tokens + dead variants
 - `activity_*.png` — 9 activity markers (aim, facing, load, move, etc.)
 - `state_*.png` — 4 state markers (down, passed_out, surrendered, dead)
@@ -47,7 +46,7 @@ Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml`
 - Player aid JPGs, Gunsmith tables, critters reference sheets
 - Some unmerged `*_custom_token.jpg/png` files
 
-Already moved to `assets/`: `result_card_NNN.png` (108 cards), `action_card_a{N}[_back].png`, `counter_b{N}[_*].png`, `splash_screen.png`.
+Already moved to `assets/`: `char_*.png` (48 character tokens, 95×95 px), `result_card_NNN.png` (108 cards), `action_card_a{N}[_back].png`, `counter_b{N}[_*].png`, `splash_screen.png`.
 
 **Note on transparency**: VASSAL GIFs were converted to PNG. Source images have binary transparency ([0, 255] alpha only — no anti-aliasing). Smooth edges would require post-processing the alpha channel.
 
@@ -61,7 +60,16 @@ Already moved to `assets/`: `result_card_NNN.png` (108 cards), `action_card_a{N}
 
 ## TODO
 
-- **Finish merging asset sources**: `assets/local/` still contains chars, animals, activity markers, states, objects, legend sheets, and some unmatched `*_custom_token` files. Consolidate remaining files into `assets/` and remove `assets/local/`. Prefer the higher-resolution source per image type.
+- **Finish merging asset sources**: `assets/local/` still contains animals, activity markers, states, objects, legend sheets, and some unmatched `*_custom_token` files. Consolidate remaining files into `assets/` and remove `assets/local/`. Prefer the higher-resolution source per image type.
+
+## Setup Flow (client scenes)
+
+`LobbyScene` → `SetupScene` (board selection) → `TokenPlacementScene` (character placement) → `MatchmakingScene` → `GameScene`
+
+- **SetupScene**: Select and arrange board tiles into a composite map. Boards snap to adjacent edges. Scroll wheel rotates boards. Supports back-navigation from TokenPlacementScene (restores board state via `init(data)`).
+- **TokenPlacementScene**: Place character tokens on the board composite. Click a character in the bottom strip to select it (appears as a cursor-following sprite), then click on a board to place. Scroll wheel rotates the pending token in 60° increments (hex facings) with animated tweens. Requires ≥2 tokens to proceed. Back returns to SetupScene preserving boards.
+
+Both scenes use the `buildAll()` + resize-handler pattern for responsive layout (top bar, arrangement area, bottom strip).
 
 ## Key Design Reference
 
