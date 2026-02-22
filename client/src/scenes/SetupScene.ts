@@ -77,6 +77,14 @@ export class SetupScene extends Phaser.Scene {
   private get stripY() { return this.ch - STRIP_H; }
   private get arrH()   { return this.ch - TOPBAR_H - STRIP_H; }
 
+  // ── Init (restore state when navigating back) ─────────────────────────────
+
+  private initData?: { boards?: PlacedBoard[] };
+
+  init(data?: { boards?: PlacedBoard[] }) {
+    this.initData = data;
+  }
+
   // ── Preload ────────────────────────────────────────────────────────────────
 
   preload() {
@@ -101,8 +109,14 @@ export class SetupScene extends Phaser.Scene {
   // ── Create ─────────────────────────────────────────────────────────────────
 
   create() {
-    this.placed          = [];
-    this.nextId          = 0;
+    if (this.initData?.boards) {
+      this.placed = this.initData.boards;
+      this.nextId = this.placed.reduce((max, b) => Math.max(max, b.id + 1), 0);
+    } else {
+      this.placed = [];
+      this.nextId = 0;
+    }
+    this.initData        = undefined;
     this.pendingKey      = null;
     this.pendingRotation = 0;
     this.rotating.clear();
@@ -167,7 +181,7 @@ export class SetupScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     this.nextBtn.on("pointerup", () => {
       if (this.placed.length > 0)
-        this.scene.start("MatchmakingScene", { boards: this.placed });
+        this.scene.start("TokenPlacementScene", { boards: this.placed });
     });
   }
 
