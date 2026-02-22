@@ -18,7 +18,8 @@ const BOARD_DIMS: Record<string, Dims> = {
   board_UFDD: { w: 1280, h: 1286 },
 };
 
-const BOARDS = Object.keys(BOARD_DIMS);
+/** Upper-floor boards (UF*) are overlays for specific boards, not selectable. */
+const BOARDS = Object.keys(BOARD_DIMS).filter(k => !k.includes("_UF"));
 
 // ── Fixed layout sizes (do not change with viewport) ───────────────────────────
 
