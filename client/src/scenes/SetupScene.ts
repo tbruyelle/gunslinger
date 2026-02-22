@@ -267,7 +267,6 @@ export class SetupScene extends Phaser.Scene {
     this.placeholder.setVisible(n === 0 && !hasPending);
     this.nextBtn.setColor(n > 0 ? "#d4a044" : "#555");
 
-    if (n === 0 && hasPending) { this.drawFirstBoardPreview(); return; }
     if (n === 0) return;
 
     const { scale, ox, oy } = this.displayTransform();
@@ -297,39 +296,6 @@ export class SetupScene extends Phaser.Scene {
     }
 
     if (hasPending) this.drawHandles(scale, ox, oy);
-  }
-
-  private drawFirstBoardPreview() {
-    const key = this.pendingKey!;
-    const { effW, effH } = this.effSize(key, this.pendingRotation);
-    const previewScale = Math.min((this.arrH - 60) / effH, (this.cw - 60) / effW);
-    const cx = this.cw / 2;
-    const cy = TOPBAR_H + this.arrH / 2;
-
-    const img = this.add.image(cx, cy, key)
-      .setScale(previewScale)
-      .setAngle(this.pendingRotation)
-      .setAlpha(0.6);
-
-    const label = this.add.text(cx, cy + effH * previewScale / 2 + 14,
-      "Click to place  ·  scroll to rotate", {
-        fontSize: "14px", color: "#d4a044",
-      }).setOrigin(0.5);
-
-    const zone = this.add
-      .zone(cx, cy, effW * previewScale, effH * previewScale)
-      .setInteractive({ useHandCursor: true });
-    zone.on("pointerup", () => {
-      this.placed.push({
-        id: this.nextId++, key, rotation: this.pendingRotation, lx: 0, ly: 0,
-      });
-      this.pendingKey = null;
-      this.pendingRotation = 0;
-      this.refreshDisplay();
-      this.refreshStripBorders();
-    });
-
-    this.dynObjects.push(img, label, zone);
   }
 
   private drawHandles(scale: number, ox: number, oy: number) {
@@ -513,6 +479,16 @@ export class SetupScene extends Phaser.Scene {
   }
 
   private selectPending(key: string) {
+    // First board: place immediately at origin, no pending step needed
+    if (this.placed.length === 0) {
+      this.placed.push({ id: this.nextId++, key, rotation: 0, lx: 0, ly: 0 });
+      this.pendingKey = null;
+      this.pendingRotation = 0;
+      this.refreshDisplay();
+      this.refreshStripBorders();
+      return;
+    }
+
     if (this.pendingKey === key) {
       this.pendingKey = null;
     } else {
