@@ -321,7 +321,7 @@ export class TokenPlacementScene extends Phaser.Scene {
       const label = this.add
         .text(0, thumbCY + THUMB_IMG_SZ / 2 + 4,
           ch.replace(/_/g, " "), {
-            fontSize: "10px", color: "#777",
+            fontSize: "13px", color: "#c4935a",
           }).setOrigin(0.5, 0);
       const zone = this.add
         .zone(0, thumbCY, THUMB_IMG_SZ, THUMB_IMG_SZ)
