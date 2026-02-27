@@ -78,6 +78,7 @@ export class TokenPlacementScene extends Phaser.Scene {
   private pendingChar:  string | null = null;
   private pendingAngle  = 0;
   private rawAngle      = 0;   // unwrapped accumulator for smooth tweening
+  private lastRotTime   = 0;   // timestamp of last rotation (cooldown debounce)
   private stripOffset   = 0;
 
   // Zoom & pan state (preserved across resize, reset on init)
@@ -419,6 +420,7 @@ export class TokenPlacementScene extends Phaser.Scene {
       this.pendingChar = ch;
       this.pendingAngle = 0;
       this.rawAngle = 0;
+      this.lastRotTime = 0;
     }
     this.refreshStripBorders();
     this.updateCursorSprite();
@@ -466,18 +468,16 @@ export class TokenPlacementScene extends Phaser.Scene {
 
         // Arrangement area
         if (pointer.y > TOPBAR_H) {
-          // Rotate token if one is pending
+          // Rotate token if one is pending (cooldown debounce, snap)
           if (this.cursorSprite && this.pendingChar) {
-            const delta = dy > 0 ? 60 : -60;
-            this.rawAngle += delta;
+            const now = performance.now();
+            const ROT_COOLDOWN = 250;
+            if (now - this.lastRotTime < ROT_COOLDOWN) return;
+            this.lastRotTime = now;
+            const dir = dy > 0 ? 1 : -1;
+            this.rawAngle += dir * 60;
             this.pendingAngle = ((this.rawAngle % 360) + 360) % 360;
-            this.tweens.killTweensOf(this.cursorSprite);
-            this.tweens.add({
-              targets: this.cursorSprite,
-              angle: this.rawAngle,
-              duration: 150,
-              ease: "Power2.Out",
-            });
+            this.cursorSprite.setAngle(this.pendingAngle);
             return;
           }
 
@@ -562,6 +562,7 @@ export class TokenPlacementScene extends Phaser.Scene {
       this.pendingChar  = null;
       this.pendingAngle = 0;
       this.rawAngle     = 0;
+      this.lastRotTime  = 0;
       this.updateCursorSprite();
       this.refreshTokenDisplay();
       this.refreshStripBorders();
