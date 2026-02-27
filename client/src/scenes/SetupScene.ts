@@ -59,11 +59,13 @@ export class SetupScene extends Phaser.Scene {
   private pendingKey:      string | null = null;
   private pendingRotation  = 0;
   private rotating         = new Set<number>();
+  private rotatingPending  = false;
   private stripOffset      = 0;
 
   // Display objects (rebuilt on resize / state change)
   private placedEntries:   PlacedEntry[] = [];
   private dynObjects:      Phaser.GameObjects.GameObject[] = [];
+  private pendingImg:      Phaser.GameObjects.Image | null = null;
   private thumbs:          ThumbItem[] = [];
   private placeholder!:    Phaser.GameObjects.Text;
   private nextBtn!:        Phaser.GameObjects.Text;
@@ -76,6 +78,12 @@ export class SetupScene extends Phaser.Scene {
   private get ch()     { return this.scale.height; }
   private get stripY() { return this.ch - STRIP_H; }
   private get arrH()   { return this.ch - TOPBAR_H - STRIP_H; }
+
+  /** Orientation locked by the first placed board (null if no boards yet). */
+  private get lockedOrientation(): "portrait" | "landscape" | null {
+    if (this.placed.length === 0) return null;
+    return this.placed[0].rotation % 180 === 0 ? "portrait" : "landscape";
+  }
 
   // ── Init (restore state when navigating back) ─────────────────────────────
 
@@ -120,6 +128,7 @@ export class SetupScene extends Phaser.Scene {
     this.pendingKey      = null;
     this.pendingRotation = 0;
     this.rotating.clear();
+    this.rotatingPending = false;
     this.stripOffset     = 0;
 
     this.buildAll();
@@ -136,8 +145,10 @@ export class SetupScene extends Phaser.Scene {
     this.tweens.killAll();
     this.placedEntries = [];
     this.dynObjects    = [];
+    this.pendingImg    = null;
     this.thumbs        = [];
     this.rotating.clear();
+    this.rotatingPending = false;
 
     const w = this.cw, h = this.ch;
 
@@ -295,7 +306,12 @@ export class SetupScene extends Phaser.Scene {
     this.placeholder.setVisible(n === 0 && !hasPending);
     this.nextBtn.setColor(n > 0 ? "#d4a044" : "#555");
 
-    if (n === 0) return;
+    if (n === 0 && !hasPending) return;
+
+    if (n === 0 && hasPending) {
+      this.drawFirstBoardPreview();
+      return;
+    }
 
     const { scale, ox, oy } = this.displayTransform();
 
@@ -398,7 +414,54 @@ export class SetupScene extends Phaser.Scene {
     }
   }
 
+  /** Show the first board centered, rotatable by 90°, click to confirm. */
+  private drawFirstBoardPreview() {
+    const key = this.pendingKey!;
+    const { effW, effH } = this.effSize(key, this.pendingRotation);
+
+    const pad = 60;
+    const scale = Math.min((this.arrH - pad) / effH, (this.cw - pad) / effW);
+    const cx = this.cw / 2;
+    const cy = TOPBAR_H + this.arrH / 2;
+
+    const img = this.add.image(cx, cy, key)
+      .setScale(scale)
+      .setAngle(this.pendingRotation);
+    this.pendingImg = img;
+
+    const g = this.add.graphics();
+    g.lineStyle(2, 0xd4a044, 0.5);
+    g.strokeRect(cx - effW * scale / 2, cy - effH * scale / 2, effW * scale, effH * scale);
+
+    const zone = this.add.zone(cx, cy, effW * scale, effH * scale)
+      .setInteractive({ useHandCursor: true });
+    zone.on("pointerup", () => this.placeFirstBoard());
+
+    const name = key.replace("board_", "");
+    const hint = this.add.text(this.cw / 2, this.stripY - 18,
+      `Board ${name}  ·  ${this.pendingRotation}°  ·  scroll to rotate  ·  click to place`, {
+        fontSize: "11px", color: "#777",
+      }).setOrigin(0.5, 1);
+
+    this.dynObjects.push(img, g, zone, hint);
+  }
+
   // ── Actions ────────────────────────────────────────────────────────────────
+
+  private placeFirstBoard() {
+    if (!this.pendingKey || this.placed.length > 0) return;
+    this.placed.push({
+      id: this.nextId++,
+      key: this.pendingKey,
+      rotation: this.pendingRotation,
+      lx: 0,
+      ly: 0,
+    });
+    this.pendingKey = null;
+    this.pendingRotation = 0;
+    this.refreshDisplay();
+    this.refreshStripBorders();
+  }
 
   private placeBoard(slot: Slot) {
     if (!this.pendingKey) return;
@@ -507,21 +570,12 @@ export class SetupScene extends Phaser.Scene {
   }
 
   private selectPending(key: string) {
-    // First board: place immediately at origin, no pending step needed
-    if (this.placed.length === 0) {
-      this.placed.push({ id: this.nextId++, key, rotation: 0, lx: 0, ly: 0 });
-      this.pendingKey = null;
-      this.pendingRotation = 0;
-      this.refreshDisplay();
-      this.refreshStripBorders();
-      return;
-    }
-
     if (this.pendingKey === key) {
       this.pendingKey = null;
     } else {
       this.pendingKey = key;
-      this.pendingRotation = 0;
+      // Match locked orientation for subsequent boards; free for the first
+      this.pendingRotation = this.lockedOrientation === "landscape" ? 90 : 0;
     }
     this.refreshDisplay();
     this.refreshStripBorders();
@@ -540,18 +594,35 @@ export class SetupScene extends Phaser.Scene {
         }
         if (pointer.y < TOPBAR_H) return;
 
-        const delta = dy > 0 ? 90 : -90;
-
         const boardId = this.placedBoardAt(pointer.x, pointer.y);
         if (boardId >= 0) {
-          const placedDelta = delta > 0 ? 180 : -180;
+          const placedDelta = dy > 0 ? 180 : -180;
           this.rotatePlacedBoard(boardId, placedDelta);
           return;
         }
 
         if (this.pendingKey) {
+          // First board: 90° steps (choose portrait/landscape); after that: 180° only
+          const step = this.placed.length === 0 ? 90 : 180;
+          const delta = dy > 0 ? step : -step;
           this.pendingRotation = ((this.pendingRotation + delta) % 360 + 360) % 360;
-          this.refreshDisplay();
+
+          // Animate the first-board preview image if available
+          if (this.pendingImg && !this.rotatingPending) {
+            this.rotatingPending = true;
+            this.tweens.add({
+              targets: this.pendingImg,
+              angle: this.pendingImg.angle + delta,
+              duration: ROT_DURATION,
+              ease: "Power2.Out",
+              onComplete: () => {
+                this.rotatingPending = false;
+                this.refreshDisplay();
+              },
+            });
+          } else {
+            this.refreshDisplay();
+          }
         }
       },
     );
