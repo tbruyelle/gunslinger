@@ -86,6 +86,9 @@ export class TokenPlacementScene extends Phaser.Scene {
   private stripOffset   = 0;
   private hexGrid:      HexGridData | null = null;
   private snapTarget:   { lx: number; ly: number; hexId: string } | null = null;
+  private cursorTargetX = 0;              // screen-space lerp target
+  private cursorTargetY = 0;
+  private cursorSnapped = false;          // true when lerping to a hex center
 
   // Zoom & pan state (preserved across resize, reset on init)
   private zoom          = 1;
@@ -163,23 +166,32 @@ export class TokenPlacementScene extends Phaser.Scene {
   // ── Update (smooth rotation lerp) ──────────────────────────────────────
 
   update(_time: number, delta: number) {
-    if (!this.cursorSprite || this.visualAngle === this.pendingAngle) return;
-
-    // Shortest-path delta across the 0/360 boundary
-    let diff = this.pendingAngle - this.visualAngle;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
+    if (!this.cursorSprite) return;
 
     const t = Math.min(1, 15 * delta / 1000);
-    this.visualAngle += diff * t;
 
-    // Snap when close enough
-    if (Math.abs(diff) * (1 - t) < 0.5) {
-      this.visualAngle = this.pendingAngle;
+    // Lerp rotation
+    if (this.visualAngle !== this.pendingAngle) {
+      let diff = this.pendingAngle - this.visualAngle;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      this.visualAngle += diff * t;
+      if (Math.abs(diff) * (1 - t) < 0.5) this.visualAngle = this.pendingAngle;
+      this.visualAngle = ((this.visualAngle % 360) + 360) % 360;
+      this.cursorSprite.setAngle(this.visualAngle);
     }
 
-    this.visualAngle = ((this.visualAngle % 360) + 360) % 360;
-    this.cursorSprite.setAngle(this.visualAngle);
+    // Lerp position toward snap target
+    if (this.cursorSnapped) {
+      const dx = this.cursorTargetX - this.cursorSprite.x;
+      const dy = this.cursorTargetY - this.cursorSprite.y;
+      if (dx * dx + dy * dy < 0.25) {
+        this.cursorSprite.setPosition(this.cursorTargetX, this.cursorTargetY);
+      } else {
+        this.cursorSprite.x += dx * t;
+        this.cursorSprite.y += dy * t;
+      }
+    }
   }
 
   // ── Create ──────────────────────────────────────────────────────────────
@@ -591,12 +603,12 @@ export class TokenPlacementScene extends Phaser.Scene {
         if (snap) {
           this.snapTarget = snap;
           const { scale, ox, oy } = this.displayTransform();
-          this.cursorSprite.setPosition(
-            ox + snap.lx * scale,
-            oy + snap.ly * scale,
-          );
+          this.cursorTargetX = ox + snap.lx * scale;
+          this.cursorTargetY = oy + snap.ly * scale;
+          this.cursorSnapped = true;
         } else {
           this.snapTarget = null;
+          this.cursorSnapped = false;
           this.cursorSprite.setPosition(pointer.x, pointer.y);
         }
       }
