@@ -40,6 +40,10 @@ const THUMB_IMG_SZ = 70;
 const STRIP_PAD_L  = 10;
 const TOKEN_SIZE   = 40;
 const CLOSE_R      = 8;
+const MIN_ZOOM     = 1;
+const MAX_ZOOM     = 5;
+const ZOOM_FACTOR  = 0.12;
+const DRAG_THRESHOLD = 4;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -76,12 +80,25 @@ export class TokenPlacementScene extends Phaser.Scene {
   private rawAngle      = 0;   // unwrapped accumulator for smooth tweening
   private stripOffset   = 0;
 
+  // Zoom & pan state (preserved across resize, reset on init)
+  private zoom          = 1;
+  private panX          = 0;
+  private panY          = 0;
+  private isDragging    = false;
+  private dragStartX    = 0;
+  private dragStartY    = 0;
+  private panStartX     = 0;
+  private panStartY     = 0;
+
   // Display objects
   private tokenEntries: TokenEntry[] = [];
+  private boardImages:  Phaser.GameObjects.Image[] = [];
   private thumbs:       ThumbItem[] = [];
   private placeholder!: Phaser.GameObjects.Text;
   private nextBtn!:     Phaser.GameObjects.Text;
   private cursorSprite: Phaser.GameObjects.Image | null = null;
+  private arrMask!:     Phaser.Display.Masks.GeometryMask;
+  private arrMaskGfx!:  Phaser.GameObjects.Graphics;
 
   constructor() { super({ key: "TokenPlacementScene" }); }
 
@@ -100,6 +117,9 @@ export class TokenPlacementScene extends Phaser.Scene {
     this.nextId      = data.nextTokenId ?? 0;
     this.pendingChar = null;
     this.stripOffset = 0;
+    this.zoom        = 1;
+    this.panX        = 0;
+    this.panY        = 0;
   }
 
   // ── Preload ─────────────────────────────────────────────────────────────
@@ -146,6 +166,7 @@ export class TokenPlacementScene extends Phaser.Scene {
   private buildAll() {
     this.children.removeAll(true);
     this.tokenEntries = [];
+    this.boardImages  = [];
     this.thumbs       = [];
 
     const w = this.cw, h = this.ch;
@@ -154,6 +175,12 @@ export class TokenPlacementScene extends Phaser.Scene {
     this.add.rectangle(0, 0,               w, h,         0x1a1008).setOrigin(0);
     this.add.rectangle(0, TOPBAR_H,        w, this.arrH, 0x120b04).setOrigin(0);
     this.add.rectangle(0, this.stripY - 2, w, 2,         0x3a2510).setOrigin(0);
+
+    // Clip mask for arrangement area (prevents boards/tokens from overlapping strip/topbar)
+    if (this.arrMaskGfx) this.arrMaskGfx.destroy();
+    this.arrMaskGfx = this.make.graphics();
+    this.arrMaskGfx.fillRect(0, TOPBAR_H, w, this.arrH);
+    this.arrMask = this.arrMaskGfx.createGeometryMask();
 
     this.placeholder = this.add
       .text(w / 2, TOPBAR_H + this.arrH / 2,
@@ -179,7 +206,7 @@ export class TokenPlacementScene extends Phaser.Scene {
     return rot % 180 === 0 ? { effW: d.w, effH: d.h } : { effW: d.h, effH: d.w };
   }
 
-  private displayTransform(): { scale: number; ox: number; oy: number } {
+  private baseTransform(): { scale: number; ox: number; oy: number } {
     if (this.boards.length === 0)
       return { scale: 1, ox: this.cw / 2, oy: TOPBAR_H + this.arrH / 2 };
 
@@ -200,9 +227,23 @@ export class TokenPlacementScene extends Phaser.Scene {
     return { scale, ox, oy };
   }
 
+  private displayTransform(): { scale: number; ox: number; oy: number } {
+    const base = this.baseTransform();
+    const cx = this.cw / 2;
+    const cy = TOPBAR_H + this.arrH / 2;
+    return {
+      scale: base.scale * this.zoom,
+      ox:    cx + (base.ox - cx) * this.zoom + this.panX,
+      oy:    cy + (base.oy - cy) * this.zoom + this.panY,
+    };
+  }
+
   // ── Board display (static, no interaction) ──────────────────────────────
 
   private buildBoardDisplay() {
+    this.boardImages.forEach(img => img.destroy());
+    this.boardImages = [];
+
     if (this.boards.length === 0) return;
 
     const { scale, ox, oy } = this.displayTransform();
@@ -211,8 +252,17 @@ export class TokenPlacementScene extends Phaser.Scene {
       const { effW, effH } = this.effSize(b.key, b.rotation);
       const cx = ox + (b.lx + effW / 2) * scale;
       const cy = oy + (b.ly + effH / 2) * scale;
-      this.add.image(cx, cy, b.key).setScale(scale).setAngle(b.rotation);
+      const img = this.add.image(cx, cy, b.key).setScale(scale).setAngle(b.rotation);
+      img.setMask(this.arrMask);
+      this.boardImages.push(img);
     }
+  }
+
+  /** Lightweight refresh: rebuilds boards + tokens + cursor without full buildAll */
+  private refreshView() {
+    this.buildBoardDisplay();
+    this.refreshTokenDisplay();
+    this.updateCursorSprite();
   }
 
   // ── Token display ─────────────────────────────────────────────────────
@@ -239,16 +289,20 @@ export class TokenPlacementScene extends Phaser.Scene {
       const img = this.add.image(sx, sy, `char_${t.charKey}`)
         .setScale(tokenScale)
         .setAngle(t.angle)
-        .setOrigin(0.5);
+        .setOrigin(0.5)
+        .setMask(this.arrMask);
 
       const hw = (95 * tokenScale) / 2;
-      const xr = sx + hw - 3;
-      const yt = sy - hw + 3;
-      const closeBg  = this.add.circle(xr, yt, CLOSE_R, 0x550000, 0.9);
+      const xr = sx + hw * 0.75;
+      const yt = sy - hw * 0.75;
+      const closeR = CLOSE_R * this.zoom;
+      const closeBg  = this.add.circle(xr, yt, closeR, 0x550000, 0.9).setMask(this.arrMask);
+      const closeFontSize = Math.round(12 * this.zoom);
       const closeTxt = this.add.text(xr, yt, "×", {
-        fontSize: "12px", color: "#fff", fontStyle: "bold",
-      }).setOrigin(0.5);
-      const closeZone = this.add.zone(xr, yt, 20, 20).setInteractive({ useHandCursor: true });
+        fontSize: `${closeFontSize}px`, color: "#fff", fontStyle: "bold",
+      }).setOrigin(0.5).setMask(this.arrMask);
+      const zoneSize = 20 * this.zoom;
+      const closeZone = this.add.zone(xr, yt, zoneSize, zoneSize).setInteractive({ useHandCursor: true });
 
       const tokenId = t.id;
       closeZone.on("pointerup", () => {
@@ -399,36 +453,99 @@ export class TokenPlacementScene extends Phaser.Scene {
   // ── Input ─────────────────────────────────────────────────────────────
 
   private setupInput() {
+    // ── Wheel: rotate token (if pending) or zoom ──────────────────────
     this.input.on(
       "wheel",
       (pointer: Phaser.Input.Pointer, _: unknown, _dx: number, dy: number) => {
+        // Strip scrolling
         if (pointer.y >= this.stripY) {
           this.stripOffset += dy * 0.5;
           this.refreshStripPositions();
           return;
         }
-        if (this.cursorSprite && this.pendingChar && pointer.y > TOPBAR_H) {
-          const delta = dy > 0 ? 60 : -60;
-          this.rawAngle += delta;
-          this.pendingAngle = ((this.rawAngle % 360) + 360) % 360;
-          this.tweens.killTweensOf(this.cursorSprite);
-          this.tweens.add({
-            targets: this.cursorSprite,
-            angle: this.rawAngle,
-            duration: 150,
-            ease: "Power2.Out",
-          });
+
+        // Arrangement area
+        if (pointer.y > TOPBAR_H) {
+          // Rotate token if one is pending
+          if (this.cursorSprite && this.pendingChar) {
+            const delta = dy > 0 ? 60 : -60;
+            this.rawAngle += delta;
+            this.pendingAngle = ((this.rawAngle % 360) + 360) % 360;
+            this.tweens.killTweensOf(this.cursorSprite);
+            this.tweens.add({
+              targets: this.cursorSprite,
+              angle: this.rawAngle,
+              duration: 150,
+              ease: "Power2.Out",
+            });
+            return;
+          }
+
+          // Zoom (pointer-centered)
+          const dir = dy > 0 ? -1 : 1;
+          const oldZoom = this.zoom;
+          this.zoom = Phaser.Math.Clamp(
+            this.zoom * (1 + dir * ZOOM_FACTOR),
+            MIN_ZOOM,
+            MAX_ZOOM,
+          );
+          const actualFactor = this.zoom / oldZoom;
+
+          const cx = this.cw / 2;
+          const cy = TOPBAR_H + this.arrH / 2;
+          if (this.zoom <= MIN_ZOOM) {
+            this.panX = 0;
+            this.panY = 0;
+          } else {
+            this.panX = (pointer.x - cx - this.panX) * (1 - actualFactor) + this.panX;
+            this.panY = (pointer.y - cy - this.panY) * (1 - actualFactor) + this.panY;
+          }
+
+          this.refreshView();
         }
       },
     );
 
+    // ── Pointer move: cursor sprite + drag pan ────────────────────────
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       if (this.cursorSprite) {
         this.cursorSprite.setPosition(pointer.x, pointer.y);
       }
+
+      // Drag-pan while left button held in arrangement area (only when zoomed in)
+      if (this.zoom > MIN_ZOOM && pointer.isDown && pointer.y > TOPBAR_H && pointer.y < this.stripY) {
+        const dx = pointer.x - this.dragStartX;
+        const dy = pointer.y - this.dragStartY;
+        if (!this.isDragging &&
+          Math.abs(dx) + Math.abs(dy) > DRAG_THRESHOLD) {
+          this.isDragging = true;
+        }
+        if (this.isDragging) {
+          this.panX = this.panStartX + dx;
+          this.panY = this.panStartY + dy;
+          this.refreshView();
+        }
+      }
     });
 
+    // ── Pointer down: record drag start ───────────────────────────────
+    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.y > TOPBAR_H && pointer.y < this.stripY) {
+        this.dragStartX = pointer.x;
+        this.dragStartY = pointer.y;
+        this.panStartX  = this.panX;
+        this.panStartY  = this.panY;
+        this.isDragging  = false;
+      }
+    });
+
+    // ── Pointer up: place token (if click, not drag) ──────────────────
     this.input.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+      if (this.isDragging) {
+        this.isDragging = false;
+        return;
+      }
+
       if (!this.pendingChar) return;
       if (pointer.y < TOPBAR_H || pointer.y >= this.stripY) return;
 
