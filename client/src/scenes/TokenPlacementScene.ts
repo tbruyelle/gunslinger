@@ -52,7 +52,10 @@ interface PlacedBoard {
 }
 interface PlacedToken {
   id: number; charKey: string; lx: number; ly: number; angle: number;
+  hexId?: string;
 }
+interface HexPoint { id: string; x: number; y: number }
+interface HexGridData { boards: Record<string, { hexes: HexPoint[] }> }
 interface TokenEntry {
   id: number;
   img: Phaser.GameObjects.Image;
@@ -81,6 +84,8 @@ export class TokenPlacementScene extends Phaser.Scene {
   private rawAngle      = 0;
   private lastRotTime   = 0;   // timestamp of last rotation (cooldown debounce)
   private stripOffset   = 0;
+  private hexGrid:      HexGridData | null = null;
+  private snapTarget:   { lx: number; ly: number; hexId: string } | null = null;
 
   // Zoom & pan state (preserved across resize, reset on init)
   private zoom          = 1;
@@ -127,6 +132,10 @@ export class TokenPlacementScene extends Phaser.Scene {
   // ── Preload ─────────────────────────────────────────────────────────────
 
   preload() {
+    if (!this.cache.json.has("hex_grid")) {
+      this.load.json("hex_grid", "hex_grid.json");
+    }
+
     let count = 0;
     for (const ch of CHARACTERS) {
       const key = `char_${ch}`;
@@ -176,6 +185,9 @@ export class TokenPlacementScene extends Phaser.Scene {
   // ── Create ──────────────────────────────────────────────────────────────
 
   create() {
+    if (!this.hexGrid) {
+      this.hexGrid = this.cache.json.get("hex_grid") as HexGridData;
+    }
     this.buildAll();
     this.setupInput();
 
@@ -228,6 +240,44 @@ export class TokenPlacementScene extends Phaser.Scene {
   private effSize(key: string, rot: number): { effW: number; effH: number } {
     const d = BOARD_DIMS[key];
     return rot % 180 === 0 ? { effW: d.w, effH: d.h } : { effW: d.h, effH: d.w };
+  }
+
+  /** Convert layout coords to board-local (unrotated image) coords */
+  private layoutToBoardLocal(b: PlacedBoard, lx: number, ly: number): { hx: number; hy: number } {
+    const d = BOARD_DIMS[b.key];
+    const w = d.w, h = d.h;
+    switch (b.rotation) {
+      case 90:  return { hx: b.ly + w - ly, hy: lx - b.lx };
+      case 180: return { hx: b.lx + w - lx, hy: b.ly + h - ly };
+      case 270: return { hx: ly - b.ly,      hy: b.lx + h - lx };
+      default:  return { hx: lx - b.lx,      hy: ly - b.ly };
+    }
+  }
+
+  /** Convert board-local (unrotated image) coords to layout coords */
+  private boardLocalToLayout(b: PlacedBoard, hx: number, hy: number): { lx: number; ly: number } {
+    const d = BOARD_DIMS[b.key];
+    const w = d.w, h = d.h;
+    switch (b.rotation) {
+      case 90:  return { lx: b.lx + hy,      ly: b.ly + w - hx };
+      case 180: return { lx: b.lx + w - hx,  ly: b.ly + h - hy };
+      case 270: return { lx: b.lx + h - hy,  ly: b.ly + hx };
+      default:  return { lx: b.lx + hx,      ly: b.ly + hy };
+    }
+  }
+
+  /** Brute-force nearest hex center on a given board */
+  private findNearestHex(boardKey: string, hx: number, hy: number): HexPoint | null {
+    const entry = this.hexGrid?.boards[boardKey];
+    if (!entry) return null;
+    let best: HexPoint | null = null;
+    let bestDist = Infinity;
+    for (const hex of entry.hexes) {
+      const dx = hex.x - hx, dy = hex.y - hy;
+      const dist = dx * dx + dy * dy;
+      if (dist < bestDist) { bestDist = dist; best = hex; }
+    }
+    return best;
   }
 
   private baseTransform(): { scale: number; ox: number; oy: number } {
@@ -341,7 +391,8 @@ export class TokenPlacementScene extends Phaser.Scene {
 
   // ── Hit-test: is a screen point inside any board? ─────────────────────
 
-  private screenToLayout(sx: number, sy: number): { lx: number; ly: number } | null {
+  /** Hit-test screen point against boards, snap to nearest hex center */
+  private screenToHex(sx: number, sy: number): { lx: number; ly: number; hexId: string } | null {
     if (this.boards.length === 0) return null;
     const { scale, ox, oy } = this.displayTransform();
     const lx = (sx - ox) / scale;
@@ -350,7 +401,11 @@ export class TokenPlacementScene extends Phaser.Scene {
     for (const b of this.boards) {
       const { effW, effH } = this.effSize(b.key, b.rotation);
       if (lx >= b.lx && lx < b.lx + effW && ly >= b.ly && ly < b.ly + effH) {
-        return { lx, ly };
+        const { hx, hy } = this.layoutToBoardLocal(b, lx, ly);
+        const hex = this.findNearestHex(b.key, hx, hy);
+        if (!hex) return null;
+        const snapped = this.boardLocalToLayout(b, hex.x, hex.y);
+        return { lx: snapped.lx, ly: snapped.ly, hexId: hex.id };
       }
     }
     return null;
@@ -532,7 +587,18 @@ export class TokenPlacementScene extends Phaser.Scene {
     // ── Pointer move: cursor sprite + drag pan ────────────────────────
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       if (this.cursorSprite) {
-        this.cursorSprite.setPosition(pointer.x, pointer.y);
+        const snap = this.screenToHex(pointer.x, pointer.y);
+        if (snap) {
+          this.snapTarget = snap;
+          const { scale, ox, oy } = this.displayTransform();
+          this.cursorSprite.setPosition(
+            ox + snap.lx * scale,
+            oy + snap.ly * scale,
+          );
+        } else {
+          this.snapTarget = null;
+          this.cursorSprite.setPosition(pointer.x, pointer.y);
+        }
       }
 
       // Drag-pan while left button held in arrangement area (only when zoomed in)
@@ -572,8 +638,11 @@ export class TokenPlacementScene extends Phaser.Scene {
       if (!this.pendingChar) return;
       if (pointer.y < TOPBAR_H || pointer.y >= this.stripY) return;
 
-      const hit = this.screenToLayout(pointer.x, pointer.y);
+      const hit = this.screenToHex(pointer.x, pointer.y);
       if (!hit) return;
+
+      // Block duplicate hex placement
+      if (this.placed.some(p => p.hexId === hit.hexId)) return;
 
       this.placed.push({
         id: this.nextId++,
@@ -581,6 +650,7 @@ export class TokenPlacementScene extends Phaser.Scene {
         lx: hit.lx,
         ly: hit.ly,
         angle: this.pendingAngle,
+        hexId: hit.hexId,
       });
       this.pendingChar  = null;
       this.pendingAngle = 0;
