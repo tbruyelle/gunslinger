@@ -230,7 +230,7 @@ export class TokenPlacementScene extends Phaser.Scene {
     if (n === 0) return;
 
     const { scale, ox, oy } = this.displayTransform();
-    const tokenScale = Math.min(scale * 2.5, 0.6);
+    const tokenScale = scale * 1.7;
 
     for (const t of this.placed) {
       const sx = ox + t.lx * scale;
@@ -384,7 +384,7 @@ export class TokenPlacementScene extends Phaser.Scene {
     this.input.setDefaultCursor("none");
 
     const { scale } = this.displayTransform();
-    const tokenScale = Math.min(scale * 2.5, 0.6);
+    const tokenScale = scale * 1.7;
 
     this.cursorSprite = this.add
       .image(this.input.activePointer.x, this.input.activePointer.y,
