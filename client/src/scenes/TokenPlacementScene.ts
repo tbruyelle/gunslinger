@@ -77,7 +77,8 @@ export class TokenPlacementScene extends Phaser.Scene {
   private nextId        = 0;
   private pendingChar:  string | null = null;
   private pendingAngle  = 0;
-  private rawAngle      = 0;   // unwrapped accumulator for smooth tweening
+  private visualAngle   = 0;   // smoothly lerps toward pendingAngle each frame
+  private rawAngle      = 0;
   private lastRotTime   = 0;   // timestamp of last rotation (cooldown debounce)
   private stripOffset   = 0;
 
@@ -148,6 +149,28 @@ export class TokenPlacementScene extends Phaser.Scene {
 
     this.load.on("progress", (v: number) => { fill.width = Math.max(2, barW * v); });
     this.load.on("complete", () => { bg.destroy(); fill.destroy(); lbl.destroy(); });
+  }
+
+  // ── Update (smooth rotation lerp) ──────────────────────────────────────
+
+  update(_time: number, delta: number) {
+    if (!this.cursorSprite || this.visualAngle === this.pendingAngle) return;
+
+    // Shortest-path delta across the 0/360 boundary
+    let diff = this.pendingAngle - this.visualAngle;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+
+    const t = Math.min(1, 15 * delta / 1000);
+    this.visualAngle += diff * t;
+
+    // Snap when close enough
+    if (Math.abs(diff) * (1 - t) < 0.5) {
+      this.visualAngle = this.pendingAngle;
+    }
+
+    this.visualAngle = ((this.visualAngle % 360) + 360) % 360;
+    this.cursorSprite.setAngle(this.visualAngle);
   }
 
   // ── Create ──────────────────────────────────────────────────────────────
@@ -419,6 +442,7 @@ export class TokenPlacementScene extends Phaser.Scene {
     } else {
       this.pendingChar = ch;
       this.pendingAngle = 0;
+      this.visualAngle = 0;
       this.rawAngle = 0;
       this.lastRotTime = 0;
     }
@@ -447,7 +471,7 @@ export class TokenPlacementScene extends Phaser.Scene {
         `char_${this.pendingChar}`)
       .setScale(tokenScale)
       .setAlpha(0.7)
-      .setAngle(this.pendingAngle)
+      .setAngle(this.visualAngle)
       .setDepth(1000)
       .setOrigin(0.5);
   }
@@ -477,7 +501,6 @@ export class TokenPlacementScene extends Phaser.Scene {
             const dir = dy > 0 ? 1 : -1;
             this.rawAngle += dir * 60;
             this.pendingAngle = ((this.rawAngle % 360) + 360) % 360;
-            this.cursorSprite.setAngle(this.pendingAngle);
             return;
           }
 
@@ -561,6 +584,7 @@ export class TokenPlacementScene extends Phaser.Scene {
       });
       this.pendingChar  = null;
       this.pendingAngle = 0;
+      this.visualAngle  = 0;
       this.rawAngle     = 0;
       this.lastRotTime  = 0;
       this.updateCursorSprite();
