@@ -31,7 +31,7 @@ const THUMB_IMG_H   = 156;
 const THUMB_LABEL_H = 22;
 const STRIP_PAD_L   = 10;
 const ROT_DURATION  = 250;
-const HANDLE_OFFSET = 20;
+const HANDLE_OFFSET = 30;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -214,9 +214,23 @@ export class SetupScene extends Phaser.Scene {
       if (b.ly + effH > maxY) maxY = b.ly + effH;
     }
 
+    // When a board is pending, expand bbox to include all valid slot positions
+    // so the view zooms out and leaves room to pick an edge
+    if (this.pendingKey) {
+      const slots = this.computeSlots();
+      const { effW: pW, effH: pH } = this.effSize(this.pendingKey, this.pendingRotation);
+      for (const s of slots) {
+        if (s.lx < minX) minX = s.lx;
+        if (s.ly < minY) minY = s.ly;
+        if (s.lx + pW > maxX) maxX = s.lx + pW;
+        if (s.ly + pH > maxY) maxY = s.ly + pH;
+      }
+    }
+
     const lw    = maxX - minX;
     const lh    = maxY - minY;
-    const scale = Math.min((this.arrH - 30) / lh, (this.cw - 30) / lw);
+    const pad   = this.pendingKey ? 60 : 30;
+    const scale = Math.min((this.arrH - pad) / lh, (this.cw - pad) / lw);
     const ox    = (this.cw - lw * scale) / 2 - minX * scale;
     const oy    = TOPBAR_H + (this.arrH - lh * scale) / 2 - minY * scale;
     return { scale, ox, oy };
