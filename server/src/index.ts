@@ -15,7 +15,7 @@ app.get("/healthz", (_req, res) => res.json({ ok: true }));
 const httpServer = createServer(app);
 
 const gameServer = new Server({ server: httpServer });
-gameServer.define("game", GameRoom, { maxClients: 6 });
+gameServer.define("game", GameRoom);
 
 httpServer.listen(PORT, () => {
   console.log(`Gunslinger server listening on :${PORT}`);
