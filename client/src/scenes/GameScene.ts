@@ -772,16 +772,17 @@ export class GameScene extends Phaser.Scene {
     this.characterCards.set(this.selectedCharKey, this.getCurrentCardSelection());
     this.confirmedChars.add(this.selectedCharKey);
 
-    // Reset token to original position (movement was just a preview)
-    const orig = this.originalPositions.get(this.selectedCharKey);
+    // Animate token back to original position (movement was just a preview)
+    const charKey = this.selectedCharKey;
+    const orig = this.originalPositions.get(charKey);
     if (orig) {
-      this.currentPositions.set(this.selectedCharKey, { ...orig });
+      this.animateTokenTo(charKey, orig);
+      this.currentPositions.set(charKey, { ...orig });
     }
 
     this.refreshCharacterTabs();
     this.refreshTokenHighlights();
     this.refreshCardStripForCharacter();
-    this.refreshView();
 
     const next = this.tokens.find(t => !this.confirmedChars.has(t.charKey));
     if (next) {
@@ -987,10 +988,108 @@ export class GameScene extends Phaser.Scene {
     this.currentPositions.set(charKey, pos);
   }
 
-  /** Recompute position and update the token sprite on the board. */
+  /**
+   * Recompute position and animate the token sprite to the new location.
+   * Uses tweens instead of rebuilding the entire view.
+   */
   private updateCharPosition(charKey: string) {
+    const oldPos = this.currentPositions.get(charKey);
     this.recomputePosition(charKey);
-    this.refreshView();
+    const newPos = this.currentPositions.get(charKey);
+
+    if (!oldPos || !newPos) return;
+
+    const sprite = this.tokenSprites.get(charKey);
+    const highlight = this.tokenHighlights.get(charKey);
+    if (!sprite) return;
+
+    const { sx, sy } = this.layoutToScreen(newPos.lx, newPos.ly);
+
+    const moved = oldPos.lx !== newPos.lx || oldPos.ly !== newPos.ly;
+    const rotated = oldPos.angle !== newPos.angle;
+
+    if (moved || rotated) {
+      // Kill any running tweens on this sprite
+      this.tweens.killTweensOf(sprite);
+      if (highlight) this.tweens.killTweensOf(highlight);
+    }
+
+    if (moved) {
+      this.tweens.add({
+        targets: sprite,
+        x: sx,
+        y: sy,
+        duration: 300,
+        ease: "Cubic.easeInOut",
+      });
+      if (highlight) {
+        this.tweens.add({
+          targets: highlight,
+          x: sx,
+          y: sy,
+          duration: 300,
+          ease: "Cubic.easeInOut",
+        });
+      }
+    }
+
+    if (rotated) {
+      // Compute shortest rotation path
+      let angleDiff = newPos.angle - oldPos.angle;
+      if (angleDiff > 180) angleDiff -= 360;
+      if (angleDiff < -180) angleDiff += 360;
+      const targetAngle = sprite.angle + angleDiff;
+
+      this.tweens.add({
+        targets: sprite,
+        angle: targetAngle,
+        duration: 250,
+        ease: "Cubic.easeInOut",
+      });
+    }
+  }
+
+  /** Animate a token sprite + highlight to a target position/angle. */
+  private animateTokenTo(charKey: string, target: { lx: number; ly: number; angle: number }) {
+    const sprite = this.tokenSprites.get(charKey);
+    const highlight = this.tokenHighlights.get(charKey);
+    if (!sprite) return;
+
+    const { sx, sy } = this.layoutToScreen(target.lx, target.ly);
+
+    this.tweens.killTweensOf(sprite);
+    if (highlight) this.tweens.killTweensOf(highlight);
+
+    this.tweens.add({
+      targets: sprite,
+      x: sx,
+      y: sy,
+      duration: 350,
+      ease: "Cubic.easeInOut",
+    });
+
+    if (highlight) {
+      this.tweens.add({
+        targets: highlight,
+        x: sx,
+        y: sy,
+        duration: 350,
+        ease: "Cubic.easeInOut",
+      });
+    }
+
+    // Shortest rotation path
+    let angleDiff = target.angle - sprite.angle;
+    if (angleDiff > 180) angleDiff -= 360;
+    if (angleDiff < -180) angleDiff += 360;
+    if (Math.abs(angleDiff) > 0.5) {
+      this.tweens.add({
+        targets: sprite,
+        angle: sprite.angle + angleDiff,
+        duration: 250,
+        ease: "Cubic.easeInOut",
+      });
+    }
   }
 
   // ── Input (zoom, pan) ────────────────────────────────────────────────────
