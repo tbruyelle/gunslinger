@@ -4,9 +4,110 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Goal
 
-This repository is the starting point for a digital game inspired by the 1982 AH board game **Gunslinger** — a tactical Old West gunfight simulation with hex-based movement, action-point economy, and a detailed hit-location/wound system.
+This repository is a digital game inspired by the 1982 AH board game **Gunslinger** — a tactical Old West gunfight simulation with hex-based movement, action-point economy, and a detailed hit-location/wound system.
 
-The technology stack has not been chosen yet. When it is, update this file with build/run/test commands.
+## Tech Stack
+
+- **Frontend**: TypeScript + Phaser 3 + Vite (port 5173)
+- **Backend**: Colyseus 0.15 + Express + Node.js (port 2567)
+- **Shared types**: `@gunslinger/shared` (plain TS, no build step)
+- **Monorepo**: npm workspaces (`client/`, `server/`, `shared/`)
+
+## Key Commands
+
+```bash
+npm run dev          # starts both client (Vite) and server (ts-node-dev) concurrently
+```
+
+Type-checking (no build step needed for dev):
+```bash
+npx tsc --noEmit -p client/tsconfig.json
+npx tsc --noEmit -p server/tsconfig.json
+```
+
+## Architecture
+
+### Server (authoritative)
+
+- `server/src/rooms/schema.ts` — Colyseus `@colyseus/schema` classes (`GameStateSchema`, `PlayerSchema`, etc.). Server tsconfig requires `experimentalDecorators: true`.
+- `server/src/rooms/GameRoom.ts` — Colyseus room. Players are created from setup tokens in `onCreate()` (keyed by `charKey`, not `sessionId`). A single client session controls all characters. Bulk card selection per character. Phase machine with sequence progression.
+
+### Client scenes
+
+`BootScene` → `LobbyScene` → `SetupScene` (board selection) → `TokenPlacementScene` (character placement) → `MatchmakingScene` → `GameScene`
+
+- **SetupScene**: Select and arrange board tiles into a composite map. Boards snap to adjacent edges. Scroll wheel rotates boards.
+- **TokenPlacementScene**: Place character tokens on the board composite. Click a character in the bottom strip to select, click board to place. Scroll wheel rotates in 60° increments. Requires ≥2 tokens to proceed.
+- **MatchmakingScene**: Passes `boards` + `tokens` setup data to Colyseus room creation. Token placement order = player order.
+- **GameScene**: Renders actual board composite + character tokens. Per-character action card selection with choice mode (hex picking, target selection). Card strip shows front/back rows (24 actions visible).
+
+All scenes use the `buildAll()` + resize-handler pattern for responsive layout.
+
+### Shared types (`shared/src/index.ts`)
+
+- `Player` — keyed by `charKey` (e.g. `"marshal"`), has `ownerSessionId`, layout-space position (`lx`, `ly`, `angle`, `hexId`)
+- `ActionCardDef` — 12 physical cards, each with `front` and `back` `ActionSideDef` (name, cost, category, choiceType)
+- `ActionCardSelection` — card number + side + optional `CardChoice`
+- `GameState` — phase, turn, currentSequence, playerOrder, players, selectedCards, boards
+- `CHAR_ARROW_DIR` — per-character default arrow direction index (all tokens are either NE=1 or NW=5)
+
+### Hex system (`client/src/hex/neighbors.ts`)
+
+- `HexNeighborMap` — loads `hex_grid.json`, transforms all hex positions into unified layout space across boards, finds 6 neighbors by distance+angle classification
+- Hex grid uses flat-top hexes with offset columns. Hex IDs: `{Board}-{Col}{Row}` (e.g. `A-C5`)
+- 6 directions indexed 0–5: N, NE, SE, S, SW, NW
+- `angleToDirIndex(angle, charKey)` accounts for per-character arrow offset
+
+## Game Rules (from rules.pdf + card analysis)
+
+### Turn Structure
+
+1. **Action selection**: each player picks action cards for each character (cost sum ≤ 5 sequences)
+2. **Sequences 1–5**: actions resolve in sequence order (TODO: resolution logic)
+3. **Turn end**: check game-over conditions, advance to next turn
+4. Game ends at max turns (default 20) or when no opposition remains (last standing or team)
+
+### Action Cards
+
+12 physical cards with front and back (24 possible actions). **Cannot use both sides of the same card in one turn.** Each side has a sequence cost (1–3). Total cost per turn ≤ 5.
+
+| Card | Front (cost) | Back (cost) | Front choice | Back choice |
+|------|-------------|-------------|--------------|-------------|
+| 1 | Advance (2) | Back Up (3) | move_ahead | move_back |
+| 2 | Run (1) | Spin Around (2) | move_ahead | turn_back |
+| 3 | Sprint (1) | Turn (1) | none (auto straight) | turn_ahead |
+| 4 | Sprint (1) | Leap/Drop (1) | none (auto straight) | none |
+| 5 | Cock/Aim/Shoot (2) | Get Up/Down (3) | target_ranged | none |
+| 6 | Cock/Aim/Shoot (2) | Throw (2) | target_ranged | target_ranged |
+| 7 | Shoot (1) | Strength (2) | target_ranged | none |
+| 8 | Load (3) | Head Out/Back (2) | none | none |
+| 9 | Draw & Cock (3) | Head Out/Back (2) | none | none |
+| 10 | Jab (2) | Duck (1) | target_melee | target_defend |
+| 11 | Swing (3) | Block (2) | target_melee | target_defend |
+| 12 | Belt (3) | Guard (2) | target_melee | target_defend |
+
+### Movement Directions (relative to facing)
+
+- **Ahead**: straight ahead, ahead_left, ahead_right (±60° from facing)
+- **Back**: straight back, back_left, back_right (±60° from backward)
+- `facingIndex = (CHAR_ARROW_DIR[charKey] + angle/60) % 6`
+- Advance/Run: player picks 1 of 3 forward hexes
+- Back Up: player picks 1 of 3 backward hexes
+- Sprint: auto-moves straight ahead (no choice)
+- Turn: player picks new facing from 3 forward directions
+- Spin Around: player picks new facing from 3 backward directions
+
+### Character Token Facing
+
+Each character token has a black arrow baked into the PNG at a fixed angle. At `angle=0` (unrotated), tokens face either **NE (direction 1)** or **NW (direction 5)** — see `CHAR_ARROW_DIR` in shared types. When the token is rotated by 60° increments, the facing changes accordingly.
+
+### Card Selection UX
+
+- During action selection, foot cards **preview** movement (token moves on board to help pick hexes)
+- On confirm, token **resets to original position** — actual resolution happens during sequences
+- Cards are replayed in card number order (1→12) for deterministic preview
+- Selecting a card blocks its opposite side (dimmed, unclickable)
+- Cards that would exceed cost cap of 5 are dimmed
 
 ## Asset Pipeline
 
@@ -16,67 +117,21 @@ python scripts/fetch_assets.py           # download all images to assets/
 python scripts/fetch_assets.py --dry-run # preview plan without downloading
 ```
 
-`fetch_assets.py` parses `tts_mod.json` recursively, deduplicates the ~166 image URLs, downloads them concurrently, and writes `assets/catalog.json`.
-
-**Catalog structure** (`assets/catalog.json`):
-- `sprite_sheets[]` — card sprite sheets with `face_file`, `back_file`, `num_width`/`num_height` (all 10×7 except one 1×1), and a `cards[]` list with `guid`, `card_id`, `sheet_index`, `row`, `col`.
-- `images[]` — individual token/tile images with `face_file` and optional `back_file`.
-
-**Naming convention**: `{guid}_{type}[_face|_back].{ext}` for tokens/tiles (type = `custom_token` or `custom_tile`); `{url_stem}_face.{ext}` / `{url_stem}_back.{ext}` for sprite sheets.
-
-**CardID math**: `sheet_index = card_id % 100`, `row = sheet_index // num_width`, `col = sheet_index % num_width`.
-
-## Asset Inventory
-
-All assets are already downloaded. Do not re-run the full pipeline unless `tts_mod.json` changes.
+All assets are already downloaded. Do not re-run unless `tts_mod.json` changes.
 
 ### `assets/` (from TTS mod)
 - ~161 images (imgur + Steam CDN); 5 Steam CDN tiles inaccessible (403, `face_file: null` in catalog)
-- Board maps: `board_A.png` … `board_H.png` + `board_AA.png` … `board_HH.png` + `board_UFC*.png` — high-res scans at **1600×2232** (sourced from cryhavocgames.net GSL Maps pack, higher quality than TTS mod)
+- Board maps: `board_A.png` … `board_H.png` + `board_AA.png` … `board_HH.png` + `board_UFC*.png` — high-res at **1600×2232**
 - Card sprite sheets: 14 sheets, largest at 6030×5516 (603×788 per card)
+- Action cards: `action_card_a{1-12}.png` (front) + `action_card_a{1-12}_back.png` (back), 180×245 px
+- Character tokens: `char_*.png` (48 tokens, 95×95 px)
+- Hex grid: `hex_grid.json` (coords scaled 2x to match 1600×2232 boards)
 
-### `assets/local/` (from VASSAL module v1.9.2, partially merged)
-Extracted from `Gunslinger_v_1.9.2.vmod` (ZIP). Named by parsing `buildFile.xml` piece definitions. Originally `assets/vassal/`; merge into `assets/` is in progress. Currently contains:
-- `animal_*.png` — 9 animal tokens + dead variants
-- `activity_*.png` — 9 activity markers (aim, facing, load, move, etc.)
-- `state_*.png` — 4 state markers (down, passed_out, surrendered, dead)
-- `obj_*.png` — 3 objects (bale, chair, table)
-- `legend_sheet_{N}[_back].png` — legend sheets (1100×1204 px)
-- `card_back.png`, `token_stage.png`
-- Player aid JPGs, Gunsmith tables, critters reference sheets
-- Some unmerged `*_custom_token.jpg/png` files
-
-Already moved to `assets/`: `char_*.png` (48 character tokens, 95×95 px), `result_card_NNN.png` (108 cards), `action_card_a{N}[_back].png`, `counter_b{N}[_*].png`, `splash_screen.png`.
-
-**Note on transparency**: VASSAL GIFs were converted to PNG. Source images have binary transparency ([0, 255] alpha only — no anti-aliasing). Smooth edges would require post-processing the alpha channel.
-
-## Current Repository Contents
-
-- `tts_mod.json` — Tabletop Simulator mod save (v12.0.4); source of all image URLs.
-- `rules.pdf` — The 36-page original Gunslinger rulebook (primary design reference).
-- `assets/` — Downloaded game artwork and `catalog.json`.
-- `assets/local/` — VASSAL module assets not yet merged (tokens, markers, player aids).
-- `scripts/fetch_assets.py` — Asset download script.
+### `assets/local/` (from VASSAL module, partially merged)
+- `animal_*.png`, `activity_*.png`, `state_*.png`, `obj_*.png`, legend sheets, player aids
 
 ## TODO
 
-- **Finish merging asset sources**: `assets/local/` still contains animals, activity markers, states, objects, legend sheets, and some unmatched `*_custom_token` files. Consolidate remaining files into `assets/` and remove `assets/local/`. Prefer the higher-resolution source per image type.
-
-## Setup Flow (client scenes)
-
-`LobbyScene` → `SetupScene` (board selection) → `TokenPlacementScene` (character placement) → `MatchmakingScene` → `GameScene`
-
-- **SetupScene**: Select and arrange board tiles into a composite map. Boards snap to adjacent edges. Scroll wheel rotates boards. Supports back-navigation from TokenPlacementScene (restores board state via `init(data)`).
-- **TokenPlacementScene**: Place character tokens on the board composite. Click a character in the bottom strip to select it (appears as a cursor-following sprite), then click on a board to place. Scroll wheel rotates the pending token in 60° increments (hex facings) with animated tweens. Requires ≥2 tokens to proceed. Back returns to SetupScene preserving boards.
-
-Both scenes use the `buildAll()` + resize-handler pattern for responsive layout (top bar, arrangement area, bottom strip).
-
-## Key Design Reference
-
-The `rules.pdf` is the authoritative source for game mechanics. Core systems to be aware of:
-
-- **Hex-grid movement** with facing and terrain effects.
-- **Action-point economy** — each character has a limited pool of points per turn spent on move, aim, draw, fire, etc.
-- **Hit resolution** — shots resolve against body-location tables, producing wound effects that degrade character stats over time.
-- **Multiple weapon types** with different range, accuracy, and rate-of-fire profiles.
-- **Simultaneous-ish turns** — actions are declared and resolved in a specific sequence (not pure alternating).
+- **Sequence resolution**: implement actual action execution during sequences 1–5
+- **Finish merging asset sources**: `assets/local/` still has unmerged tokens/markers
+- **Board display extraction**: `BOARD_DIMS` and transform logic duplicated across SetupScene, TokenPlacementScene, GameScene — extract to shared module
