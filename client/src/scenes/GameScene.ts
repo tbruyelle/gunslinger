@@ -7,13 +7,22 @@ import type {
   ActionCardSelection,
   CardNumber,
   CardSide,
+  CardChoice,
+  ChoiceType,
+  RelativeDirection,
 } from "@gunslinger/shared";
 import {
   ACTION_CARDS,
   getActionDef,
   getActionCardAsset,
   SEQUENCES_PER_TURN,
+  AHEAD_DIRS,
+  BACK_DIRS,
+  angleToDirIndex,
+  relativeToAbsoluteDir,
+  dirIndexToAngle,
 } from "@gunslinger/shared";
+import { HexNeighborMap, type LayoutHex } from "../hex/neighbors";
 
 // ── Board registry (same as TokenPlacementScene) ────────────────────────────
 
@@ -48,6 +57,12 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
 const ZOOM_FACTOR = 0.12;
 const DRAG_THRESHOLD = 4;
+const HEX_HIGHLIGHT_R = 18;
+
+// ── Hex grid data type ──────────────────────────────────────────────────────
+
+interface HexPoint { id: string; x: number; y: number }
+interface HexGridData { boards: Record<string, { hexes: HexPoint[] }> }
 
 export class GameScene extends Phaser.Scene {
   private room!: Room<GameState>;
@@ -55,6 +70,10 @@ export class GameScene extends Phaser.Scene {
   // Setup data
   private boards: PlacedBoardSetup[] = [];
   private tokens: PlacedTokenSetup[] = [];
+
+  // Hex neighbor map (built once from hex_grid.json + boards)
+  private hexMap: HexNeighborMap | null = null;
+  private hexGridData: HexGridData | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -88,7 +107,7 @@ export class GameScene extends Phaser.Scene {
     zone: Phaser.GameObjects.Zone;
   }> = new Map();
 
-  // Per-character card selections
+  // Per-character card selections (with choices)
   private characterCards: Map<string, ActionCardSelection[]> = new Map();
   private confirmedChars: Set<string> = new Set();
 
@@ -99,6 +118,23 @@ export class GameScene extends Phaser.Scene {
   private selectedDisplay!: Phaser.GameObjects.Text;
   private confirmBtn!: Phaser.GameObjects.Text;
   private sendAllBtn!: Phaser.GameObjects.Text;
+
+  // Choice mode state
+  private choiceMode: {
+    cardNum: CardNumber;
+    side: CardSide;
+    choiceType: ChoiceType;
+    options: { relDir: RelativeDirection; hex: LayoutHex | null; charKey?: string }[];
+  } | null = null;
+  private choiceOverlays: Phaser.GameObjects.GameObject[] = [];
+  private choicePromptText: Phaser.GameObjects.Text | null = null;
+
+  // Pending choices stored per card (cardNum → choice)
+  private pendingChoices: Map<number, CardChoice> = new Map();
+
+  // Position tracking: original (from placement) and current (after foot actions)
+  private originalPositions: Map<string, { lx: number; ly: number; angle: number; hexId: string }> = new Map();
+  private currentPositions: Map<string, { lx: number; ly: number; angle: number; hexId: string }> = new Map();
 
   // Phase tracking
   private lastPhase: string = "";
@@ -117,7 +153,11 @@ export class GameScene extends Phaser.Scene {
     this.selectedCharKey = null;
     this.characterCards.clear();
     this.confirmedChars.clear();
+    this.pendingChoices.clear();
+    this.choiceMode = null;
     this.lastPhase = "";
+    this.originalPositions.clear();
+    this.currentPositions.clear();
   }
 
   // ── Dimensions ────────────────────────────────────────────────────────────
@@ -131,6 +171,10 @@ export class GameScene extends Phaser.Scene {
   // ── Preload ───────────────────────────────────────────────────────────────
 
   preload() {
+    // Hex grid data
+    if (!this.cache.json.has("hex_grid")) {
+      this.load.json("hex_grid", "hex_grid.json");
+    }
     // Action card textures
     for (let i = 1; i <= 12; i++) {
       const n = i as CardNumber;
@@ -149,6 +193,19 @@ export class GameScene extends Phaser.Scene {
   // ── Create ────────────────────────────────────────────────────────────────
 
   create() {
+    // Build hex neighbor map
+    this.hexGridData = this.cache.json.get("hex_grid") as HexGridData;
+    if (this.hexGridData && this.boards.length > 0) {
+      this.hexMap = new HexNeighborMap(this.hexGridData, this.boards);
+    }
+
+    // Store original positions from token placement
+    for (const t of this.tokens) {
+      const pos = { lx: t.lx, ly: t.ly, angle: t.angle, hexId: t.hexId ?? "" };
+      this.originalPositions.set(t.charKey, { ...pos });
+      this.currentPositions.set(t.charKey, { ...pos });
+    }
+
     this.buildAll();
     this.setupInput();
 
@@ -171,6 +228,8 @@ export class GameScene extends Phaser.Scene {
     this.charTabItems.clear();
     this.cardImages = [];
     this.cardHighlights = [];
+    this.choiceOverlays = [];
+    this.choicePromptText = null;
 
     const w = this.cw, h = this.ch;
 
@@ -189,6 +248,11 @@ export class GameScene extends Phaser.Scene {
     this.buildHUD();
     this.buildCharacterTabs();
     this.buildCardStrip();
+
+    // Re-show choice overlays if we were in choice mode
+    if (this.choiceMode) {
+      this.showChoiceOverlays();
+    }
 
     this.input.mouse?.disableContextMenu();
   }
@@ -233,6 +297,12 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  /** Convert layout coords to screen coords. */
+  private layoutToScreen(lx: number, ly: number): { sx: number; sy: number } {
+    const { scale, ox, oy } = this.displayTransform();
+    return { sx: ox + lx * scale, sy: oy + ly * scale };
+  }
+
   private buildBoardDisplay() {
     this.boardImages.forEach(img => img.destroy());
     this.boardImages = [];
@@ -259,12 +329,13 @@ export class GameScene extends Phaser.Scene {
 
     if (this.tokens.length === 0) return;
 
-    const { scale, ox, oy } = this.displayTransform();
+    const { scale } = this.displayTransform();
     const tokenScale = scale * TOKEN_SCALE_FACTOR;
 
     for (const t of this.tokens) {
-      const sx = ox + t.lx * scale;
-      const sy = oy + t.ly * scale;
+      // Use current position (may have moved from foot actions)
+      const pos = this.currentPositions.get(t.charKey) ?? t;
+      const { sx, sy } = this.layoutToScreen(pos.lx, pos.ly);
 
       // Selection highlight ring (behind token)
       const hlRadius = (95 * tokenScale) / 2 + 4;
@@ -276,7 +347,7 @@ export class GameScene extends Phaser.Scene {
       // Token image
       const img = this.add.image(sx, sy, `char_${t.charKey}`)
         .setScale(tokenScale)
-        .setAngle(t.angle)
+        .setAngle(pos.angle)
         .setOrigin(0.5)
         .setMask(this.arrMask)
         .setInteractive({ useHandCursor: true });
@@ -284,6 +355,13 @@ export class GameScene extends Phaser.Scene {
       img.on("pointerup", (pointer: Phaser.Input.Pointer) => {
         if (this.isDragging) return;
         if (pointer.rightButtonDown()) return;
+
+        // If in target choice mode, clicking a token selects it as target
+        if (this.choiceMode && this.isTargetChoice(this.choiceMode.choiceType)) {
+          this.resolveTargetChoice(t.charKey);
+          return;
+        }
+
         this.selectCharacter(t.charKey);
       });
 
@@ -297,7 +375,11 @@ export class GameScene extends Phaser.Scene {
     for (const [charKey, hl] of this.tokenHighlights) {
       const isSelected = this.selectedCharKey === charKey;
       const isConfirmed = this.confirmedChars.has(charKey);
-      if (isSelected) {
+
+      // In target choice mode, highlight other tokens as clickable
+      if (this.choiceMode && this.isTargetChoice(this.choiceMode.choiceType) && charKey !== this.selectedCharKey) {
+        hl.setStrokeStyle(3, 0xff4444, 0.9);
+      } else if (isSelected) {
         hl.setStrokeStyle(3, 0xffffff, 1);
       } else if (isConfirmed) {
         hl.setStrokeStyle(3, 0x44aa44, 0.8);
@@ -310,6 +392,8 @@ export class GameScene extends Phaser.Scene {
   private refreshView() {
     this.buildBoardDisplay();
     this.buildTokenDisplay();
+    this.clearChoiceOverlays();
+    if (this.choiceMode) this.showChoiceOverlays();
   }
 
   // ── HUD ───────────────────────────────────────────────────────────────────
@@ -385,10 +469,21 @@ export class GameScene extends Phaser.Scene {
   private selectCharacter(charKey: string) {
     if (this.selectedCharKey === charKey) return;
 
+    // Exit choice mode if active
+    this.exitChoiceMode();
+
     // Save current character's card state
     this.saveCurrentCardState();
 
     this.selectedCharKey = charKey;
+    this.pendingChoices.clear();
+
+    // Restore pending choices for this character
+    const saved = this.characterCards.get(charKey) ?? [];
+    for (const sel of saved) {
+      if (sel.choice) this.pendingChoices.set(sel.card, sel.choice);
+    }
+
     this.refreshCharacterTabs();
     this.refreshTokenHighlights();
     this.refreshCardStripForCharacter();
@@ -396,13 +491,16 @@ export class GameScene extends Phaser.Scene {
 
   private saveCurrentCardState() {
     if (!this.selectedCharKey) return;
-    this.characterCards.set(this.selectedCharKey, this.getCurrentCardSelection());
+    const cards = this.getCurrentCardSelection();
+    // Attach pending choices
+    for (const sel of cards) {
+      const choice = this.pendingChoices.get(sel.card);
+      if (choice) sel.choice = choice;
+    }
+    this.characterCards.set(this.selectedCharKey, cards);
   }
 
   // ── Card strip ────────────────────────────────────────────────────────────
-  // Two rows: front (top) and back (bottom) for each of 12 cards.
-  // cardImages[0..11] = front row, cardImages[12..23] = back row.
-  // Selecting one side of a card deselects the other side automatically.
 
   private buildCardStrip() {
     const w = this.cw;
@@ -421,7 +519,7 @@ export class GameScene extends Phaser.Scene {
       });
     this.cardContainer.add(this.selectedDisplay);
 
-    // Confirm button (per-character)
+    // Confirm button
     this.confirmBtn = this.add
       .text(w - 180, stripY + 4, "Confirm", {
         fontSize: "15px", color: "#d4a044",
@@ -454,7 +552,6 @@ export class GameScene extends Phaser.Scene {
       for (let i = 0; i < 12; i++) {
         const cardNum = (i + 1) as CardNumber;
         const x = startX + i * (CARD_W + CARD_GAP);
-        const idx = row * 12 + i; // 0..23
 
         const hl = this.add
           .rectangle(x + CARD_W / 2, cardY + CARD_H / 2, CARD_W + 4, CARD_H + 4, 0x000000, 0)
@@ -470,7 +567,6 @@ export class GameScene extends Phaser.Scene {
           .setInteractive({ useHandCursor: true });
         img.setData("cardNum", cardNum);
         img.setData("side", side);
-        img.setData("idx", idx);
 
         img.on("pointerup", () => {
           if (!this.selectedCharKey) return;
@@ -484,7 +580,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Get the image index for a card+side. Front: cardNum-1, Back: 12+cardNum-1. */
   private cardIdx(cardNum: CardNumber, side: CardSide): number {
     return side === "front" ? cardNum - 1 : 12 + cardNum - 1;
   }
@@ -493,10 +588,13 @@ export class GameScene extends Phaser.Scene {
     const cards: ActionCardSelection[] = [];
     for (const img of this.cardImages) {
       if (img.getData("selected") as boolean) {
-        cards.push({
+        const sel: ActionCardSelection = {
           card: img.getData("cardNum") as CardNumber,
           side: img.getData("side") as CardSide,
-        });
+        };
+        const choice = this.pendingChoices.get(sel.card);
+        if (choice) sel.choice = choice;
+        cards.push(sel);
       }
     }
     return cards;
@@ -512,16 +610,43 @@ export class GameScene extends Phaser.Scene {
     const idx = this.cardIdx(cardNum, side);
     const otherIdx = this.cardIdx(cardNum, side === "front" ? "back" : "front");
     const img = this.cardImages[idx];
+    const otherImg = this.cardImages[otherIdx];
     const wasSelected = img.getData("selected") as boolean;
+    const otherSelected = otherImg.getData("selected") as boolean;
+
+    // Can't select this side if the opposite side is already selected
+    if (!wasSelected && otherSelected) return;
+
+    // Can't select if it would exceed the cost limit
+    if (!wasSelected) {
+      const def2 = getActionDef({ card: cardNum, side });
+      if (this.getCurrentCost() + def2.cost > SEQUENCES_PER_TURN) return;
+    }
+
+    // Exit any active choice mode
+    this.exitChoiceMode();
+
+    const def = getActionDef({ card: cardNum, side });
 
     if (wasSelected) {
-      // Deselect
       img.setData("selected", false);
+      this.pendingChoices.delete(cardNum);
+      // Recompute position if a foot card was deselected
+      if (def.category === "foot" && this.selectedCharKey) {
+        this.updateCharPosition(this.selectedCharKey);
+      }
     } else {
-      // Deselect the opposite side of the same card first
-      this.cardImages[otherIdx].setData("selected", false);
-      // Select this side
       img.setData("selected", true);
+
+      // If foot card with no choice (Sprint), auto-execute immediately
+      if (def.category === "foot" && def.choiceType === "none" && this.selectedCharKey) {
+        this.updateCharPosition(this.selectedCharKey);
+      }
+
+      // Check if this card needs a choice
+      if (def.choiceType !== "none") {
+        this.enterChoiceMode(cardNum, side, def.choiceType);
+      }
     }
 
     this.refreshSelectionDisplay();
@@ -534,13 +659,11 @@ export class GameScene extends Phaser.Scene {
     const isConfirmed = this.confirmedChars.has(this.selectedCharKey);
     const savedCards = this.characterCards.get(this.selectedCharKey) ?? [];
 
-    // Reset all
     for (const img of this.cardImages) {
       img.setData("selected", false);
       img.setAlpha(isConfirmed ? 0.5 : 1);
     }
 
-    // Restore saved selections
     for (const sel of savedCards) {
       const idx = this.cardIdx(sel.card, sel.side);
       this.cardImages[idx].setData("selected", true);
@@ -555,7 +678,11 @@ export class GameScene extends Phaser.Scene {
     const cards = this.getCurrentCardSelection();
     const charName = this.selectedCharKey?.replace(/_/g, " ") ?? "";
 
-    if (!this.selectedCharKey) {
+    if (this.choiceMode) {
+      const prompt = this.getChoicePrompt(this.choiceMode.choiceType);
+      this.selectedDisplay.setText(`${charName}: ${prompt}`);
+      this.selectedDisplay.setColor("#ff9944");
+    } else if (!this.selectedCharKey) {
       this.selectedDisplay.setText("Click a character to select actions");
       this.selectedDisplay.setColor("#888");
     } else if (this.confirmedChars.has(this.selectedCharKey)) {
@@ -565,31 +692,74 @@ export class GameScene extends Phaser.Scene {
       this.selectedDisplay.setText(`${charName}: select action cards (${cost}/${SEQUENCES_PER_TURN} seq)`);
       this.selectedDisplay.setColor("#888");
     } else {
-      const names = cards.map(sel => `${getActionDef(sel).name}(${getActionDef(sel).cost})`);
+      const names = cards.map(sel => {
+        const def = getActionDef(sel);
+        const choiceLabel = this.getChoiceLabel(sel);
+        return choiceLabel ? `${def.name}(${def.cost})\u2192${choiceLabel}` : `${def.name}(${def.cost})`;
+      });
       this.selectedDisplay.setText(`${charName}: ${names.join(" + ")} = ${cost}/${SEQUENCES_PER_TURN} seq`);
       this.selectedDisplay.setColor("#d4a044");
     }
 
-    // Confirm is always available (even with 0 cards)
-    const canConfirm = !!this.selectedCharKey && !this.confirmedChars.has(this.selectedCharKey);
+    const canConfirm = !!this.selectedCharKey && !this.confirmedChars.has(this.selectedCharKey) && !this.choiceMode;
     this.confirmBtn.setColor(canConfirm ? "#d4a044" : "#555");
 
     const allConfirmed = this.tokens.every(t => this.confirmedChars.has(t.charKey));
     this.sendAllBtn.setColor(allConfirmed ? "#d4a044" : "#555");
   }
 
+  private getChoiceLabel(sel: ActionCardSelection): string {
+    const choice = this.pendingChoices.get(sel.card);
+    if (!choice) return "";
+    if (choice.targetHexId) return choice.targetHexId.split("-").pop() ?? "";
+    if (choice.newFacing) return choice.newFacing.replace(/_/g, " ");
+    if (choice.targetCharKey) return choice.targetCharKey.replace(/_/g, " ");
+    return "";
+  }
+
   private refreshCardHighlights() {
+    const cost = this.getCurrentCost();
+
     for (let i = 0; i < this.cardImages.length; i++) {
       const img = this.cardImages[i];
       const hl = this.cardHighlights[i];
       const selected = img.getData("selected") as boolean;
+      const cardNum = img.getData("cardNum") as CardNumber;
+      const side = img.getData("side") as CardSide;
+      const def = getActionDef({ card: cardNum, side });
+      const hasChoice = this.pendingChoices.has(cardNum);
+      const needsChoice = def.choiceType !== "none";
 
-      if (selected) {
+      // Check if opposite side is selected (blocked)
+      const otherSide: CardSide = side === "front" ? "back" : "front";
+      const otherIdx = this.cardIdx(cardNum, otherSide);
+      const otherSelected = this.cardImages[otherIdx].getData("selected") as boolean;
+
+      // Check if selecting this card would exceed the cost limit
+      const wouldExceed = !selected && (cost + def.cost > SEQUENCES_PER_TURN);
+
+      if (selected && needsChoice && !hasChoice) {
+        hl.setStrokeStyle(3, 0xff6600, 1);
+        hl.setFillStyle(0xff6600, 0.15);
+        img.setAlpha(1);
+      } else if (selected) {
         hl.setStrokeStyle(3, 0xd4a044, 1);
         hl.setFillStyle(0xd4a044, 0.15);
+        img.setAlpha(1);
+      } else if (otherSelected) {
+        // Opposite side selected — dim and block
+        hl.setStrokeStyle(2, 0xd4a044, 0);
+        hl.setFillStyle(0x000000, 0);
+        img.setAlpha(0.3);
+      } else if (wouldExceed) {
+        // Would exceed cost limit — dim
+        hl.setStrokeStyle(2, 0xd4a044, 0);
+        hl.setFillStyle(0x000000, 0);
+        img.setAlpha(0.4);
       } else {
         hl.setStrokeStyle(2, 0xd4a044, 0);
         hl.setFillStyle(0x000000, 0);
+        img.setAlpha(1);
       }
     }
   }
@@ -597,15 +767,22 @@ export class GameScene extends Phaser.Scene {
   private confirmCharacter() {
     if (!this.selectedCharKey) return;
     if (this.confirmedChars.has(this.selectedCharKey)) return;
+    if (this.choiceMode) return;
 
     this.characterCards.set(this.selectedCharKey, this.getCurrentCardSelection());
     this.confirmedChars.add(this.selectedCharKey);
 
+    // Reset token to original position (movement was just a preview)
+    const orig = this.originalPositions.get(this.selectedCharKey);
+    if (orig) {
+      this.currentPositions.set(this.selectedCharKey, { ...orig });
+    }
+
     this.refreshCharacterTabs();
     this.refreshTokenHighlights();
     this.refreshCardStripForCharacter();
+    this.refreshView();
 
-    // Auto-select next unconfirmed character
     const next = this.tokens.find(t => !this.confirmedChars.has(t.charKey));
     if (next) {
       this.selectCharacter(next.charKey);
@@ -616,7 +793,6 @@ export class GameScene extends Phaser.Scene {
     const allConfirmed = this.tokens.every(t => this.confirmedChars.has(t.charKey));
     if (!allConfirmed) return;
 
-    // Build bulk message: { charKey: cards[] }
     const msg: Record<string, ActionCardSelection[]> = {};
     for (const t of this.tokens) {
       msg[t.charKey] = this.characterCards.get(t.charKey) ?? [];
@@ -624,6 +800,197 @@ export class GameScene extends Phaser.Scene {
 
     this.room.send("select_cards", msg);
     console.log("Sent card selections for all characters");
+  }
+
+  // ── Choice mode ───────────────────────────────────────────────────────────
+
+  private isTargetChoice(ct: ChoiceType): boolean {
+    return ct === "target_ranged" || ct === "target_melee" || ct === "target_defend";
+  }
+
+  private getChoicePrompt(ct: ChoiceType): string {
+    switch (ct) {
+      case "move_ahead": return "Click a highlighted hex to move to";
+      case "move_back": return "Click a highlighted hex to back up to";
+      case "turn_ahead": return "Click a highlighted hex to face toward";
+      case "turn_back": return "Click a highlighted hex to face toward";
+      case "target_ranged": return "Click a target character";
+      case "target_melee": return "Click an adjacent character";
+      case "target_defend": return "Click an attacker to defend against";
+      default: return "";
+    }
+  }
+
+  private enterChoiceMode(cardNum: CardNumber, side: CardSide, choiceType: ChoiceType) {
+    this.exitChoiceMode();
+
+    if (!this.selectedCharKey) return;
+
+    if (choiceType === "move_ahead" || choiceType === "turn_ahead") {
+      const options = this.getHexOptionsForChar(this.selectedCharKey, AHEAD_DIRS);
+      this.choiceMode = { cardNum, side, choiceType, options };
+    } else if (choiceType === "move_back" || choiceType === "turn_back") {
+      const options = this.getHexOptionsForChar(this.selectedCharKey, BACK_DIRS);
+      this.choiceMode = { cardNum, side, choiceType, options };
+    } else if (this.isTargetChoice(choiceType)) {
+      // For target choices, options are other characters
+      const options: { relDir: RelativeDirection; hex: LayoutHex | null; charKey?: string }[] = [];
+      for (const t of this.tokens) {
+        if (t.charKey === this.selectedCharKey) continue;
+        // For melee, could filter by adjacency — for now show all
+        options.push({ relDir: "ahead", hex: null, charKey: t.charKey });
+      }
+      this.choiceMode = { cardNum, side, choiceType, options };
+    }
+
+    this.showChoiceOverlays();
+    this.refreshSelectionDisplay();
+    this.refreshTokenHighlights();
+  }
+
+  private getHexOptionsForChar(charKey: string, dirs: RelativeDirection[]): { relDir: RelativeDirection; hex: LayoutHex | null }[] {
+    const pos = this.currentPositions.get(charKey);
+    if (!this.hexMap || !pos?.hexId) return [];
+    return this.hexMap.getRelativeNeighbors(pos.hexId, pos.angle, dirs, charKey);
+  }
+
+  private showChoiceOverlays() {
+    this.clearChoiceOverlays();
+    if (!this.choiceMode) return;
+
+    const { choiceType, options } = this.choiceMode;
+
+    if (this.isTargetChoice(choiceType)) {
+      // Token highlights handled in refreshTokenHighlights
+      return;
+    }
+
+    // Show hex highlight circles on the board
+    for (const opt of options) {
+      if (!opt.hex) continue;
+      const { sx, sy } = this.layoutToScreen(opt.hex.lx, opt.hex.ly);
+      const { scale } = this.displayTransform();
+      const r = Math.max(12, HEX_HIGHLIGHT_R * scale * 3);
+
+      const circle = this.add.circle(sx, sy, r, 0x44cc44, 0.35)
+        .setStrokeStyle(2, 0x44cc44, 0.9)
+        .setMask(this.arrMask)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(500);
+
+      const label = this.add.text(sx, sy, opt.relDir.replace(/_/g, "\n"), {
+        fontSize: "10px", color: "#fff", align: "center",
+      }).setOrigin(0.5).setMask(this.arrMask).setDepth(501);
+
+      circle.on("pointerup", () => {
+        this.resolveHexChoice(opt.relDir, opt.hex!);
+      });
+
+      this.choiceOverlays.push(circle, label);
+    }
+  }
+
+  private clearChoiceOverlays() {
+    for (const obj of this.choiceOverlays) obj.destroy();
+    this.choiceOverlays = [];
+  }
+
+  private resolveHexChoice(relDir: RelativeDirection, hex: LayoutHex) {
+    if (!this.choiceMode || !this.selectedCharKey) return;
+    const { cardNum, choiceType } = this.choiceMode;
+
+    if (choiceType === "move_ahead" || choiceType === "move_back") {
+      this.pendingChoices.set(cardNum, { targetHexId: hex.id });
+    } else if (choiceType === "turn_ahead" || choiceType === "turn_back") {
+      this.pendingChoices.set(cardNum, { newFacing: relDir });
+    }
+
+    this.exitChoiceMode();
+    this.updateCharPosition(this.selectedCharKey);
+    this.refreshSelectionDisplay();
+    this.refreshCardHighlights();
+  }
+
+  private resolveTargetChoice(targetCharKey: string) {
+    if (!this.choiceMode) return;
+    const { cardNum } = this.choiceMode;
+
+    this.pendingChoices.set(cardNum, { targetCharKey });
+    this.exitChoiceMode();
+    this.refreshSelectionDisplay();
+    this.refreshCardHighlights();
+  }
+
+  private exitChoiceMode() {
+    this.choiceMode = null;
+    this.clearChoiceOverlays();
+    this.refreshTokenHighlights();
+  }
+
+  // ── Position replay (execute foot actions immediately) ────────────────────
+
+  /**
+   * Replay all selected foot cards for a character to compute current position.
+   * Cards are replayed in card number order (1→12).
+   */
+  private recomputePosition(charKey: string) {
+    const orig = this.originalPositions.get(charKey);
+    if (!orig) return;
+
+    // Start from original position
+    const pos = { ...orig };
+
+    // Get selected cards for this character, sorted by card number
+    const cards = (charKey === this.selectedCharKey)
+      ? this.getCurrentCardSelection()
+      : (this.characterCards.get(charKey) ?? []);
+
+    const sorted = [...cards].sort((a, b) => a.card - b.card);
+
+    for (const sel of sorted) {
+      const def = getActionDef(sel);
+      if (def.category !== "foot") continue;
+
+      const choice = this.pendingChoices.get(sel.card) ?? sel.choice;
+
+      if (def.choiceType === "move_ahead" || def.choiceType === "move_back") {
+        // Move to chosen hex
+        if (choice?.targetHexId && this.hexMap) {
+          const hex = this.hexMap.getHex(choice.targetHexId);
+          if (hex) {
+            pos.lx = hex.lx;
+            pos.ly = hex.ly;
+            pos.hexId = hex.id;
+          }
+        }
+      } else if (def.choiceType === "turn_ahead" || def.choiceType === "turn_back") {
+        // Change facing
+        if (choice?.newFacing) {
+          const currentFacing = angleToDirIndex(pos.angle, charKey);
+          const newFacingDir = relativeToAbsoluteDir(currentFacing, choice.newFacing);
+          pos.angle = dirIndexToAngle(newFacingDir, charKey);
+        }
+      } else if (def.name === "Sprint") {
+        // Auto-move straight ahead
+        if (this.hexMap && pos.hexId) {
+          const aheadHex = this.hexMap.getRelativeNeighbor(pos.hexId, pos.angle, "ahead", charKey);
+          if (aheadHex) {
+            pos.lx = aheadHex.lx;
+            pos.ly = aheadHex.ly;
+            pos.hexId = aheadHex.id;
+          }
+        }
+      }
+      // Leap/Drop, Get Up/Down, Head Out/Back: no position change
+    }
+
+    this.currentPositions.set(charKey, pos);
+  }
+
+  /** Recompute position and update the token sprite on the board. */
+  private updateCharPosition(charKey: string) {
+    this.recomputePosition(charKey);
+    this.refreshView();
   }
 
   // ── Input (zoom, pan) ────────────────────────────────────────────────────
@@ -692,16 +1059,25 @@ export class GameScene extends Phaser.Scene {
     if (state.phase === "action_selection" && this.lastPhase !== "action_selection") {
       this.characterCards.clear();
       this.confirmedChars.clear();
+      this.pendingChoices.clear();
+      this.exitChoiceMode();
       this.selectedCharKey = null;
-      // Auto-select first character
+
+      // Reset positions to originals for the new turn
+      // (in the future, server state will update positions after sequence resolution)
+      for (const t of this.tokens) {
+        const orig = this.originalPositions.get(t.charKey);
+        if (orig) this.currentPositions.set(t.charKey, { ...orig });
+      }
+
       if (this.tokens.length > 0) {
         this.selectCharacter(this.tokens[0].charKey);
       }
       this.refreshCharacterTabs();
       this.refreshTokenHighlights();
+      this.refreshView();
     }
 
-    // Show/hide card UI
     const showCards = state.phase === "action_selection";
     this.cardContainer.setVisible(showCards);
 

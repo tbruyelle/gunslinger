@@ -89,10 +89,57 @@ export type CardNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 /** Which side of a card is being played. */
 export type CardSide = "front" | "back";
 
-/** A selected action: card number + chosen side. */
+// ── Choice types for action cards ────────────────────────────────────────────
+
+/**
+ * What kind of additional choice a card requires when selected.
+ * - move_ahead: pick 1 of 3 forward hexes (straight ahead, ahead left, ahead right)
+ * - move_back: pick 1 of 3 backward hexes (straight back, back left, back right)
+ * - turn_ahead: pick new facing from 3 forward directions
+ * - turn_back: pick new facing from 3 backward directions
+ * - target_ranged: pick a target character (any range)
+ * - target_melee: pick a target character within 1 hex
+ * - target_defend: pick an attacker to defend against
+ * - none: no additional choice needed
+ */
+export type ChoiceType =
+  | "move_ahead"
+  | "move_back"
+  | "turn_ahead"
+  | "turn_back"
+  | "target_ranged"
+  | "target_melee"
+  | "target_defend"
+  | "none";
+
+/**
+ * Relative hex direction from facing.
+ * Index into the 6-neighbor ring: ahead=0, ahead_right=+1, back_right=+2,
+ * back=+3, back_left=+4, ahead_left=+5 (all mod 6 from facingIndex).
+ */
+export type RelativeDirection =
+  | "ahead"
+  | "ahead_right"
+  | "back_right"
+  | "back"
+  | "back_left"
+  | "ahead_left";
+
+/** The player's choice for a card that requires one. */
+export interface CardChoice {
+  /** For move choices: the target hex ID to move to. */
+  targetHexId?: string;
+  /** For turn choices: the relative direction to face. */
+  newFacing?: RelativeDirection;
+  /** For target choices: the charKey of the target. */
+  targetCharKey?: string;
+}
+
+/** A selected action: card number + chosen side + optional choice. */
 export interface ActionCardSelection {
   card: CardNumber;
   side: CardSide;
+  choice?: CardChoice;
 }
 
 /** Static data for one side of an action card. */
@@ -102,6 +149,8 @@ export interface ActionSideDef {
   cost: number;
   /** Category shown on the card (top-left). */
   category: string;
+  /** What additional choice this card requires. */
+  choiceType: ChoiceType;
 }
 
 /** Static data for a physical action card (front + back). */
@@ -113,31 +162,91 @@ export interface ActionCardDef {
 
 /** All 12 action cards with front and back actions. */
 export const ACTION_CARDS: ActionCardDef[] = [
-  { card: 1,  front: { name: "Advance",        cost: 2, category: "foot" },
-               back:  { name: "Back Up",         cost: 3, category: "foot" } },
-  { card: 2,  front: { name: "Run",             cost: 1, category: "foot" },
-               back:  { name: "Spin Around",     cost: 2, category: "foot" } },
-  { card: 3,  front: { name: "Sprint",          cost: 1, category: "foot" },
-               back:  { name: "Turn",            cost: 1, category: "foot" } },
-  { card: 4,  front: { name: "Sprint",          cost: 1, category: "foot" },
-               back:  { name: "Leap/Drop",       cost: 1, category: "foot" } },
-  { card: 5,  front: { name: "Cock/Aim/Shoot",  cost: 2, category: "hand" },
-               back:  { name: "Get Up/Down",     cost: 3, category: "foot" } },
-  { card: 6,  front: { name: "Cock/Aim/Shoot",  cost: 2, category: "hand" },
-               back:  { name: "Throw",           cost: 2, category: "hand" } },
-  { card: 7,  front: { name: "Shoot",           cost: 1, category: "hand" },
-               back:  { name: "Strength",        cost: 2, category: "strength" } },
-  { card: 8,  front: { name: "Load",            cost: 3, category: "hand" },
-               back:  { name: "Head Out/Back",   cost: 2, category: "foot" } },
-  { card: 9,  front: { name: "Draw & Cock",     cost: 3, category: "hand" },
-               back:  { name: "Head Out/Back",   cost: 2, category: "foot" } },
-  { card: 10, front: { name: "Jab",             cost: 2, category: "attack" },
-               back:  { name: "Duck",            cost: 1, category: "defense" } },
-  { card: 11, front: { name: "Swing",           cost: 3, category: "attack" },
-               back:  { name: "Block",           cost: 2, category: "defense" } },
-  { card: 12, front: { name: "Belt",            cost: 3, category: "attack" },
-               back:  { name: "Guard",           cost: 2, category: "defense" } },
+  { card: 1,  front: { name: "Advance",        cost: 2, category: "foot",     choiceType: "move_ahead" },
+               back:  { name: "Back Up",         cost: 3, category: "foot",     choiceType: "move_back" } },
+  { card: 2,  front: { name: "Run",             cost: 1, category: "foot",     choiceType: "move_ahead" },
+               back:  { name: "Spin Around",     cost: 2, category: "foot",     choiceType: "turn_back" } },
+  { card: 3,  front: { name: "Sprint",          cost: 1, category: "foot",     choiceType: "none" },
+               back:  { name: "Turn",            cost: 1, category: "foot",     choiceType: "turn_ahead" } },
+  { card: 4,  front: { name: "Sprint",          cost: 1, category: "foot",     choiceType: "none" },
+               back:  { name: "Leap/Drop",       cost: 1, category: "foot",     choiceType: "none" } },
+  { card: 5,  front: { name: "Cock/Aim/Shoot",  cost: 2, category: "hand",     choiceType: "target_ranged" },
+               back:  { name: "Get Up/Down",     cost: 3, category: "foot",     choiceType: "none" } },
+  { card: 6,  front: { name: "Cock/Aim/Shoot",  cost: 2, category: "hand",     choiceType: "target_ranged" },
+               back:  { name: "Throw",           cost: 2, category: "hand",     choiceType: "target_ranged" } },
+  { card: 7,  front: { name: "Shoot",           cost: 1, category: "hand",     choiceType: "target_ranged" },
+               back:  { name: "Strength",        cost: 2, category: "strength", choiceType: "none" } },
+  { card: 8,  front: { name: "Load",            cost: 3, category: "hand",     choiceType: "none" },
+               back:  { name: "Head Out/Back",   cost: 2, category: "foot",     choiceType: "none" } },
+  { card: 9,  front: { name: "Draw & Cock",     cost: 3, category: "hand",     choiceType: "none" },
+               back:  { name: "Head Out/Back",   cost: 2, category: "foot",     choiceType: "none" } },
+  { card: 10, front: { name: "Jab",             cost: 2, category: "attack",   choiceType: "target_melee" },
+               back:  { name: "Duck",            cost: 1, category: "defense",  choiceType: "target_defend" } },
+  { card: 11, front: { name: "Swing",           cost: 3, category: "attack",   choiceType: "target_melee" },
+               back:  { name: "Block",           cost: 2, category: "defense",  choiceType: "target_defend" } },
+  { card: 12, front: { name: "Belt",            cost: 3, category: "attack",   choiceType: "target_melee" },
+               back:  { name: "Guard",           cost: 2, category: "defense",  choiceType: "target_defend" } },
 ];
+
+// ── Hex facing & direction utilities ─────────────────────────────────────────
+
+/**
+ * 6 hex neighbor directions, indexed 0–5 clockwise starting from North.
+ * Convention: token angle=0 → facing North (up).
+ * facingIndex = tokenAngle / 60.
+ */
+export const HEX_DIRECTIONS = ["N", "NE", "SE", "S", "SW", "NW"] as const;
+export type HexDirection = typeof HEX_DIRECTIONS[number];
+
+/**
+ * Default arrow direction index for each character at angle=0.
+ * Detected from the black arrow position in the token PNG images.
+ * All tokens point either NE (1) or NW (5).
+ */
+export const CHAR_ARROW_DIR: Record<string, number> = {
+  andy: 5, axe: 1, banker: 1, barkeep: 1, border_rider: 1, cattle_baron: 5,
+  chief: 1, clerk: 5, driver: 5, dude: 1, eagle: 1, el_jefe: 1, fast_draw: 5,
+  fast_eddie: 1, floozy: 1, foreman: 5, gambler: 1, guard: 5, gun_artist: 5,
+  happy: 5, hawk: 1, ike: 1, innocente: 1, john_henry: 1, lady: 5, lightning: 1,
+  ling_ho: 1, little_ernie: 5, lucky: 5, marshal: 5, mountain_man: 5, nco: 5,
+  old_man: 5, owner: 1, prospector: 5, quiet_man: 5, reb: 5, running_boy: 1,
+  slim: 5, smith: 1, sodbuster: 1, texas: 5, the_drifter: 1, the_kid: 1,
+  u_s_scout: 5, veteran: 5, woman: 5, yankee: 5,
+};
+
+/**
+ * Convert token angle (0,60,120,180,240,300) to a facing direction index (0–5).
+ * Accounts for the character's default arrow direction in the unrotated image.
+ */
+export function angleToDirIndex(angle: number, charKey?: string): number {
+  const baseDir = charKey ? (CHAR_ARROW_DIR[charKey] ?? 1) : 1;
+  const rotSteps = ((Math.round(angle / 60) % 6) + 6) % 6;
+  return (baseDir + rotSteps) % 6;
+}
+
+/**
+ * Convert a facing direction index back to a token angle for a given character.
+ * Inverse of angleToDirIndex.
+ */
+export function dirIndexToAngle(dirIndex: number, charKey?: string): number {
+  const baseDir = charKey ? (CHAR_ARROW_DIR[charKey] ?? 1) : 1;
+  const rotSteps = ((dirIndex - baseDir) % 6 + 6) % 6;
+  return rotSteps * 60;
+}
+
+/** Given a facing index, return the direction index for a relative direction. */
+export function relativeToAbsoluteDir(facingIndex: number, rel: RelativeDirection): number {
+  const offsets: Record<RelativeDirection, number> = {
+    ahead: 0, ahead_right: 1, back_right: 2,
+    back: 3, back_left: 4, ahead_left: 5,
+  };
+  return (facingIndex + offsets[rel]) % 6;
+}
+
+/** The 3 forward relative directions (for move_ahead / turn_ahead). */
+export const AHEAD_DIRS: RelativeDirection[] = ["ahead_left", "ahead", "ahead_right"];
+/** The 3 backward relative directions (for move_back / turn_back). */
+export const BACK_DIRS: RelativeDirection[] = ["back_left", "back", "back_right"];
 
 /** Total sequences per turn that must be filled with action cards. */
 export const SEQUENCES_PER_TURN = 5;
