@@ -53,7 +53,7 @@ export interface Weapon {
 
 // ── Players ──────────────────────────────────────────────────────────────────
 
-export type PlayerStatus = "alive" | "down" | "passed_out" | "surrendered" | "dead";
+export type CharacterStatus = "alive" | "down" | "passed_out" | "surrendered" | "dead";
 
 export interface Player {
   /** Character key (e.g. "marshal"), also used as the map key in GameState.players. */
@@ -73,7 +73,7 @@ export interface Player {
   wounds: Wound[];
   weapons: Weapon[];
   activeWeaponIndex: number;
-  status: PlayerStatus;
+  status: CharacterStatus;
 }
 
 // ── Action cards ─────────────────────────────────────────────────────────────

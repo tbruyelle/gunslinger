@@ -10,6 +10,7 @@ import type {
   CardChoice,
   ChoiceType,
   RelativeDirection,
+  CharacterStatus,
 } from "@gunslinger/shared";
 import {
   ACTION_CARDS,
@@ -64,6 +65,23 @@ const HEX_HIGHLIGHT_R = 18;
 interface HexPoint { id: string; x: number; y: number }
 interface HexGridData { boards: Record<string, { hexes: HexPoint[] }> }
 
+/** Local character state tracked during card selection preview. */
+interface CharacterState {
+  lx: number;
+  ly: number;
+  angle: number;
+  hexId: string;
+  status: CharacterStatus;
+}
+
+/** Statuses that show a VASSAL-style overlay on the token. */
+const STATUS_OVERLAY_ASSETS: Record<string, string> = {
+  down: "state_down",
+  passed_out: "state_passed_out",
+  surrendered: "state_surrendered",
+  dead: "state_dead",
+};
+
 export class GameScene extends Phaser.Scene {
   private room!: Room<GameState>;
 
@@ -89,6 +107,7 @@ export class GameScene extends Phaser.Scene {
   private boardImages: Phaser.GameObjects.Image[] = [];
   private tokenSprites: Map<string, Phaser.GameObjects.Image> = new Map();
   private tokenHighlights: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private tokenStatusOverlays: Map<string, Phaser.GameObjects.Image> = new Map();
   private arrMask!: Phaser.Display.Masks.GeometryMask;
   private arrMaskGfx!: Phaser.GameObjects.Graphics;
 
@@ -132,9 +151,9 @@ export class GameScene extends Phaser.Scene {
   // Pending choices stored per card (cardNum → choice)
   private pendingChoices: Map<number, CardChoice> = new Map();
 
-  // Position tracking: original (from placement) and current (after foot actions)
-  private originalPositions: Map<string, { lx: number; ly: number; angle: number; hexId: string }> = new Map();
-  private currentPositions: Map<string, { lx: number; ly: number; angle: number; hexId: string }> = new Map();
+  // Per-character state: original (from placement) and current (after foot actions preview)
+  private originalState: Map<string, CharacterState> = new Map();
+  private currentState: Map<string, CharacterState> = new Map();
 
   // Phase tracking
   private lastPhase: string = "";
@@ -156,8 +175,8 @@ export class GameScene extends Phaser.Scene {
     this.pendingChoices.clear();
     this.choiceMode = null;
     this.lastPhase = "";
-    this.originalPositions.clear();
-    this.currentPositions.clear();
+    this.originalState.clear();
+    this.currentState.clear();
   }
 
   // ── Dimensions ────────────────────────────────────────────────────────────
@@ -188,6 +207,10 @@ export class GameScene extends Phaser.Scene {
       const key = `char_${t.charKey}`;
       if (!this.textures.exists(key)) this.load.image(key, `${key}.png`);
     }
+    // Status overlay textures (from VASSAL module)
+    for (const texKey of Object.values(STATUS_OVERLAY_ASSETS)) {
+      if (!this.textures.exists(texKey)) this.load.image(texKey, `local/${texKey}.png`);
+    }
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -199,11 +222,11 @@ export class GameScene extends Phaser.Scene {
       this.hexMap = new HexNeighborMap(this.hexGridData, this.boards);
     }
 
-    // Store original positions from token placement
+    // Store original character state from token placement
     for (const t of this.tokens) {
-      const pos = { lx: t.lx, ly: t.ly, angle: t.angle, hexId: t.hexId ?? "" };
-      this.originalPositions.set(t.charKey, { ...pos });
-      this.currentPositions.set(t.charKey, { ...pos });
+      const state: CharacterState = { lx: t.lx, ly: t.ly, angle: t.angle, hexId: t.hexId ?? "", status: "alive" };
+      this.originalState.set(t.charKey, { ...state });
+      this.currentState.set(t.charKey, { ...state });
     }
 
     this.buildAll();
@@ -324,8 +347,10 @@ export class GameScene extends Phaser.Scene {
   private buildTokenDisplay() {
     this.tokenSprites.forEach(s => s.destroy());
     this.tokenHighlights.forEach(h => h.destroy());
+    this.tokenStatusOverlays.forEach(o => o.destroy());
     this.tokenSprites.clear();
     this.tokenHighlights.clear();
+    this.tokenStatusOverlays.clear();
 
     if (this.tokens.length === 0) return;
 
@@ -334,7 +359,7 @@ export class GameScene extends Phaser.Scene {
 
     for (const t of this.tokens) {
       // Use current position (may have moved from foot actions)
-      const pos = this.currentPositions.get(t.charKey) ?? t;
+      const pos = this.currentState.get(t.charKey) ?? t;
       const { sx, sy } = this.layoutToScreen(pos.lx, pos.ly);
 
       // Selection highlight ring (behind token)
@@ -366,6 +391,12 @@ export class GameScene extends Phaser.Scene {
       });
 
       this.tokenSprites.set(t.charKey, img);
+
+      // Restore status overlay if character is not alive
+      const charState = this.currentState.get(t.charKey);
+      if (charState && charState.status !== "alive") {
+        this.updateStatusOverlay(t.charKey, charState.status);
+      }
     }
 
     this.refreshTokenHighlights();
@@ -636,14 +667,14 @@ export class GameScene extends Phaser.Scene {
       this.pendingChoices.delete(cardNum);
       // Recompute position if a foot card was deselected
       if (def.category === "foot" && this.selectedCharKey) {
-        this.updateCharPosition(this.selectedCharKey);
+        this.updateCharState(this.selectedCharKey);
       }
     } else {
       img.setData("selected", true);
 
       // If foot card with no choice (Sprint), auto-execute immediately
       if (def.category === "foot" && def.choiceType === "none" && this.selectedCharKey) {
-        this.updateCharPosition(this.selectedCharKey);
+        this.updateCharState(this.selectedCharKey);
       }
 
       // Check if this card needs a choice
@@ -778,13 +809,14 @@ export class GameScene extends Phaser.Scene {
     this.characterCards.set(this.selectedCharKey, this.getCurrentCardSelection());
     this.confirmedChars.add(this.selectedCharKey);
 
-    // Animate token back to original position (movement was just a preview)
+    // Animate token back to original state (movement/status was just a preview)
     const charKey = this.selectedCharKey;
-    const orig = this.originalPositions.get(charKey);
+    const orig = this.originalState.get(charKey);
     if (orig) {
       this.animateTokenTo(charKey, orig);
-      this.currentPositions.set(charKey, { ...orig });
+      this.currentState.set(charKey, { ...orig });
     }
+    this.updateStatusOverlay(charKey, "alive");
 
     this.refreshCharacterTabs();
     this.refreshTokenHighlights();
@@ -856,7 +888,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getHexOptionsForChar(charKey: string, dirs: RelativeDirection[]): { relDir: RelativeDirection; hex: LayoutHex | null }[] {
-    const pos = this.currentPositions.get(charKey);
+    const pos = this.currentState.get(charKey);
     if (!this.hexMap || !pos?.hexId) return [];
     return this.hexMap.getRelativeNeighbors(pos.hexId, pos.angle, dirs, charKey);
   }
@@ -913,7 +945,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.exitChoiceMode();
-    this.updateCharPosition(this.selectedCharKey);
+    this.updateCharState(this.selectedCharKey);
     this.refreshSelectionDisplay();
     this.refreshCardHighlights();
   }
@@ -940,12 +972,12 @@ export class GameScene extends Phaser.Scene {
    * Replay all selected foot cards for a character to compute current position.
    * Cards are replayed in card number order (1→12).
    */
-  private recomputePosition(charKey: string) {
-    const orig = this.originalPositions.get(charKey);
+  private recomputeState(charKey: string) {
+    const orig = this.originalState.get(charKey);
     if (!orig) return;
 
-    // Start from original position
-    const pos = { ...orig };
+    // Start from original state (alive and upright)
+    const state: CharacterState = { ...orig, status: "alive" };
 
     // Get selected cards for this character, sorted by card number
     const cards = (charKey === this.selectedCharKey)
@@ -965,72 +997,72 @@ export class GameScene extends Phaser.Scene {
         if (choice?.targetHexId && this.hexMap) {
           const hex = this.hexMap.getHex(choice.targetHexId);
           if (hex) {
-            pos.lx = hex.lx;
-            pos.ly = hex.ly;
-            pos.hexId = hex.id;
+            state.lx = hex.lx;
+            state.ly = hex.ly;
+            state.hexId = hex.id;
           }
         }
       } else if (def.choiceType === "turn_ahead" || def.choiceType === "turn_back") {
         // Change facing
         if (choice?.newFacing) {
-          const currentFacing = angleToDirIndex(pos.angle, charKey);
+          const currentFacing = angleToDirIndex(state.angle, charKey);
           const newFacingDir = relativeToAbsoluteDir(currentFacing, choice.newFacing);
-          pos.angle = dirIndexToAngle(newFacingDir, charKey);
+          state.angle = dirIndexToAngle(newFacingDir, charKey);
         }
       } else if (def.name === "Sprint") {
         // Auto-move straight ahead
-        if (this.hexMap && pos.hexId) {
-          const aheadHex = this.hexMap.getRelativeNeighbor(pos.hexId, pos.angle, "ahead", charKey);
+        if (this.hexMap && state.hexId) {
+          const aheadHex = this.hexMap.getRelativeNeighbor(state.hexId, state.angle, "ahead", charKey);
           if (aheadHex) {
-            pos.lx = aheadHex.lx;
-            pos.ly = aheadHex.ly;
-            pos.hexId = aheadHex.id;
+            state.lx = aheadHex.lx;
+            state.ly = aheadHex.ly;
+            state.hexId = aheadHex.id;
           }
         }
       }
-      // Leap/Drop, Get Up/Down, Head Out/Back: no position change
+      // Leap/Drop or Get Up/Down: toggle down state
+      if (def.name === "Leap/Drop" || def.name === "Get Up/Down") {
+        state.status = state.status === "down" ? "alive" : "down";
+      }
+      // Head Out/Back: no position change
     }
 
-    this.currentPositions.set(charKey, pos);
+    this.currentState.set(charKey, state);
   }
 
   /**
    * Recompute position and animate the token sprite to the new location.
    * Uses tweens instead of rebuilding the entire view.
    */
-  private updateCharPosition(charKey: string) {
-    const oldPos = this.currentPositions.get(charKey);
-    this.recomputePosition(charKey);
-    const newPos = this.currentPositions.get(charKey);
+  private updateCharState(charKey: string) {
+    const oldState = this.currentState.get(charKey);
+    this.recomputeState(charKey);
+    const newState = this.currentState.get(charKey);
 
-    if (!oldPos || !newPos) return;
+    if (!oldState || !newState) return;
 
     const sprite = this.tokenSprites.get(charKey);
     const highlight = this.tokenHighlights.get(charKey);
     if (!sprite) return;
 
-    const { sx, sy } = this.layoutToScreen(newPos.lx, newPos.ly);
+    const { sx, sy } = this.layoutToScreen(newState.lx, newState.ly);
 
-    const moved = oldPos.lx !== newPos.lx || oldPos.ly !== newPos.ly;
-    const rotated = oldPos.angle !== newPos.angle;
+    const moved = oldState.lx !== newState.lx || oldState.ly !== newState.ly;
+    const rotated = oldState.angle !== newState.angle;
+
+    const overlay = this.tokenStatusOverlays.get(charKey);
 
     if (moved || rotated) {
-      // Kill any running tweens on this sprite
       this.tweens.killTweensOf(sprite);
       if (highlight) this.tweens.killTweensOf(highlight);
+      if (overlay) this.tweens.killTweensOf(overlay);
     }
 
     if (moved) {
-      this.tweens.add({
-        targets: sprite,
-        x: sx,
-        y: sy,
-        duration: 300,
-        ease: "Cubic.easeInOut",
-      });
-      if (highlight) {
+      const moveTargets = [sprite, highlight, overlay].filter(Boolean);
+      for (const target of moveTargets) {
         this.tweens.add({
-          targets: highlight,
+          targets: target,
           x: sx,
           y: sy,
           duration: 300,
@@ -1040,8 +1072,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (rotated) {
-      // Compute shortest rotation path
-      let angleDiff = newPos.angle - oldPos.angle;
+      let angleDiff = newState.angle - oldState.angle;
       if (angleDiff > 180) angleDiff -= 360;
       if (angleDiff < -180) angleDiff += 360;
       const targetAngle = sprite.angle + angleDiff;
@@ -1053,30 +1084,56 @@ export class GameScene extends Phaser.Scene {
         ease: "Cubic.easeInOut",
       });
     }
+
+    this.updateStatusOverlay(charKey, newState.status);
+  }
+
+  private updateStatusOverlay(charKey: string, status: CharacterStatus) {
+    const sprite = this.tokenSprites.get(charKey);
+    const existing = this.tokenStatusOverlays.get(charKey);
+    const overlayKey = STATUS_OVERLAY_ASSETS[status];
+
+    // Remove overlay if status is alive or no asset for this status
+    if (!overlayKey) {
+      if (existing) {
+        existing.destroy();
+        this.tokenStatusOverlays.delete(charKey);
+      }
+      return;
+    }
+
+    if (existing) {
+      // Update texture if status changed
+      if (existing.texture.key !== overlayKey) {
+        existing.setTexture(overlayKey);
+      }
+    } else if (sprite) {
+      // Create new overlay, matching token position and scale
+      const overlay = this.add.image(sprite.x, sprite.y, overlayKey)
+        .setScale(sprite.scaleX)
+        .setOrigin(0.5)
+        .setMask(this.arrMask);
+      this.tokenStatusOverlays.set(charKey, overlay);
+    }
   }
 
   /** Animate a token sprite + highlight to a target position/angle. */
   private animateTokenTo(charKey: string, target: { lx: number; ly: number; angle: number }) {
     const sprite = this.tokenSprites.get(charKey);
     const highlight = this.tokenHighlights.get(charKey);
+    const overlay = this.tokenStatusOverlays.get(charKey);
     if (!sprite) return;
 
     const { sx, sy } = this.layoutToScreen(target.lx, target.ly);
 
     this.tweens.killTweensOf(sprite);
     if (highlight) this.tweens.killTweensOf(highlight);
+    if (overlay) this.tweens.killTweensOf(overlay);
 
-    this.tweens.add({
-      targets: sprite,
-      x: sx,
-      y: sy,
-      duration: 350,
-      ease: "Cubic.easeInOut",
-    });
-
-    if (highlight) {
+    const moveTargets = [sprite, highlight, overlay].filter(Boolean);
+    for (const t of moveTargets) {
       this.tweens.add({
-        targets: highlight,
+        targets: t,
         x: sx,
         y: sy,
         duration: 350,
@@ -1168,11 +1225,12 @@ export class GameScene extends Phaser.Scene {
       this.exitChoiceMode();
       this.selectedCharKey = null;
 
-      // Reset positions to originals for the new turn
-      // (in the future, server state will update positions after sequence resolution)
+      // Reset state to originals for the new turn
+      // (in the future, server state will update after sequence resolution)
       for (const t of this.tokens) {
-        const orig = this.originalPositions.get(t.charKey);
-        if (orig) this.currentPositions.set(t.charKey, { ...orig });
+        const orig = this.originalState.get(t.charKey);
+        if (orig) this.currentState.set(t.charKey, { ...orig });
+        this.updateStatusOverlay(t.charKey, "alive");
       }
 
       if (this.tokens.length > 0) {
