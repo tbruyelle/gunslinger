@@ -22,7 +22,9 @@ import {
   angleToDirIndex,
   relativeToAbsoluteDir,
   dirIndexToAngle,
+  PHASE,
 } from "@gunslinger/shared";
+import type { GamePhase } from "@gunslinger/shared";
 import { HexNeighborMap, type LayoutHex } from "../hex/neighbors";
 
 // ── Board registry (same as TokenPlacementScene) ────────────────────────────
@@ -73,6 +75,13 @@ interface CharacterState {
   hexId: string;
   status: CharacterStatus;
 }
+
+const PHASE_LABELS: Record<GamePhase, string> = {
+  [PHASE.ACTION_SELECTION]: "Select Action Cards",
+  [PHASE.SEQUENCE_RESOLUTION]: "Sequence Resolution",
+  [PHASE.TURN_END]: "Turn End",
+  [PHASE.END]: "Game Over",
+};
 
 /** Statuses that show a VASSAL-style overlay on the token. */
 const STATUS_OVERLAY_ASSETS: Record<string, string> = {
@@ -319,9 +328,6 @@ export class GameScene extends Phaser.Scene {
 
     this.room.onStateChange((state) => this.onStateChange(state));
     this.room.onMessage("error", (msg: string) => console.warn("Server error:", msg));
-
-    // Send ready to start
-    this.room.send("ready");
   }
 
   private buildAll() {
@@ -507,7 +513,7 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
 
     this.phaseText = this.add
-      .text(w / 2, HUD_H / 2, "Lobby", { fontSize: "18px", color: "#c4935a" })
+      .text(w / 2, HUD_H / 2, PHASE_LABELS[PHASE.ACTION_SELECTION], { fontSize: "18px", color: "#c4935a" })
       .setOrigin(0.5);
 
     this.sequenceText = this.add
@@ -1205,7 +1211,7 @@ export class GameScene extends Phaser.Scene {
     this.updatePhaseDisplay(state);
 
     // When entering action_selection, reset local card state
-    if (state.phase === "action_selection" && this.lastPhase !== "action_selection") {
+    if (state.phase === PHASE.ACTION_SELECTION && this.lastPhase !== PHASE.ACTION_SELECTION) {
       this.characterCards.clear();
       this.characterSelectionOrders.clear();
       this.selectionOrder = [];
@@ -1230,29 +1236,21 @@ export class GameScene extends Phaser.Scene {
       this.refreshView();
     }
 
-    const showCards = state.phase === "action_selection";
+    const showCards = state.phase === PHASE.ACTION_SELECTION;
     this.cardContainer.setVisible(showCards);
 
     this.lastPhase = state.phase;
   }
 
   private updatePhaseDisplay(state: GameState) {
-    const phaseLabels: Record<string, string> = {
-      lobby: "Waiting for players...",
-      action_selection: "Select action cards for each character",
-      sequence: `Sequence ${state.currentSequence} of 5`,
-      turn_end: "Turn ending...",
-      end: "Game Over",
-    };
+    this.phaseText.setText(PHASE_LABELS[state.phase as GamePhase] ?? state.phase);
 
-    this.phaseText.setText(phaseLabels[state.phase] ?? state.phase);
-
-    if (state.phase === "sequence") {
+    if (state.phase === PHASE.SEQUENCE_RESOLUTION) {
       const dots = Array.from({ length: 5 }, (_, i) =>
         i < state.currentSequence ? "\u25cf" : "\u25cb"
       ).join(" ");
       this.sequenceText.setText(dots);
-    } else if (state.phase === "action_selection") {
+    } else if (state.phase === PHASE.ACTION_SELECTION) {
       this.sequenceText.setText("\u25cb \u25cb \u25cb \u25cb \u25cb");
     } else {
       this.sequenceText.setText("");

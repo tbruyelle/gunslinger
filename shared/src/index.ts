@@ -287,9 +287,16 @@ export interface Action {
 
 /**
  * Turn sequence:
- *   action_selection → sequence (1–5) → turn_end → action_selection (next turn) | end
+ *   action_selection → sequence_resolution (1–5) → turn_end → action_selection (next turn) | end
  */
-export type GamePhase = "lobby" | "action_selection" | "sequence" | "turn_end" | "end";
+export const PHASE = {
+  ACTION_SELECTION: "action_selection",
+  SEQUENCE_RESOLUTION: "sequence_resolution",
+  TURN_END: "turn_end",
+  END: "end",
+} as const;
+
+export type GamePhase = typeof PHASE[keyof typeof PHASE];
 
 export type SequenceNumber = 1 | 2 | 3 | 4 | 5;
 

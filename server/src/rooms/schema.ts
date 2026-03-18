@@ -1,4 +1,5 @@
 import { Schema, type, MapSchema, ArraySchema } from "@colyseus/schema";
+import { PHASE } from "@gunslinger/shared";
 
 // ── Nested schemas ──────────────────────────────────────────────────────────
 
@@ -67,7 +68,7 @@ export class PlacedBoardSchema extends Schema {
 // ── Root game state ─────────────────────────────────────────────────────────
 
 export class GameStateSchema extends Schema {
-  @type("string") phase: string = "lobby";
+  @type("string") phase: string = PHASE.ACTION_SELECTION;
   @type("number") turn: number = 1;
   @type("number") currentSequence: number = 1;
   @type("number") maxTurns: number = 20;

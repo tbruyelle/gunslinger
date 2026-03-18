@@ -5,7 +5,7 @@ import type {
   ActionCardSelection,
   SequenceNumber,
 } from "@gunslinger/shared";
-import { getActionDef } from "@gunslinger/shared";
+import { getActionDef, PHASE } from "@gunslinger/shared";
 import {
   GameStateSchema,
   PlayerSchema,
@@ -32,7 +32,7 @@ export class GameRoom extends Room<GameStateSchema> {
 
   onCreate(options: RoomOptions) {
     const state = new GameStateSchema();
-    state.phase = "lobby";
+    state.phase = PHASE.ACTION_SELECTION;
     state.turn = 1;
     state.currentSequence = 1;
     state.maxTurns = options.maxTurns ?? 20;
@@ -87,10 +87,6 @@ export class GameRoom extends Room<GameStateSchema> {
       this.handleSelectCards(client.sessionId, msg);
     });
 
-    this.onMessage("ready", (client) => {
-      this.handleReady(client.sessionId);
-    });
-
     console.log(`Room created with ${state.playerOrder.length} characters, ${state.boards.length} boards`);
   }
 
@@ -113,7 +109,7 @@ export class GameRoom extends Room<GameStateSchema> {
     });
     console.log(`${client.sessionId} left.`);
 
-    if (this.state.phase !== "lobby" && this.state.phase !== "end") {
+    if (this.state.phase !== PHASE.END) {
       this.checkGameOver();
     }
   }
@@ -121,7 +117,7 @@ export class GameRoom extends Room<GameStateSchema> {
   // ── Card selection ─────────────────────────────────────────────────────────
 
   private handleSelectCards(sessionId: string, allCards: SelectCardsMessage) {
-    if (this.state.phase !== "action_selection") {
+    if (this.state.phase !== PHASE.ACTION_SELECTION) {
       this.sendError(sessionId, "Cards can only be selected during the action selection phase.");
       return;
     }
@@ -176,18 +172,10 @@ export class GameRoom extends Room<GameStateSchema> {
     }
   }
 
-  private handleReady(sessionId: string) {
-    if (this.state.phase !== "lobby") return;
-    if (this.state.playerOrder.length >= 2) {
-      this.startTurn();
-    }
-    void sessionId;
-  }
-
   // ── Phase machine ─────────────────────────────────────────────────────────
 
   private startTurn() {
-    this.state.phase = "action_selection";
+    this.state.phase = PHASE.ACTION_SELECTION;
     this.state.currentSequence = 1;
     this.state.selectedCards.clear();
     this.resetActionPoints();
@@ -195,7 +183,7 @@ export class GameRoom extends Room<GameStateSchema> {
   }
 
   private startSequences() {
-    this.state.phase = "sequence";
+    this.state.phase = PHASE.SEQUENCE_RESOLUTION;
     this.state.currentSequence = 1;
     console.log(`Room ${this.roomId}: Turn ${this.state.turn} — sequence 1`);
     this.advanceSequence();
@@ -215,13 +203,13 @@ export class GameRoom extends Room<GameStateSchema> {
   }
 
   private endTurn() {
-    this.state.phase = "turn_end";
+    this.state.phase = PHASE.TURN_END;
     console.log(`Room ${this.roomId}: Turn ${this.state.turn} — turn end`);
 
     if (this.checkGameOver()) return;
 
     if (this.state.turn >= this.state.maxTurns) {
-      this.state.phase = "end";
+      this.state.phase = PHASE.END;
       console.log(`Room ${this.roomId}: Game over — max turns reached`);
       return;
     }
@@ -241,7 +229,7 @@ export class GameRoom extends Room<GameStateSchema> {
     });
 
     if (this.state.winCondition === "last_standing" && alive.length <= 1) {
-      this.state.phase = "end";
+      this.state.phase = PHASE.END;
       console.log(`Room ${this.roomId}: Game over — ${alive[0] ?? "no one"} wins`);
       return true;
     }
