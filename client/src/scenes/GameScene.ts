@@ -607,6 +607,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private toggleCard(cardNum: CardNumber, side: CardSide) {
+    // Block card selection while a choice is pending (must resolve or deselect first)
+    if (this.choiceMode && !(cardNum === this.choiceMode.cardNum && side === this.choiceMode.side)) return;
+
     const idx = this.cardIdx(cardNum, side);
     const otherIdx = this.cardIdx(cardNum, side === "front" ? "back" : "front");
     const img = this.cardImages[idx];
@@ -623,7 +626,7 @@ export class GameScene extends Phaser.Scene {
       if (this.getCurrentCost() + def2.cost > SEQUENCES_PER_TURN) return;
     }
 
-    // Exit any active choice mode
+    // Exit any active choice mode (deselecting the choice card)
     this.exitChoiceMode();
 
     const def = getActionDef({ card: cardNum, side });
@@ -738,6 +741,10 @@ export class GameScene extends Phaser.Scene {
       // Check if selecting this card would exceed the cost limit
       const wouldExceed = !selected && (cost + def.cost > SEQUENCES_PER_TURN);
 
+      // During choice mode, dim all cards except the one awaiting a choice
+      const blockedByChoice = !!this.choiceMode &&
+        !(cardNum === this.choiceMode.cardNum && side === this.choiceMode.side);
+
       if (selected && needsChoice && !hasChoice) {
         hl.setStrokeStyle(3, 0xff6600, 1);
         hl.setFillStyle(0xff6600, 0.15);
@@ -745,9 +752,8 @@ export class GameScene extends Phaser.Scene {
       } else if (selected) {
         hl.setStrokeStyle(3, 0xd4a044, 1);
         hl.setFillStyle(0xd4a044, 0.15);
-        img.setAlpha(1);
-      } else if (otherSelected) {
-        // Opposite side selected — dim and block
+        img.setAlpha(blockedByChoice ? 0.5 : 1);
+      } else if (blockedByChoice || otherSelected) {
         hl.setStrokeStyle(2, 0xd4a044, 0);
         hl.setFillStyle(0x000000, 0);
         img.setAlpha(0.3);
