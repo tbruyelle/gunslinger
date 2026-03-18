@@ -204,6 +204,9 @@ export class GameScene extends Phaser.Scene {
 
   // Per-character card selections (with choices)
   private characterCards: Map<string, ActionCardSelection[]> = new Map();
+  /** Selection order for the currently active character (cards replay in this order). */
+  private selectionOrder: { card: CardNumber; side: CardSide }[] = [];
+  private characterSelectionOrders: Map<string, { card: CardNumber; side: CardSide }[]> = new Map();
   private confirmedChars: Set<string> = new Set();
 
   // Card strip UI — front row [0..11], back row [12..23]
@@ -247,6 +250,8 @@ export class GameScene extends Phaser.Scene {
     this.panY = 0;
     this.selectedCharKey = null;
     this.characterCards.clear();
+    this.selectionOrder = [];
+    this.characterSelectionOrders.clear();
     this.confirmedChars.clear();
     this.pendingChoices.clear();
     this.choiceMode = null;
@@ -572,6 +577,7 @@ export class GameScene extends Phaser.Scene {
 
     this.selectedCharKey = charKey;
     this.pendingChoices.clear();
+    this.selectionOrder = [...(this.characterSelectionOrders.get(charKey) ?? [])];
 
     // Restore pending choices for this character
     const saved = this.characterCards.get(charKey) ?? [];
@@ -587,12 +593,12 @@ export class GameScene extends Phaser.Scene {
   private saveCurrentCardState() {
     if (!this.selectedCharKey) return;
     const cards = this.getCurrentCardSelection();
-    // Attach pending choices
     for (const sel of cards) {
       const choice = this.pendingChoices.get(sel.card);
       if (choice) sel.choice = choice;
     }
     this.characterCards.set(this.selectedCharKey, cards);
+    this.characterSelectionOrders.set(this.selectedCharKey, [...this.selectionOrder]);
   }
 
   // ── Card strip ────────────────────────────────────────────────────────────
@@ -727,17 +733,26 @@ export class GameScene extends Phaser.Scene {
     const def = getActionDef({ card: cardNum, side });
 
     if (wasSelected) {
+      // Can only deselect the last selected card
+      const last = this.selectionOrder[this.selectionOrder.length - 1];
+      if (!last || last.card !== cardNum || last.side !== side) return;
+
       img.setData("selected", false);
       this.pendingChoices.delete(cardNum);
-      // Recompute position if a foot card was deselected
+      this.selectionOrder.pop();
+
       if (def.category === "foot" && this.selectedCharKey) {
         this.updateCharState(this.selectedCharKey);
       }
     } else {
       img.setData("selected", true);
+      this.selectionOrder.push({ card: cardNum, side });
 
-      // If foot card with no choice (Sprint), auto-execute immediately
+      // If foot card with no choice (Sprint, Leap/Drop, etc.), auto-execute immediately
       if (def.category === "foot" && def.choiceType === "none" && this.selectedCharKey) {
+        if (def.name === "Sprint") {
+          this.pendingChoices.set(cardNum, { moveDir: "ahead" });
+        }
         this.updateCharState(this.selectedCharKey);
       }
 
@@ -840,14 +855,23 @@ export class GameScene extends Phaser.Scene {
       const blockedByChoice = !!this.choiceMode &&
         !(cardNum === this.choiceMode.cardNum && side === this.choiceMode.side);
 
+      // Check if this is the last selected card (only one that can be deselected)
+      const last = this.selectionOrder[this.selectionOrder.length - 1];
+      const isLastSelected = selected && !!last && last.card === cardNum && last.side === side;
+
       if (selected && needsChoice && !hasChoice) {
         hl.setStrokeStyle(3, 0xff6600, 1);
         hl.setFillStyle(0xff6600, 0.15);
         img.setAlpha(1);
-      } else if (selected) {
+      } else if (selected && isLastSelected) {
         hl.setStrokeStyle(3, 0xd4a044, 1);
         hl.setFillStyle(0xd4a044, 0.15);
         img.setAlpha(blockedByChoice ? 0.5 : 1);
+      } else if (selected) {
+        // Selected but locked (not the last) — darkened
+        hl.setStrokeStyle(2, 0xd4a044, 0.5);
+        hl.setFillStyle(0xd4a044, 0.1);
+        img.setAlpha(blockedByChoice ? 0.4 : 0.6);
       } else if (blockedByChoice || otherSelected) {
         hl.setStrokeStyle(2, 0xd4a044, 0);
         hl.setFillStyle(0x000000, 0);
@@ -1033,32 +1057,37 @@ export class GameScene extends Phaser.Scene {
   // ── Position replay (execute foot actions immediately) ────────────────────
 
   /**
-   * Replay all selected foot cards for a character to compute current position.
-   * Cards are replayed in card number order (1→12).
+   * Replay all selected foot cards in selection order to compute current state.
+   * Each card's choice (moveDir, newFacing) is relative to the state at selection time,
+   * so replaying in selection order reproduces the correct preview.
    */
   private recomputeState(charKey: string) {
     const orig = this.originalState.get(charKey);
     if (!orig) return;
 
-    // Start from original state (alive and upright)
     const state: CharacterState = { ...orig, status: "alive" };
 
-    // Get selected cards for this character, sorted by card number
-    const cards = (charKey === this.selectedCharKey)
+    // Use selection order for current character, or saved order for others
+    const isActive = charKey === this.selectedCharKey;
+    const cards = isActive
       ? this.getCurrentCardSelection()
       : (this.characterCards.get(charKey) ?? []);
+    const order = isActive
+      ? this.selectionOrder
+      : (this.characterSelectionOrders.get(charKey) ?? []);
 
-    const sorted = [...cards].sort((a, b) => a.card - b.card);
+    // Replay in selection order (only foot cards affect preview state)
+    for (const entry of order) {
+      const sel = cards.find(c => c.card === entry.card && c.side === entry.side);
+      if (!sel) continue;
 
-    for (const sel of sorted) {
       const def = getActionDef(sel);
       if (def.category !== "foot") continue;
 
       const choice = this.pendingChoices.get(sel.card) ?? sel.choice;
 
-      if (def.choiceType === "move_ahead" || def.choiceType === "move_back") {
-        // Move one hex in the chosen relative direction
-        if (choice?.moveDir && this.hexMap && state.hexId) {
+      if (choice?.moveDir) {
+        if (this.hexMap && state.hexId) {
           const targetHex = this.hexMap.getRelativeNeighbor(state.hexId, state.angle, choice.moveDir, charKey);
           if (targetHex) {
             state.lx = targetHex.lx;
@@ -1066,29 +1095,15 @@ export class GameScene extends Phaser.Scene {
             state.hexId = targetHex.id;
           }
         }
-      } else if (def.choiceType === "turn_ahead" || def.choiceType === "turn_back") {
-        // Change facing
-        if (choice?.newFacing) {
-          const currentFacing = angleToDirIndex(state.angle, charKey);
-          const newFacingDir = relativeToAbsoluteDir(currentFacing, choice.newFacing);
-          state.angle = dirIndexToAngle(newFacingDir, charKey);
-        }
-      } else if (def.name === "Sprint") {
-        // Auto-move straight ahead
-        if (this.hexMap && state.hexId) {
-          const aheadHex = this.hexMap.getRelativeNeighbor(state.hexId, state.angle, "ahead", charKey);
-          if (aheadHex) {
-            state.lx = aheadHex.lx;
-            state.ly = aheadHex.ly;
-            state.hexId = aheadHex.id;
-          }
-        }
+      } else if (choice?.newFacing) {
+        const currentFacing = angleToDirIndex(state.angle, charKey);
+        const newFacingDir = relativeToAbsoluteDir(currentFacing, choice.newFacing);
+        state.angle = dirIndexToAngle(newFacingDir, charKey);
       }
-      // Leap/Drop or Get Up/Down: toggle down state
+
       if (def.name === "Leap/Drop" || def.name === "Get Up/Down") {
         state.status = state.status === "down" ? "alive" : "down";
       }
-      // Head Out/Back: no position change
     }
 
     this.currentState.set(charKey, state);
@@ -1192,6 +1207,8 @@ export class GameScene extends Phaser.Scene {
     // When entering action_selection, reset local card state
     if (state.phase === "action_selection" && this.lastPhase !== "action_selection") {
       this.characterCards.clear();
+      this.characterSelectionOrders.clear();
+      this.selectionOrder = [];
       this.confirmedChars.clear();
       this.pendingChoices.clear();
       this.exitChoiceMode();

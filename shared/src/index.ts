@@ -127,9 +127,9 @@ export type RelativeDirection =
 
 /** The player's choice for a card that requires one. */
 export interface CardChoice {
-  /** For move choices: the relative direction to move. */
+  /** For move choices: the relative direction to move (Advance, Run, Back Up, Sprint). */
   moveDir?: RelativeDirection;
-  /** For turn choices: the relative direction to face. */
+  /** For turn choices: the relative direction to face (Turn, Spin Around). */
   newFacing?: RelativeDirection;
   /** For target choices: the charKey of the target. */
   targetCharKey?: string;

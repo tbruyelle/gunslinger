@@ -105,9 +105,19 @@ Each character token has a black arrow baked into the PNG at a fixed angle. At `
 
 - During action selection, foot cards **preview** movement (token moves on board to help pick hexes)
 - On confirm, token **resets to original position** — actual resolution happens during sequences
-- Cards are replayed in card number order (1→12) for deterministic preview
+- Cards are replayed in **selection order** (not card number order) — each card's effect is locked relative to the state at selection time
+- Only the **last selected card** can be deselected (preserves selection order integrity)
+- While a card with a pending choice is active, other cards are blocked until the choice is resolved
 - Selecting a card blocks its opposite side (dimmed, unclickable)
 - Cards that would exceed cost cap of 5 are dimmed
+- All move/turn choices store **relative directions** (e.g. `moveDir: "ahead_left"`, `newFacing: "ahead_right"`), resolved against current state during replay
+
+### Character Status Overlays
+
+- Status overlays (`state_down.png`, `state_dead.png`, `state_passed_out.png`, `state_surrendered.png`) from VASSAL module render on top of character tokens
+- White text on transparent background, 67×67 px
+- `CharacterToken` class groups sprite + highlight + status overlay into a single object
+- `CharacterState` tracks position (`lx`, `ly`, `angle`, `hexId`) and `status: CharacterStatus`
 
 ## Asset Pipeline
 
