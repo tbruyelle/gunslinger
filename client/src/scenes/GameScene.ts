@@ -82,6 +82,84 @@ const STATUS_OVERLAY_ASSETS: Record<string, string> = {
   dead: "state_dead",
 };
 
+/** Groups all Phaser display objects for a single character token. */
+class CharacterToken {
+  constructor(
+    readonly charKey: string,
+    readonly sprite: Phaser.GameObjects.Image,
+    readonly highlight: Phaser.GameObjects.Arc,
+    private statusOverlay: Phaser.GameObjects.Image | null = null,
+  ) {}
+
+  /** All current game objects (for tweening, destroying, etc.). */
+  private get parts(): Phaser.GameObjects.GameObject[] {
+    const list: Phaser.GameObjects.GameObject[] = [this.sprite, this.highlight];
+    if (this.statusOverlay) list.push(this.statusOverlay);
+    return list;
+  }
+
+  destroy() {
+    for (const p of this.parts) p.destroy();
+    this.statusOverlay = null;
+  }
+
+  /** Kill all running tweens on this token's parts. */
+  killTweens(tweens: Phaser.Tweens.TweenManager) {
+    for (const p of this.parts) tweens.killTweensOf(p);
+  }
+
+  /** Tween all parts to a screen position. */
+  moveTo(tweens: Phaser.Tweens.TweenManager, sx: number, sy: number, duration: number) {
+    for (const p of this.parts) {
+      tweens.add({ targets: p, x: sx, y: sy, duration, ease: "Cubic.easeInOut" });
+    }
+  }
+
+  /** Tween the sprite rotation via shortest path. */
+  rotateTo(tweens: Phaser.Tweens.TweenManager, targetAngle: number, duration: number) {
+    let diff = targetAngle - this.sprite.angle;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    if (Math.abs(diff) > 0.5) {
+      tweens.add({
+        targets: this.sprite,
+        angle: this.sprite.angle + diff,
+        duration,
+        ease: "Cubic.easeInOut",
+      });
+    }
+  }
+
+  /** Update the status overlay (create, swap texture, or remove). */
+  setStatus(scene: Phaser.Scene, status: CharacterStatus, mask: Phaser.Display.Masks.GeometryMask) {
+    const overlayKey = STATUS_OVERLAY_ASSETS[status];
+
+    if (!overlayKey) {
+      if (this.statusOverlay) {
+        this.statusOverlay.destroy();
+        this.statusOverlay = null;
+      }
+      return;
+    }
+
+    if (this.statusOverlay) {
+      if (this.statusOverlay.texture.key !== overlayKey) {
+        this.statusOverlay.setTexture(overlayKey);
+      }
+    } else {
+      this.statusOverlay = scene.add.image(this.sprite.x, this.sprite.y, overlayKey)
+        .setScale(this.sprite.scaleX)
+        .setOrigin(0.5)
+        .setMask(mask);
+    }
+  }
+
+  /** Update the highlight ring style. */
+  setHighlight(color: number, alpha: number, width = 3) {
+    this.highlight.setStrokeStyle(width, color, alpha);
+  }
+}
+
 export class GameScene extends Phaser.Scene {
   private room!: Room<GameState>;
 
@@ -105,9 +183,7 @@ export class GameScene extends Phaser.Scene {
 
   // Display objects
   private boardImages: Phaser.GameObjects.Image[] = [];
-  private tokenSprites: Map<string, Phaser.GameObjects.Image> = new Map();
-  private tokenHighlights: Map<string, Phaser.GameObjects.Arc> = new Map();
-  private tokenStatusOverlays: Map<string, Phaser.GameObjects.Image> = new Map();
+  private characterTokens: Map<string, CharacterToken> = new Map();
   private arrMask!: Phaser.Display.Masks.GeometryMask;
   private arrMaskGfx!: Phaser.GameObjects.Graphics;
 
@@ -246,8 +322,7 @@ export class GameScene extends Phaser.Scene {
   private buildAll() {
     this.children.removeAll(true);
     this.boardImages = [];
-    this.tokenSprites.clear();
-    this.tokenHighlights.clear();
+    this.characterTokens.clear();
     this.charTabItems.clear();
     this.cardImages = [];
     this.cardHighlights = [];
@@ -267,7 +342,7 @@ export class GameScene extends Phaser.Scene {
     this.arrMask = this.arrMaskGfx.createGeometryMask();
 
     this.buildBoardDisplay();
-    this.buildTokenDisplay();
+    this.buildCharacterToken();
     this.buildHUD();
     this.buildCharacterTabs();
     this.buildCardStrip();
@@ -344,13 +419,9 @@ export class GameScene extends Phaser.Scene {
 
   // ── Token display ─────────────────────────────────────────────────────────
 
-  private buildTokenDisplay() {
-    this.tokenSprites.forEach(s => s.destroy());
-    this.tokenHighlights.forEach(h => h.destroy());
-    this.tokenStatusOverlays.forEach(o => o.destroy());
-    this.tokenSprites.clear();
-    this.tokenHighlights.clear();
-    this.tokenStatusOverlays.clear();
+  private buildCharacterToken() {
+    this.characterTokens.forEach(td => td.destroy());
+    this.characterTokens.clear();
 
     if (this.tokens.length === 0) return;
 
@@ -358,18 +429,15 @@ export class GameScene extends Phaser.Scene {
     const tokenScale = scale * TOKEN_SCALE_FACTOR;
 
     for (const t of this.tokens) {
-      // Use current position (may have moved from foot actions)
-      const pos = this.currentState.get(t.charKey) ?? t;
+      const charState = this.currentState.get(t.charKey);
+      const pos = charState ?? t;
       const { sx, sy } = this.layoutToScreen(pos.lx, pos.ly);
 
-      // Selection highlight ring (behind token)
       const hlRadius = (95 * tokenScale) / 2 + 4;
       const hl = this.add.circle(sx, sy, hlRadius, 0xd4a044, 0)
         .setStrokeStyle(3, 0xd4a044, 0)
         .setMask(this.arrMask);
-      this.tokenHighlights.set(t.charKey, hl);
 
-      // Token image
       const img = this.add.image(sx, sy, `char_${t.charKey}`)
         .setScale(tokenScale)
         .setAngle(pos.angle)
@@ -381,7 +449,6 @@ export class GameScene extends Phaser.Scene {
         if (this.isDragging) return;
         if (pointer.rightButtonDown()) return;
 
-        // If in target choice mode, clicking a token selects it as target
         if (this.choiceMode && this.isTargetChoice(this.choiceMode.choiceType)) {
           this.resolveTargetChoice(t.charKey);
           return;
@@ -390,39 +457,36 @@ export class GameScene extends Phaser.Scene {
         this.selectCharacter(t.charKey);
       });
 
-      this.tokenSprites.set(t.charKey, img);
-
-      // Restore status overlay if character is not alive
-      const charState = this.currentState.get(t.charKey);
+      const td = new CharacterToken(t.charKey, img, hl);
       if (charState && charState.status !== "alive") {
-        this.updateStatusOverlay(t.charKey, charState.status);
+        td.setStatus(this, charState.status, this.arrMask);
       }
+      this.characterTokens.set(t.charKey, td);
     }
 
     this.refreshTokenHighlights();
   }
 
   private refreshTokenHighlights() {
-    for (const [charKey, hl] of this.tokenHighlights) {
+    for (const [charKey, td] of this.characterTokens) {
       const isSelected = this.selectedCharKey === charKey;
       const isConfirmed = this.confirmedChars.has(charKey);
 
-      // In target choice mode, highlight other tokens as clickable
-      if (this.choiceMode && this.isTargetChoice(this.choiceMode.choiceType) && charKey !== this.selectedCharKey) {
-        hl.setStrokeStyle(3, 0xff4444, 0.9);
+      if (this.choiceMode && this.isTargetChoice(this.choiceMode.choiceType) && !isSelected) {
+        td.setHighlight(0xff4444, 0.9);
       } else if (isSelected) {
-        hl.setStrokeStyle(3, 0xffffff, 1);
+        td.setHighlight(0xffffff, 1);
       } else if (isConfirmed) {
-        hl.setStrokeStyle(3, 0x44aa44, 0.8);
+        td.setHighlight(0x44aa44, 0.8);
       } else {
-        hl.setStrokeStyle(3, 0xd4a044, 0);
+        td.setHighlight(0xd4a044, 0);
       }
     }
   }
 
   private refreshView() {
     this.buildBoardDisplay();
-    this.buildTokenDisplay();
+    this.buildCharacterToken();
     this.clearChoiceOverlays();
     if (this.choiceMode) this.showChoiceOverlays();
   }
@@ -816,7 +880,7 @@ export class GameScene extends Phaser.Scene {
       this.animateTokenTo(charKey, orig);
       this.currentState.set(charKey, { ...orig });
     }
-    this.updateStatusOverlay(charKey, "alive");
+    this.characterTokens.get(charKey)?.setStatus(this, "alive", this.arrMask);
 
     this.refreshCharacterTabs();
     this.refreshTokenHighlights();
@@ -1038,121 +1102,29 @@ export class GameScene extends Phaser.Scene {
     const oldState = this.currentState.get(charKey);
     this.recomputeState(charKey);
     const newState = this.currentState.get(charKey);
+    const td = this.characterTokens.get(charKey);
 
-    if (!oldState || !newState) return;
-
-    const sprite = this.tokenSprites.get(charKey);
-    const highlight = this.tokenHighlights.get(charKey);
-    if (!sprite) return;
+    if (!oldState || !newState || !td) return;
 
     const { sx, sy } = this.layoutToScreen(newState.lx, newState.ly);
-
     const moved = oldState.lx !== newState.lx || oldState.ly !== newState.ly;
     const rotated = oldState.angle !== newState.angle;
 
-    const overlay = this.tokenStatusOverlays.get(charKey);
-
-    if (moved || rotated) {
-      this.tweens.killTweensOf(sprite);
-      if (highlight) this.tweens.killTweensOf(highlight);
-      if (overlay) this.tweens.killTweensOf(overlay);
-    }
-
-    if (moved) {
-      const moveTargets = [sprite, highlight, overlay].filter(Boolean);
-      for (const target of moveTargets) {
-        this.tweens.add({
-          targets: target,
-          x: sx,
-          y: sy,
-          duration: 300,
-          ease: "Cubic.easeInOut",
-        });
-      }
-    }
-
-    if (rotated) {
-      let angleDiff = newState.angle - oldState.angle;
-      if (angleDiff > 180) angleDiff -= 360;
-      if (angleDiff < -180) angleDiff += 360;
-      const targetAngle = sprite.angle + angleDiff;
-
-      this.tweens.add({
-        targets: sprite,
-        angle: targetAngle,
-        duration: 250,
-        ease: "Cubic.easeInOut",
-      });
-    }
-
-    this.updateStatusOverlay(charKey, newState.status);
+    if (moved || rotated) td.killTweens(this.tweens);
+    if (moved) td.moveTo(this.tweens, sx, sy, 300);
+    if (rotated) td.rotateTo(this.tweens, newState.angle, 250);
+    td.setStatus(this, newState.status, this.arrMask);
   }
 
-  private updateStatusOverlay(charKey: string, status: CharacterStatus) {
-    const sprite = this.tokenSprites.get(charKey);
-    const existing = this.tokenStatusOverlays.get(charKey);
-    const overlayKey = STATUS_OVERLAY_ASSETS[status];
-
-    // Remove overlay if status is alive or no asset for this status
-    if (!overlayKey) {
-      if (existing) {
-        existing.destroy();
-        this.tokenStatusOverlays.delete(charKey);
-      }
-      return;
-    }
-
-    if (existing) {
-      // Update texture if status changed
-      if (existing.texture.key !== overlayKey) {
-        existing.setTexture(overlayKey);
-      }
-    } else if (sprite) {
-      // Create new overlay, matching token position and scale
-      const overlay = this.add.image(sprite.x, sprite.y, overlayKey)
-        .setScale(sprite.scaleX)
-        .setOrigin(0.5)
-        .setMask(this.arrMask);
-      this.tokenStatusOverlays.set(charKey, overlay);
-    }
-  }
-
-  /** Animate a token sprite + highlight to a target position/angle. */
+  /** Animate a token back to a target position/angle (e.g. on confirm). */
   private animateTokenTo(charKey: string, target: { lx: number; ly: number; angle: number }) {
-    const sprite = this.tokenSprites.get(charKey);
-    const highlight = this.tokenHighlights.get(charKey);
-    const overlay = this.tokenStatusOverlays.get(charKey);
-    if (!sprite) return;
+    const td = this.characterTokens.get(charKey);
+    if (!td) return;
 
     const { sx, sy } = this.layoutToScreen(target.lx, target.ly);
-
-    this.tweens.killTweensOf(sprite);
-    if (highlight) this.tweens.killTweensOf(highlight);
-    if (overlay) this.tweens.killTweensOf(overlay);
-
-    const moveTargets = [sprite, highlight, overlay].filter(Boolean);
-    for (const t of moveTargets) {
-      this.tweens.add({
-        targets: t,
-        x: sx,
-        y: sy,
-        duration: 350,
-        ease: "Cubic.easeInOut",
-      });
-    }
-
-    // Shortest rotation path
-    let angleDiff = target.angle - sprite.angle;
-    if (angleDiff > 180) angleDiff -= 360;
-    if (angleDiff < -180) angleDiff += 360;
-    if (Math.abs(angleDiff) > 0.5) {
-      this.tweens.add({
-        targets: sprite,
-        angle: sprite.angle + angleDiff,
-        duration: 250,
-        ease: "Cubic.easeInOut",
-      });
-    }
+    td.killTweens(this.tweens);
+    td.moveTo(this.tweens, sx, sy, 350);
+    td.rotateTo(this.tweens, target.angle, 250);
   }
 
   // ── Input (zoom, pan) ────────────────────────────────────────────────────
@@ -1230,7 +1202,7 @@ export class GameScene extends Phaser.Scene {
       for (const t of this.tokens) {
         const orig = this.originalState.get(t.charKey);
         if (orig) this.currentState.set(t.charKey, { ...orig });
-        this.updateStatusOverlay(t.charKey, "alive");
+        this.characterTokens.get(t.charKey)?.setStatus(this, "alive", this.arrMask);
       }
 
       if (this.tokens.length > 0) {
