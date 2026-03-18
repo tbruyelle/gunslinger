@@ -809,7 +809,7 @@ export class GameScene extends Phaser.Scene {
   private getChoiceLabel(sel: ActionCardSelection): string {
     const choice = this.pendingChoices.get(sel.card);
     if (!choice) return "";
-    if (choice.targetHexId) return choice.targetHexId.split("-").pop() ?? "";
+    if (choice.moveDir) return choice.moveDir.replace(/_/g, " ");
     if (choice.newFacing) return choice.newFacing.replace(/_/g, " ");
     if (choice.targetCharKey) return choice.targetCharKey.replace(/_/g, " ");
     return "";
@@ -998,12 +998,12 @@ export class GameScene extends Phaser.Scene {
     this.choiceOverlays = [];
   }
 
-  private resolveHexChoice(relDir: RelativeDirection, hex: LayoutHex) {
+  private resolveHexChoice(relDir: RelativeDirection, _hex: LayoutHex) {
     if (!this.choiceMode || !this.selectedCharKey) return;
     const { cardNum, choiceType } = this.choiceMode;
 
     if (choiceType === "move_ahead" || choiceType === "move_back") {
-      this.pendingChoices.set(cardNum, { targetHexId: hex.id });
+      this.pendingChoices.set(cardNum, { moveDir: relDir });
     } else if (choiceType === "turn_ahead" || choiceType === "turn_back") {
       this.pendingChoices.set(cardNum, { newFacing: relDir });
     }
@@ -1057,13 +1057,13 @@ export class GameScene extends Phaser.Scene {
       const choice = this.pendingChoices.get(sel.card) ?? sel.choice;
 
       if (def.choiceType === "move_ahead" || def.choiceType === "move_back") {
-        // Move to chosen hex
-        if (choice?.targetHexId && this.hexMap) {
-          const hex = this.hexMap.getHex(choice.targetHexId);
-          if (hex) {
-            state.lx = hex.lx;
-            state.ly = hex.ly;
-            state.hexId = hex.id;
+        // Move one hex in the chosen relative direction
+        if (choice?.moveDir && this.hexMap && state.hexId) {
+          const targetHex = this.hexMap.getRelativeNeighbor(state.hexId, state.angle, choice.moveDir, charKey);
+          if (targetHex) {
+            state.lx = targetHex.lx;
+            state.ly = targetHex.ly;
+            state.hexId = targetHex.id;
           }
         }
       } else if (def.choiceType === "turn_ahead" || def.choiceType === "turn_back") {

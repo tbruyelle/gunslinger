@@ -127,8 +127,8 @@ export type RelativeDirection =
 
 /** The player's choice for a card that requires one. */
 export interface CardChoice {
-  /** For move choices: the target hex ID to move to. */
-  targetHexId?: string;
+  /** For move choices: the relative direction to move. */
+  moveDir?: RelativeDirection;
   /** For turn choices: the relative direction to face. */
   newFacing?: RelativeDirection;
   /** For target choices: the charKey of the target. */
