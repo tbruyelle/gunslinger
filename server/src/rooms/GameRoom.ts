@@ -4,8 +4,10 @@ import type {
   PlacedTokenSetup,
   ActionCardSelection,
   SequenceNumber,
+  RelativeDirection,
+  ActionSideDef,
 } from "@gunslinger/shared";
-import { getActionDef, PHASE } from "@gunslinger/shared";
+import { getActionDef, PHASE, ACTION_CARDS, angleToDirIndex, relativeToAbsoluteDir, dirIndexToAngle } from "@gunslinger/shared";
 import {
   GameStateSchema,
   PlayerSchema,
@@ -15,7 +17,9 @@ import {
   PlacedBoardSchema,
   ActionCardSelectionSchema,
   PlayerCardsSchema,
+  CardChoiceSchema,
 } from "./schema";
+import { ServerHexNeighborMap, loadHexGridData, LayoutHex } from "../utils/hexMap";
 
 interface RoomOptions {
   boards?: PlacedBoardSetup[];
@@ -29,6 +33,7 @@ type SelectCardsMessage = Record<string, ActionCardSelection[]>;
 
 export class GameRoom extends Room<GameStateSchema> {
   maxClients = 6;
+  private hexMap: ServerHexNeighborMap | null = null;
 
   onCreate(options: RoomOptions) {
     const state = new GameStateSchema();
@@ -47,6 +52,20 @@ export class GameRoom extends Room<GameStateSchema> {
         bs.lx = b.lx;
         bs.ly = b.ly;
         state.boards.push(bs);
+      }
+
+      // Build hex neighbor map for server-side resolution
+      try {
+        const hexData = loadHexGridData();
+        const boardSetups: PlacedBoardSetup[] = options.boards.map(b => ({
+          key: b.key,
+          rotation: b.rotation,
+          lx: b.lx,
+          ly: b.ly,
+        }));
+        this.hexMap = new ServerHexNeighborMap(hexData, boardSetups);
+      } catch (e) {
+        console.warn("Could not load hex_grid.json for server resolution:", e);
       }
     }
 
@@ -85,6 +104,20 @@ export class GameRoom extends Room<GameStateSchema> {
     // Bulk card selection: { charKey: cards[] }
     this.onMessage<SelectCardsMessage>("select_cards", (client, msg) => {
       this.handleSelectCards(client.sessionId, msg);
+    });
+
+    // Advance to next sequence (manual control)
+    this.onMessage("next_sequence", (client) => {
+      if (this.state.phase !== PHASE.SEQUENCE_RESOLUTION) return;
+      if (this.state.currentSequence >= 5) return;
+      this.advanceSequence();
+    });
+
+    // End turn manually (after sequence 5)
+    this.onMessage("end_turn", (client) => {
+      if (this.state.phase !== PHASE.SEQUENCE_RESOLUTION) return;
+      if (this.state.currentSequence !== 5) return;
+      this.endTurn();
     });
 
     console.log(`Room created with ${state.playerOrder.length} characters, ${state.boards.length} boards`);
@@ -160,6 +193,13 @@ export class GameRoom extends Room<GameStateSchema> {
         const s = new ActionCardSelectionSchema();
         s.card = sel.card;
         s.side = sel.side;
+        if (sel.choice) {
+          const choice = new CardChoiceSchema();
+          choice.moveDir = sel.choice.moveDir ?? "";
+          choice.newFacing = sel.choice.newFacing ?? "";
+          choice.targetCharKey = sel.choice.targetCharKey ?? "";
+          s.choice = choice;
+        }
         playerCards.cards.push(s);
       }
       this.state.selectedCards.set(charKey, playerCards);
@@ -186,19 +226,101 @@ export class GameRoom extends Room<GameStateSchema> {
     this.state.phase = PHASE.SEQUENCE_RESOLUTION;
     this.state.currentSequence = 1;
     console.log(`Room ${this.roomId}: Turn ${this.state.turn} — sequence 1`);
-    this.advanceSequence();
   }
 
   private advanceSequence() {
-    // TODO: resolve actions for the current sequence here
-
     const seq = this.state.currentSequence;
+    this.resolveSequence(seq);
+    console.log(`Room ${this.roomId}: Turn ${this.state.turn} — sequence ${seq} resolved`);
+
     if (seq < 5) {
       this.state.currentSequence = (seq + 1) as SequenceNumber;
       console.log(`Room ${this.roomId}: Turn ${this.state.turn} — sequence ${this.state.currentSequence}`);
-      this.clock.setTimeout(() => this.advanceSequence(), 1500);
     } else {
       this.endTurn();
+    }
+  }
+
+  private resolveSequence(seq: number) {
+    for (const charKey of this.state.playerOrder) {
+      const player = this.state.players.get(charKey);
+      if (!player || player.status === "dead") continue;
+
+      const playerCards = this.state.selectedCards.get(charKey);
+      if (!playerCards) continue;
+
+      const activeCard = this.getActiveCardForSequence(playerCards.cards, seq);
+      if (!activeCard) continue;
+
+      const actionDef = this.getActionSideDef(activeCard);
+      console.log(`  ${charKey} executes ${actionDef.name} (card ${activeCard.card}${activeCard.side})`);
+
+      this.executeCardEffect(player, activeCard, actionDef);
+    }
+  }
+
+  private getActiveCardForSequence(cards: Iterable<ActionCardSelectionSchema>, seq: number): ActionCardSelectionSchema | null {
+    let currentSeq = 1;
+    for (const card of cards) {
+      const actionDef = this.getActionSideDef(card);
+      const cost = actionDef.cost;
+      if (seq >= currentSeq && seq < currentSeq + cost) {
+        return card;
+      }
+      currentSeq += cost;
+    }
+    return null;
+  }
+
+  private getActionSideDef(sel: ActionCardSelectionSchema): ActionSideDef {
+    const cardDef = ACTION_CARDS.find(c => c.card === sel.card)!;
+    return sel.side === "front" ? cardDef.front : cardDef.back;
+  }
+
+  private executeCardEffect(player: PlayerSchema, sel: ActionCardSelectionSchema, actionDef: ActionSideDef) {
+    const choice = sel.choice;
+
+    switch (actionDef.choiceType) {
+      case "move_ahead":
+      case "move_back": {
+        if (!choice || !choice.moveDir || !this.hexMap) return;
+        const relDir = choice.moveDir as RelativeDirection;
+        const neighbor = this.hexMap.getRelativeNeighbor(player.hexId, player.angle, relDir, player.charKey);
+        if (neighbor) {
+          player.lx = neighbor.lx;
+          player.ly = neighbor.ly;
+          player.hexId = neighbor.id;
+          console.log(`    -> Moved to ${neighbor.id}`);
+        }
+        break;
+      }
+
+      case "turn_ahead":
+      case "turn_back": {
+        if (!choice || !choice.newFacing || !this.hexMap) return;
+        const relDir = choice.newFacing as RelativeDirection;
+        const facingIndex = angleToDirIndex(player.angle, player.charKey);
+        const newAbsDir = relativeToAbsoluteDir(facingIndex, relDir);
+        player.angle = dirIndexToAngle(newAbsDir, player.charKey);
+        console.log(`    -> Turned to angle ${player.angle}`);
+        break;
+      }
+
+      case "target_ranged":
+      case "target_melee": {
+        if (!choice || !choice.targetCharKey) return;
+        const target = this.state.players.get(choice.targetCharKey);
+        if (target) {
+          console.log(`    -> Targeting ${choice.targetCharKey}`);
+        }
+        break;
+      }
+
+      case "none":
+        break;
+
+      default:
+        console.log(`    -> Unhandled choice type: ${actionDef.choiceType}`);
     }
   }
 

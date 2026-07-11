@@ -43,11 +43,20 @@ export class PlayerSchema extends Schema {
   @type("string") status: string = "alive";
 }
 
-// ── Action card selection (card number + side) ──────────────────────────────
+// ── Card choice (move direction, new facing, or target) ─────────────────────
+
+export class CardChoiceSchema extends Schema {
+  @type("string") moveDir: string = "";
+  @type("string") newFacing: string = "";
+  @type("string") targetCharKey: string = "";
+}
+
+// ── Action card selection (card number + side + choice) ─────────────────────
 
 export class ActionCardSelectionSchema extends Schema {
   @type("number") card: number = 1;
   @type("string") side: string = "front";
+  @type(CardChoiceSchema) choice: CardChoiceSchema | null = null;
 }
 
 // ── Per-player card selections ──────────────────────────────────────────────

@@ -226,6 +226,13 @@ export class GameScene extends Phaser.Scene {
   private confirmBtn!: Phaser.GameObjects.Text;
   private sendAllBtn!: Phaser.GameObjects.Text;
 
+  // Sequence resolution UI
+  private sequenceContainer!: Phaser.GameObjects.Container;
+  private seqDisplayText!: Phaser.GameObjects.Text;
+  private prevSeqBtn!: Phaser.GameObjects.Text;
+  private nextSeqBtn!: Phaser.GameObjects.Text;
+  private endTurnBtn!: Phaser.GameObjects.Text;
+
   // Choice mode state
   private choiceMode: {
     cardNum: CardNumber;
@@ -327,6 +334,11 @@ export class GameScene extends Phaser.Scene {
     this.events.on("shutdown", () => this.scale.off("resize", onResize));
 
     this.room.onStateChange((state) => this.onStateChange(state));
+    console.log("Initial room state:", this.room.state?.phase);
+    if (this.room.state) {
+      console.log("Calling onStateChange for initial state");
+      this.onStateChange(this.room.state);
+    }
     this.room.onMessage("error", (msg: string) => console.warn("Server error:", msg));
   }
 
@@ -357,6 +369,8 @@ export class GameScene extends Phaser.Scene {
     this.buildHUD();
     this.buildCharacterTabs();
     this.buildCardStrip();
+    this.buildSequencePanel();
+    console.log("After buildAll - cardContainer exists:", !!this.cardContainer, "visible:", this.cardContainer?.visible);
 
     // Re-show choice overlays if we were in choice mode
     if (this.choiceMode) {
@@ -685,6 +699,60 @@ export class GameScene extends Phaser.Scene {
         this.cardImages.push(img);
       }
     }
+  }
+
+  // ── Sequence resolution panel ───────────────────────────────────────────────
+
+  private buildSequencePanel() {
+    const w = this.cw;
+    const stripY = this.cardStripY;
+
+    this.sequenceContainer = this.add.container(0, 0);
+    this.sequenceContainer.setVisible(false);
+
+    this.sequenceContainer.add(this.add.rectangle(0, stripY, w, CARD_STRIP_H, 0x0d0704).setOrigin(0));
+    this.sequenceContainer.add(this.add.rectangle(0, stripY - 1, w, 1, 0x3a2510).setOrigin(0));
+
+    this.seqDisplayText = this.add
+      .text(w / 2, stripY + 40, "Sequence 1 of 5", {
+        fontSize: "24px", color: "#d4a044", fontStyle: "bold",
+      })
+      .setOrigin(0.5);
+    this.sequenceContainer.add(this.seqDisplayText);
+
+    const dotsY = stripY + 90;
+    this.sequenceContainer.add(
+      this.add.text(w / 2, dotsY, "\u25cb \u25cb \u25cb \u25cb \u25cb", {
+        fontSize: "32px", color: "#d4a044",
+      }).setOrigin(0.5)
+    );
+
+    const btnY = stripY + 160;
+    const btnStyle = {
+      fontSize: "16px", color: "#d4a044",
+      backgroundColor: "#2a1500", padding: { x: 16, y: 8 },
+    };
+
+    this.prevSeqBtn = this.add.text(w / 2 - 120, btnY, "Previous", btnStyle)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .setAlpha(0.3);
+    this.prevSeqBtn.on("pointerup", () => this.room.send("previous_sequence"));
+    this.sequenceContainer.add(this.prevSeqBtn);
+
+    this.nextSeqBtn = this.add.text(w / 2, btnY, "Next", btnStyle)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    this.nextSeqBtn.on("pointerup", () => this.room.send("next_sequence"));
+    this.sequenceContainer.add(this.nextSeqBtn);
+
+    this.endTurnBtn = this.add.text(w / 2 + 120, btnY, "End Turn", btnStyle)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .setVisible(false)
+      .setAlpha(0.5);
+    this.endTurnBtn.on("pointerup", () => this.room.send("end_turn"));
+    this.sequenceContainer.add(this.endTurnBtn);
   }
 
   private cardIdx(cardNum: CardNumber, side: CardSide): number {
@@ -1207,6 +1275,8 @@ export class GameScene extends Phaser.Scene {
   // ── State sync ────────────────────────────────────────────────────────────
 
   private onStateChange(state: GameState) {
+    console.log("onStateChange:", state.phase, "seq:", state.currentSequence);
+    console.log("  cardContainer visible:", this.cardContainer?.visible, "sequenceContainer visible:", this.sequenceContainer?.visible);
     this.turnText.setText(`Turn ${state.turn}/${state.maxTurns}`);
     this.updatePhaseDisplay(state);
 
@@ -1239,7 +1309,44 @@ export class GameScene extends Phaser.Scene {
     const showCards = state.phase === PHASE.ACTION_SELECTION;
     this.cardContainer.setVisible(showCards);
 
+    const showSequence = state.phase === PHASE.SEQUENCE_RESOLUTION;
+    if (this.sequenceContainer) {
+      this.sequenceContainer.setVisible(showSequence);
+      console.log("Phase:", state.phase, "showSequence:", showSequence);
+    }
+
+    if (showSequence) {
+      this.updateSequencePanel(state);
+    }
+
     this.lastPhase = state.phase;
+  }
+
+  private updateSequencePanel(state: GameState) {
+    console.log("updateSequencePanel called, seq:", state.currentSequence);
+    const seq = state.currentSequence;
+    this.seqDisplayText.setText(`Sequence ${seq} of 5`);
+
+    const dots = Array.from({ length: 5 }, (_, i) =>
+      i < seq ? "\u25cf" : "\u25cb"
+    ).join(" ");
+    // Find the dots text in sequence container and update it
+    this.sequenceContainer.each((obj: Phaser.GameObjects.GameObject) => {
+      if (obj instanceof Phaser.GameObjects.Text && obj.text.includes("\u25cb")) {
+        obj.setText(dots);
+      }
+    });
+
+    // Update button visibility/alpha
+    this.prevSeqBtn.setAlpha(seq > 1 ? 1 : 0.3);
+
+    if (seq >= 5) {
+      this.nextSeqBtn.setVisible(false);
+      this.endTurnBtn.setVisible(true).setAlpha(1);
+    } else {
+      this.nextSeqBtn.setVisible(true).setAlpha(1);
+      this.endTurnBtn.setVisible(false);
+    }
   }
 
   private updatePhaseDisplay(state: GameState) {
