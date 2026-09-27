@@ -2,12 +2,16 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
-    "types": ["vite/client"],
-    "outDir": "dist",
-    "paths": {
-      "@gunslinger/shared": ["../shared/src/index.ts"]
-    }
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "vite/client"
+    ],
+    "outDir": "dist"
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

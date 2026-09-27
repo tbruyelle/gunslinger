@@ -1,147 +1,219 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to AI agents when working with code in this repository.
+Guidance for AI agents working in this repository. `CLAUDE.md` is a symlink to
+this file.
 
 ## Project Goal
 
-This repository is a digital game inspired by the 1982 AH board game **Gunslinger** — a tactical Old West gunfight simulation with hex-based movement, action-point economy, and a detailed hit-location/wound system.
+A digital version of the 1982 Avalon Hill board game **Gunslinger** (tactical
+Old West gunfight: hex movement, 5-segment action-point turns, action cards).
+The game runs **on the gno.land chain**: a Gno realm holds every game and
+resolves the turns; a Phaser web app is the interface and signs its
+transactions with the **Adena** wallet. There is no game server.
+
+Current milestone: **board A only, exactly 2 players, one character each, foot
+actions only** (advance, back up, run, spin around, sprint, turn, leap/drop,
+get up/down). Plans are submitted in clear (no commit-reveal yet); guns,
+brawling, multi-board layouts and victory points come later.
 
 ## Tech Stack
 
-- **Frontend**: TypeScript + Phaser 3 + Vite (port 5173)
-- **Backend**: Colyseus 0.15 + Express + Node.js (port 2567)
-- **Shared types**: `@gunslinger/shared` (plain TS, no build step)
-- **Monorepo**: npm workspaces (`client/`, `server/`, `shared/`)
+- **Realm**: Gno (`gno.land/{p,r}/tbruyelle/gunslinger/...`), pinned gno
+  toolchain through `go.mod` + `go tool` (like `~/src/aibgno`).
+- **Client**: TypeScript + Phaser 3 + Vite (port 5173), tests with vitest,
+  wallet through the injected `window.adena` API.
+- **Reference rules engine**: `bga/` (separate git repo, gitignored) holds a
+  Board Game Arena PHP implementation and `bga/doc/RULES.md`, the full rules
+  transcription. Port rules from there, not from git history.
 
 ## Key Commands
 
 ```bash
-npm run dev          # starts both client (Vite) and server (ts-node-dev) concurrently
+make gnodev        # local chain: chain id "dev", RPC 127.0.0.1:26657, gnoweb :8888
+                   # ADENA_ADDRS="g1... g1..." make gnodev  premines Adena accounts
+make web           # vite dev server for the client
+make dev           # both, with concurrently
+make test          # go tool gno test ./gno.land/...   (unit tests + filetests)
+make lint          # go tool gno lint ./gno.land/...
+make fmt           # go tool gno fmt -w ./gno.land
+make check         # tsc --noEmit + vitest for the client
+make gen-board     # regenerate board A adjacency (realm + client) from assets/hex_grid.json
+make mod-download  # sync ~/.config/gno/pkg/mod with the pinned gno (after update-fork)
+make update-fork FORK_REF=<ref>   # re-pin gnolang/gno in go.mod
 ```
 
-Type-checking (no build step needed for dev):
+**Always use `go tool gno` / `go tool gnodev` / `go tool gnokey`**, never a
+standalone binary: `go.mod` pins the gno commit the realm is written against.
+
+Run one Gno package or test:
 ```bash
-npx tsc --noEmit -p client/tsconfig.json
-npx tsc --noEmit -p server/tsconfig.json
+go tool gno test -v ./gno.land/p/tbruyelle/gunslinger/engine/v0
+go tool gno test -run TestResolve_Seg5Cancel ./gno.land/p/tbruyelle/gunslinger/engine/v0
+# a filetest needs its full path in -run:
+go tool gno test -run ./gno.land/r/tbruyelle/gunslinger/v0/filetests/z2_ ./gno.land/r/tbruyelle/gunslinger/v0/
+go tool gno test -update-golden-tests ./gno.land/r/tbruyelle/gunslinger/v0/   # refresh // Output: and // Events:
 ```
 
-## Architecture
+## Layout
 
-### Server (authoritative)
-
-- `server/src/rooms/schema.ts` — Colyseus `@colyseus/schema` classes (`GameStateSchema`, `PlayerSchema`, etc.). Server tsconfig requires `experimentalDecorators: true`.
-- `server/src/rooms/GameRoom.ts` — Colyseus room. Players are created from setup tokens in `onCreate()` (keyed by `charKey`, not `sessionId`). A single client session controls all characters. Bulk card selection per character. Phase machine with sequence progression.
-
-### Client scenes
-
-`BootScene` → `LobbyScene` → `SetupScene` (board selection) → `TokenPlacementScene` (character placement) → `MatchmakingScene` → `GameScene`
-
-- **SetupScene**: Select and arrange board tiles into a composite map. Boards snap to adjacent edges. Scroll wheel rotates boards.
-- **TokenPlacementScene**: Place character tokens on the board composite. Click a character in the bottom strip to select, click board to place. Scroll wheel rotates in 60° increments. Requires ≥2 tokens to proceed.
-- **MatchmakingScene**: Passes `boards` + `tokens` setup data to Colyseus room creation. Token placement order = player order.
-- **GameScene**: Renders actual board composite + character tokens. Per-character action card selection with choice mode (hex picking, target selection). Card strip shows front/back rows (24 actions visible).
-
-All scenes use the `buildAll()` + resize-handler pattern for responsive layout.
-
-### Shared types (`shared/src/index.ts`)
-
-- `Player` — keyed by `charKey` (e.g. `"marshal"`), has `ownerSessionId`, layout-space position (`lx`, `ly`, `angle`, `hexId`)
-- `ActionCardDef` — 12 physical cards, each with `front` and `back` `ActionSideDef` (name, cost, category, choiceType)
-- `ActionCardSelection` — card number + side + optional `CardChoice`
-- `GameState` — phase, turn, currentSequence, playerOrder, players, selectedCards, boards
-- `CHAR_ARROW_DIR` — per-character default arrow direction index (all tokens are either NE=1 or NW=5)
-
-### Hex system (`client/src/hex/neighbors.ts`)
-
-- `HexNeighborMap` — loads `hex_grid.json`, transforms all hex positions into unified layout space across boards, finds 6 neighbors by distance+angle classification
-- Hex grid uses flat-top hexes with offset columns. Hex IDs: `{Board}-{Col}{Row}` (e.g. `A-C5`)
-- 6 directions indexed 0–5: N, NE, SE, S, SW, NW
-- `angleToDirIndex(angle, charKey)` accounts for per-character arrow offset
-
-## Game Rules (from rules.pdf + card analysis)
-
-### Turn Structure
-
-1. **Action selection**: each player picks action cards for each character (cost sum ≤ 5 sequences)
-2. **Sequences 1–5**: actions resolve in sequence order (TODO: resolution logic)
-3. **Turn end**: check game-over conditions, advance to next turn
-4. Game ends at max turns (default 20) or when no opposition remains (last standing or team)
-
-### Action Cards
-
-12 physical cards with front and back (24 possible actions). **Cannot use both sides of the same card in one turn.** Each side has a sequence cost (1–3). Total cost per turn ≤ 5.
-
-| Card | Front (cost) | Back (cost) | Front choice | Back choice |
-|------|-------------|-------------|--------------|-------------|
-| 1 | Advance (2) | Back Up (3) | move_ahead | move_back |
-| 2 | Run (1) | Spin Around (2) | move_ahead | turn_back |
-| 3 | Sprint (1) | Turn (1) | none (auto straight) | turn_ahead |
-| 4 | Sprint (1) | Leap/Drop (1) | none (auto straight) | none |
-| 5 | Cock/Aim/Shoot (2) | Get Up/Down (3) | target_ranged | none |
-| 6 | Cock/Aim/Shoot (2) | Throw (2) | target_ranged | target_ranged |
-| 7 | Shoot (1) | Strength (2) | target_ranged | none |
-| 8 | Load (3) | Head Out/Back (2) | none | none |
-| 9 | Draw & Cock (3) | Head Out/Back (2) | none | none |
-| 10 | Jab (2) | Duck (1) | target_melee | target_defend |
-| 11 | Swing (3) | Block (2) | target_melee | target_defend |
-| 12 | Belt (3) | Guard (2) | target_melee | target_defend |
-
-### Movement Directions (relative to facing)
-
-- **Ahead**: straight ahead, ahead_left, ahead_right (±60° from facing)
-- **Back**: straight back, back_left, back_right (±60° from backward)
-- `facingIndex = (CHAR_ARROW_DIR[charKey] + angle/60) % 6`
-- Advance/Run: player picks 1 of 3 forward hexes
-- Back Up: player picks 1 of 3 backward hexes
-- Sprint: auto-moves straight ahead (no choice)
-- Turn: player picks new facing from 3 forward directions
-- Spin Around: player picks new facing from 3 backward directions
-
-### Character Token Facing
-
-Each character token has a black arrow baked into the PNG at a fixed angle. At `angle=0` (unrotated), tokens face either **NE (direction 1)** or **NW (direction 5)** — see `CHAR_ARROW_DIR` in shared types. When the token is rotated by 60° increments, the facing changes accordingly.
-
-### Card Selection UX
-
-- During action selection, foot cards **preview** movement (token moves on board to help pick hexes)
-- On confirm, token **resets to original position** — actual resolution happens during sequences
-- Cards are replayed in **selection order** (not card number order) — each card's effect is locked relative to the state at selection time
-- Only the **last selected card** can be deselected (preserves selection order integrity)
-- While a card with a pending choice is active, other cards are blocked until the choice is resolved
-- Selecting a card blocks its opposite side (dimmed, unclickable)
-- Cards that would exceed cost cap of 5 are dimmed
-- All move/turn choices store **relative directions** (e.g. `moveDir: "ahead_left"`, `newFacing: "ahead_right"`), resolved against current state during replay
-
-### Character Status Overlays
-
-- Status overlays (`state_down.png`, `state_dead.png`, `state_passed_out.png`, `state_surrendered.png`) from VASSAL module render on top of character tokens
-- White text on transparent background, 67×67 px
-- `CharacterToken` class groups sprite + highlight + status overlay into a single object
-- `CharacterState` tracks position (`lx`, `ly`, `angle`, `hexId`) and `status: CharacterStatus`
-
-## Asset Pipeline
-
-```bash
-pip install -r requirements.txt          # httpx, tqdm
-python scripts/fetch_assets.py           # download all images to assets/
-python scripts/fetch_assets.py --dry-run # preview plan without downloading
+```
+gno.land/
+  p/tbruyelle/gunslinger/hex/v0      directions, relative directions, Board adjacency (board_a.gno is generated)
+  p/tbruyelle/gunslinger/cards/v0    the 12 action cards (24 sides), Enabled() = implemented actions
+  p/tbruyelle/gunslinger/engine/v0   pure rules engine: plan DSL + validation, Resolve, EndTurn, dice
+  r/tbruyelle/gunslinger/v0          the realm: games, lobby, SubmitPlan, JSON views, Render, filetests/
+client/src/
+  chain/      rpc.ts (abci_query/status/tx), adena.ts (wallet), realm.ts (typed calls), poller.ts, types.ts
+  rules/      cards.ts, facing.ts (pure card data + facing math, mirrors the Gno packages)
+  board/      board_A.json (generated) + boardA.ts (BoardMap)
+  game/       plan.ts (encode/validate), replay.ts (preview), playback.ts (resolution log)
+  scenes/     BootScene → LobbyScene → GameScene   (SetupScene/TokenPlacementScene are dormant, multi-board later)
+  ui/toast.ts
+scripts/gen_board_data.py   generates hex/v0/board_a.gno and client/src/board/board_A.json
+assets/                     served as the Vite public dir (boards, tokens, cards, hex_grid.json)
 ```
 
-All assets are already downloaded. Do not re-run unless `tts_mod.json` changes.
+## Realm
 
-### `assets/` (from TTS mod)
-- ~161 images (imgur + Steam CDN); 5 Steam CDN tiles inaccessible (403, `face_file: null` in catalog)
-- Board maps: `board_A.png` … `board_H.png` + `board_AA.png` … `board_HH.png` + `board_UFC*.png` — high-res at **1600×2232**
-- Card sprite sheets: 14 sheets, largest at 6030×5516 (603×788 per card)
-- Action cards: `action_card_a{1-12}.png` (front) + `action_card_a{1-12}_back.png` (back), 180×245 px
-- Character tokens: `char_*.png` (48 tokens, 95×95 px)
-- Hex grid: `hex_grid.json` (coords scaled 2x to match 1600×2232 boards)
+### Data
+`Game{ID, Players[2]{Addr, Char}, State engine.State, Turn, MaxTurns, Phase,
+Plans[2], Submitted[2], LastTurn *TurnResult, Winner, EndReason, Rev,
+CreatedAt, UpdatedAt}` stored in an `avl.Tree` by zero-padded `seqid`;
+`byPlayer` (address → ids) and `openGames` indexes. `Rev` is bumped on every
+change and is what clients poll. Only the last `TurnResult` is kept.
 
-### `assets/local/` (from VASSAL module, partially merged)
-- `animal_*.png`, `activity_*.png`, `state_*.png`, `obj_*.png`, legend sheets, player aids
+### Crossing functions (called with MsgCall, args are strings)
+| Function | Notes |
+|---|---|
+| `CreateGame(cur, charKey, maxTurns) string` | seat 0; 0 turns = 10; phase `waiting` |
+| `JoinGame(cur, id, charKey)` | seat 1; phase `planning` |
+| `CancelGame(cur, id)` | creator, while waiting |
+| `SubmitPlan(cur, id, plan) int` | validates, stores; the **second** plan resolves the turn in the same tx; returns Rev |
+| `Resign(cur, id)` | forfeit |
+| `ClaimTimeout(cur, id)` | anyone, after 30 min without progress (`time.Now()`, lazy: no timers on chain) |
+
+Errors are panics prefixed `gunslinger: `; the client extracts them from the
+tx result log. Events: `GameCreated`, `PlayerJoined`, `PlanSubmitted`,
+`TurnResolved`, `GameEnded` (informational; there is no event subscription on
+the RPC, clients poll).
+
+### Reads
+`Render("json/game/{id}")` and `Render("json/games/{addr}")` return raw JSON
+through `vm/qrender` (`vm/qeval` would Go-quote the string). `Render("")`,
+`game/{id}`, `help` are gnoweb pages. `GameJSON`, `GamesJSON`, `GameRev` are
+plain getters for tests and gnokey.
+
+### Plan string
+`entry("," entry)*`, `entry := <card 1-12><f|b>[:<dir>]`, dir ∈ `ahead_left
+ahead ahead_right back_left back back_right`, at most 5 entries, empty = pass.
+Example `1f:ahead_left,2f:ahead,3f`. Rules (engine `Plan.Validate`): one side
+per card, dir required for move/turn cards and in the right set, no dir
+otherwise, total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs Run.
+
+### Directions
+Absolute 0=N 1=NE 2=SE 3=S 4=SW 5=NW (flat-top hexes, vertical columns).
+Relative offsets from the facing: ahead=0, ahead_right=1, back_right=2,
+back=3, back_left=4, ahead_left=5. **Left/right are the character's own sides
+while it keeps facing forward** (facing N, back_right is SE). Note that
+`bga/modules/php/Hex.php` swaps back_left/back_right; the realm and the client
+use the convention above. Tokens are drawn rotated by
+`dirIndexToAngle(facing, charKey)` (their arrow is baked into the PNG, see
+`CHAR_ARROW_DIR`).
+
+### Resolution (engine.Resolve, port of bga ResolveTurn.php)
+For each segment 1–5 and each alive player, the next action executes once when
+`usedTime + cost + delay ≤ segment`. Delay gained in a segment applies from the
+next one. Moving while down costs 2 delay (crawl); Sprint goes straight ahead
+and draws a delay card; Leap/Drop draws two; ending a move in an occupied hex
+makes both characters draw one (rule 9.24). Off-board moves are cancelled but
+still consume their time. Unexecuted actions are cancelled after segment 5.
+End of turn removes half the delay, rounded up. Dice are a seeded PCG
+(`engine.Seed` over realm path, id, turn, both plans, height, block time); the
+seed is stored in `TurnResult` so the turn can be replayed. Delay cards draw
+1–3 until the result deck is transcribed.
+
+### Gno idioms in use (gno 0.9)
+`func F(cur realm, ...)`, caller = `cur.Previous().Address()`, other realm
+functions called with `cross(cur)`, `chain.Emit`, `chain/runtime`,
+`time.Now()` = block time, `p/nt/{avl,seqid,mux,ufmt,markdown/sanitize}/v0`,
+`p/moul/{md,txlink}/v0`. No `encoding/json` (JSON is hand-built in
+`json.gno`). Tests: `testing.SetRealm(testing.NewUserRealm(addr))` **must be
+called directly in the test function** (it rewrites that frame's `cur`; a
+helper would set its own frame), then `F(cross(cur), ...)`;
+`uassert.AbortsWithMessage(t, cur, msg, func(){...})` for panics of crossing
+calls; `testing.SkipHeights(n)` advances block time 5 s per height.
+
+## Client
+
+- `chain/rpc.ts`: hand-rolled JSON-RPC (`abci_query` with base64 data,
+  `status`, `tx` by hash, `waitForTx`). Query errors carry the realm panic.
+- `chain/adena.ts`: `window.adena` (`AddEstablish`, `GetAccount`,
+  `GetNetwork`/`SwitchNetwork`/`AddNetwork`, `DoContract`, `On`). **Adena
+  broadcasts sync**: success only means "in the mempool", so `realm.ts` waits
+  for the tx result and throws the realm's panic message if it failed. One tx
+  in flight per account.
+- `chain/poller.ts`: polls `json/game/{id}` every `VITE_POLL_MS` (2 s) and
+  fires on `rev` change; backs off on errors; pauses when the tab is hidden.
+- `LobbyScene`: connect Adena (switching/adding the network from
+  `VITE_CHAIN_ID`/`VITE_RPC_URL`), pick a character, create / join / open games.
+- `GameScene`: renders `committed` state from the chain; card strip builds an
+  ordered plan with a live preview (`replayPlan`) and relative-direction hex
+  picks; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
+  resolution log is played back segment by segment (`playback.ts`) from the
+  positions shown before, then the state re-syncs. Only the last selected card
+  can be deselected (choices are relative to the state before it).
+- Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
+  `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
+  optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
+
+### Manual end-to-end test
+1. Two accounts in Adena; `ADENA_ADDRS="g1... g1..." make gnodev` (premines
+   them); `make web`; open http://localhost:5173, approve connect / add
+   network `dev` / switch.
+2. Account A: pick a character, **Create a game**. Switch account in Adena
+   (the app reconnects): **Join** from "Open games". Both see the tokens at
+   A-F1 (facing S) and A-F12 (facing N).
+3. Each account picks cards and sends its plan; the second submission
+   resolves the turn, both tabs replay it, positions match
+   `go tool gnokey query vm/qrender -remote 127.0.0.1:26657 -data 'gno.land/r/tbruyelle/gunslinger/v0:json/game/0000001'`.
+4. CLI alternative: `go tool gnokey maketx call -pkgpath gno.land/r/tbruyelle/gunslinger/v0 -func SubmitPlan -args 0000001 -args "1f:ahead" -gas-fee 1000000ugnot -gas-wanted 20000000 -broadcast -chainid dev -remote 127.0.0.1:26657 <key>`.
+
+## Game Rules (quick reference)
+
+Turn: 5 segments. Players secretly pick up to 5 time points of action cards
+(minus carried delay), in play order; actions resolve by time (shots first
+once combat lands); effects apply at segment end. Full rules:
+`bga/doc/RULES.md`; decisions: `bga/doc/ASSUMPTIONS.md` (`[Hx]` ids).
+
+| Card | Front (cost) | Back (cost) |
+|------|--------------|-------------|
+| 1 | Advance (2) | Back Up (3) |
+| 2 | Run (1) | Spin Around (2) |
+| 3 | Sprint (1) | Turn (1) |
+| 4 | Sprint (1) | Leap/Drop (1) |
+| 5 | Cock/Aim/Shoot (2) | Get Up/Down (3) |
+| 6 | Cock/Aim/Shoot (2) | Throw (2) |
+| 7 | Shoot (1) | Strength (2) |
+| 8 | Load (3) | Head Out/Back (2) |
+| 9 | Draw & Cock (3) | Head Out/Back (2) |
+| 10 | Jab (2) | Duck (1) |
+| 11 | Swing (3) | Block (2) |
+| 12 | Belt (3) | Guard (2) |
+
+## Assets
+
+`assets/` (TTS mod dump, served by Vite): boards 1600×2232 (`board_A.png` …),
+character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png`,
+`hex_grid.json` (hex centres, scaled 2×). `assets/local/` (VASSAL): status
+overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
+(not needed, everything is present).
 
 ## TODO
 
-- **Sequence resolution**: implement actual action execution during sequences 1–5
-- **Finish merging asset sources**: `assets/local/` still has unmerged tokens/markers
-- **Board display extraction**: `BOARD_DIMS` and transform logic duplicated across SetupScene, TokenPlacementScene, GameScene — extract to shared module
+- Commit-reveal for plans (`PhaseCommit`/`PhaseReveal` reserved): secret
+  simultaneous selection and dice seeded from revealed salts.
+- Guns and brawling: enable more `cards.Enabled`, shots first per segment,
+  transcribe the 108 result cards and IMPACT tables.
+- Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
+  characters per player; victory points.
+- Session keys (`MsgCreateSession`) so Adena signs once per game.

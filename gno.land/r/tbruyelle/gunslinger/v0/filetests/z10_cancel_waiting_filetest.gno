@@ -1,0 +1,27 @@
+// PKGPATH: gno.land/r/tbruyelle/gunslinger/v0/filetests/z10_cancel_waiting_filetest
+
+package z10_cancel_waiting_filetest
+
+import (
+	"testing"
+
+	gunslinger "gno.land/r/tbruyelle/gunslinger/v0"
+)
+
+const (
+	alice address = "g1alice00000000000000000000000000000000"
+	bob   address = "g1bob0000000000000000000000000000000000"
+	carol address = "g1carol0000000000000000000000000000000"
+)
+
+func main(cur realm) {
+	testing.SetRealm(testing.NewUserRealm(alice))
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10)
+	gunslinger.CancelGame(cross(cur), id)
+	println(gunslinger.GameJSON(id))
+	println(gunslinger.GamesJSON(alice.String()))
+}
+
+// Output:
+// {"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"board":"A","players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal","hex":"A-F1","facing":3,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false},{"addr":"","char":"","hex":"A-F12","facing":0,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false}],"winner":-1,"endReason":"cancelled","createdAt":1234567890,"updatedAt":1234567890,"timeoutAt":0,"lastTurn":null}
+// {"open":[],"mine":[{"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"createdAt":1234567890,"updatedAt":1234567890,"players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal"},{"addr":"","char":""}]}]}

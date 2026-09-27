@@ -1,9 +1,6 @@
 import Phaser from "phaser";
 import { BootScene } from "./scenes/BootScene";
 import { LobbyScene } from "./scenes/LobbyScene";
-import { SetupScene } from "./scenes/SetupScene";
-import { TokenPlacementScene } from "./scenes/TokenPlacementScene";
-import { MatchmakingScene } from "./scenes/MatchmakingScene";
 import { GameScene } from "./scenes/GameScene";
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -15,7 +12,7 @@ const config: Phaser.Types.Core.GameConfig = {
     width: "100%",
     height: "100%",
   },
-  scene: [BootScene, LobbyScene, SetupScene, TokenPlacementScene, MatchmakingScene, GameScene],
+  scene: [BootScene, LobbyScene, GameScene],
 };
 
 new Phaser.Game(config);
