@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QueryError, Rpc, RpcError, extractPanic, unwrapQevalString, utf8ToB64 } from "./rpc";
+import { QueryError, Rpc, RpcError, extractPanic, formatCoins, unwrapQevalString, utf8ToB64 } from "./rpc";
 
 function fakeFetch(replies: Record<string, unknown>) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -91,5 +91,22 @@ describe("helpers", () => {
     );
     expect(extractPanic("Data: something else\nMsg Traces:")).toBe("something else");
     expect(extractPanic("")).toBeUndefined();
+  });
+});
+
+describe("balance", () => {
+  it("queries bank/balances and unquotes the coins", async () => {
+    const { fetchFn, calls } = fakeFetch({
+      abci_query: { result: { response: { ResponseBase: { Error: null, Data: utf8ToB64('"999000000ugnot"'), Log: "" } } } },
+    });
+    expect(await new Rpc("http://x", fetchFn).balance("g1abc")).toBe("999000000ugnot");
+    expect(calls[0].params).toEqual({ path: "bank/balances/g1abc", data: "" });
+  });
+
+  it("formats coins", () => {
+    expect(formatCoins("999000000ugnot")).toBe("999 GNOT");
+    expect(formatCoins("1500000ugnot")).toBe("1.5 GNOT");
+    expect(formatCoins("")).toBe("0 GNOT");
+    expect(formatCoins("5ugnot,10foo")).toBe("0.000005 GNOT, 10 foo");
   });
 });

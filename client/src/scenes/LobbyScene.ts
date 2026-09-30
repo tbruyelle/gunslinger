@@ -4,6 +4,7 @@ import { CONFIG } from "../config";
 import { initChain, resetChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
 import { userMessage } from "../chain/errors";
+import { formatCoins } from "../chain/rpc";
 import { shortAddr, type GameSummary, type GamesView } from "../chain/types";
 import { showToast } from "../ui/toast";
 
@@ -40,6 +41,8 @@ export class LobbyScene extends Phaser.Scene {
   private games: GamesView | null = null;
   private gamesKey = "";
   private busy = false;
+  private accountPanel = false;
+  private balance: string | null = null;
   private refreshTimer: Phaser.Time.TimerEvent | null = null;
   private unsubscribe: (() => void)[] = [];
 
@@ -55,6 +58,7 @@ export class LobbyScene extends Phaser.Scene {
     this.games = null;
     this.gamesKey = "";
     this.busy = false;
+    this.accountPanel = false;
   }
 
   create() {
@@ -76,6 +80,38 @@ export class LobbyScene extends Phaser.Scene {
     void this.connect();
   }
 
+  /** Forgets the connection in the app (Adena itself stays connected to the site) and shows the splash again. */
+  private quit() {
+    resetChain();
+    this.chain = null;
+    this.status = "connecting";
+    this.games = null;
+    this.gamesKey = "";
+    this.accountPanel = false;
+    this.screen = "splash";
+    this.buildAll();
+  }
+
+  private async loadBalance(addr: string) {
+    this.balance = null;
+    try {
+      const coins = await this.chain!.rpc.balance(addr);
+      this.balance = formatCoins(coins);
+    } catch (e) {
+      this.balance = `unavailable (${userMessage(e)})`;
+    }
+    if (this.scene.isActive() && this.accountPanel) this.buildAll();
+  }
+
+  private async copyAddress(addr: string) {
+    try {
+      await navigator.clipboard.writeText(addr);
+      showToast(this, "Address copied", "info", 2000);
+    } catch {
+      showToast(this, "Could not copy: " + addr, "error", 6000);
+    }
+  }
+
   // ── Chain ─────────────────────────────────────────────────────────────────
 
   private async connect() {
@@ -90,10 +126,10 @@ export class LobbyScene extends Phaser.Scene {
       if (this.unsubscribe.length === 0) {
         this.unsubscribe.push(
           subscribeAccountChanged(() => {
-            if (this.scene.isActive()) void this.connect();
+            if (this.scene.isActive() && this.screen === "lobby") void this.connect();
           }),
           subscribeNetworkChanged(() => {
-            if (this.scene.isActive()) void this.connect();
+            if (this.scene.isActive() && this.screen === "lobby") void this.connect();
           }),
         );
       }
@@ -203,9 +239,18 @@ export class LobbyScene extends Phaser.Scene {
 
     if (this.status === "ready" && this.chain) {
       const addr = this.chain.wallet.address;
-      this.add
-        .text(w - 16, TOPBAR_H / 2, `${shortAddr(addr)}  ·  ${this.chain.config.chainId}`, { fontSize: "14px", color: GOLD_STR })
-        .setOrigin(1, 0.5);
+      const t = this.add
+        .text(w - 16, TOPBAR_H / 2, `${shortAddr(addr)}  ·  ${this.chain.config.chainId} ▾`, { fontSize: "14px", color: GOLD_STR })
+        .setOrigin(1, 0.5)
+        .setInteractive({ useHandCursor: true });
+      t.on("pointerover", () => t.setColor("#ffe2a0"));
+      t.on("pointerout", () => t.setColor(GOLD_STR));
+      t.on("pointerup", () => {
+        this.accountPanel = !this.accountPanel;
+        if (this.accountPanel) void this.loadBalance(addr);
+        this.buildAll();
+      });
+      if (this.accountPanel) this.buildAccountPanel(addr);
     } else if (this.status === "connecting") {
       this.add.text(w - 16, TOPBAR_H / 2, "Connecting to Adena…", { fontSize: "14px", color: DIM_STR }).setOrigin(1, 0.5);
     } else {
@@ -214,6 +259,28 @@ export class LobbyScene extends Phaser.Scene {
         .text(w - 116, TOPBAR_H / 2, this.errorMsg, { fontSize: "13px", color: "#ff8866", wordWrap: { width: Math.max(160, w - 400) } })
         .setOrigin(1, 0.5);
     }
+  }
+
+  private buildAccountPanel(addr: string) {
+    const w = this.scale.width;
+    const pw = Math.min(460, w - 32);
+    const ph = 152;
+    const x = w - 16 - pw;
+    const y = TOPBAR_H + 8;
+    const chainId = this.chain?.config.chainId ?? "";
+    const depth = 30; // above the game lists
+    this.add.rectangle(x, y, pw, ph, 0x1f1207).setOrigin(0).setStrokeStyle(1, GOLD).setDepth(depth);
+    this.add.text(x + 14, y + 12, "Connected account", { fontSize: "13px", color: DIM_STR }).setDepth(depth);
+    this.add.text(x + 14, y + 34, addr, { fontSize: "14px", color: "#e8d5b0", wordWrap: { width: pw - 28 } }).setDepth(depth);
+    this.add.text(x + 14, y + 58, `network ${chainId}`, { fontSize: "12px", color: DIM_STR }).setDepth(depth);
+    this.add.text(x + 14, y + 80, `balance: ${this.balance ?? "…"}`, { fontSize: "14px", color: GOLD_STR }).setDepth(depth);
+    const by = y + ph - 28;
+    this.makeButton(x + 14 + 50, by, 100, 30, "Copy", () => void this.copyAddress(addr), undefined, depth + 1);
+    this.makeButton(x + 14 + 100 + 12 + 50, by, 100, 30, "Quit", () => this.quit(), undefined, depth + 1);
+    this.makeButton(x + pw - 14 - 50, by, 100, 30, "Close", () => {
+      this.accountPanel = false;
+      this.buildAll();
+    }, undefined, depth + 1);
   }
 
   private buildLists() {
@@ -289,7 +356,7 @@ export class LobbyScene extends Phaser.Scene {
     }
   }
 
-  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string) {
+  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string, depth = 0) {
     const bg = this.add.graphics();
     const draw = (fill: number) => {
       bg.clear();
@@ -305,13 +372,16 @@ export class LobbyScene extends Phaser.Scene {
       const size = bh - 16;
       const gap = 10;
       const total = size + gap + text.width;
-      const img = this.add.image(cx - total / 2 + size / 2, cy, icon).setDisplaySize(size, size);
+      const img = this.add.image(cx - total / 2 + size / 2, cy, icon).setDisplaySize(size, size).setDepth(depth + 1);
       text.setX(img.x + size / 2 + gap + text.width / 2);
     }
     const zone = this.add.zone(cx, cy, bw, bh).setInteractive({ useHandCursor: true });
     zone.on("pointerover", () => draw(0x5a3200));
     zone.on("pointerout", () => draw(0x3a1f00));
     zone.on("pointerup", onClick);
+    bg.setDepth(depth);
+    text.setDepth(depth + 1);
+    zone.setDepth(depth + 1);
   }
 }
 

@@ -92,6 +92,12 @@ export class Rpc {
     return this.abciQuery("vm/qeval", `${pkgPath}.${expr}`);
   }
 
+  /** The coins held by an address, as the chain prints them, e.g. "999000000ugnot" ("" when empty). */
+  async balance(addr: string): Promise<string> {
+    const data = await this.abciQuery(`bank/balances/${addr}`, "");
+    return data ? (JSON.parse(data) as string) : "";
+  }
+
   /** Fetches a transaction by its base64 hash; null while it is not indexed yet. */
   async tx(hashB64: string): Promise<TxResult | null> {
     let r: { height: string; tx_result: { ResponseBase: ResponseBase } };
@@ -161,4 +167,19 @@ export function b64ToUtf8(b64: string): string {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new TextDecoder().decode(bytes);
+}
+
+/** Formats a coins string for display: the ugnot amount in GNOT, other denoms as is. */
+export function formatCoins(coins: string): string {
+  if (!coins) return "0 GNOT";
+  const parts = coins.split(",").map((c) => {
+    const m = /^(\d+)([a-z/._-]+)$/i.exec(c.trim());
+    if (!m) return c.trim();
+    if (m[2] === "ugnot") {
+      const n = Number(m[1]) / 1_000_000;
+      return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })} GNOT`;
+    }
+    return `${m[1]} ${m[2]}`;
+  });
+  return parts.join(", ");
 }
