@@ -534,7 +534,16 @@ export class GameScene extends Phaser.Scene {
   private buildHUD() {
     const w = this.cw;
     this.add.rectangle(0, 0, w, HUD_H, 0x0f0804).setOrigin(0);
-    this.turnText = this.add.text(16, HUD_H / 2, "", { fontSize: "20px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0, 0.5);
+    const lobby = this.add
+      .text(16, HUD_H / 2, "◀ Lobby", { fontSize: "14px", color: DIM_STR, backgroundColor: "#2a1500", padding: { x: 10, y: 5 } })
+      .setOrigin(0, 0.5)
+      .setInteractive({ useHandCursor: true });
+    lobby.on("pointerover", () => lobby.setColor(GOLD_STR));
+    lobby.on("pointerout", () => lobby.setColor(DIM_STR));
+    lobby.on("pointerup", () => this.scene.start("LobbyScene", { splash: false }));
+    this.turnText = this.add
+      .text(lobby.x + lobby.width + 16, HUD_H / 2, "", { fontSize: "20px", color: GOLD_STR, fontStyle: "bold" })
+      .setOrigin(0, 0.5);
     this.statusText = this.add.text(w / 2, HUD_H / 2, "", { fontSize: "17px", color: "#c4935a" }).setOrigin(0.5);
     this.rightText = this.add.text(w - 16, HUD_H / 2, "", { fontSize: "13px", color: DIM_STR }).setOrigin(1, 0.5);
   }

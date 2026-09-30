@@ -241,7 +241,6 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Add token placement during create/join phase
 - Lobby
   - Check game list order (sort by most recent)
-- Add Back to lobby button
 - Delay
   - A "delay card" is a stub draw: a uniform number from 1 to 3.
   - use real card and track which cards number were drawn
