@@ -228,19 +228,31 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 
 ## TODO
 
-- Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
-  simultaneous selection and dice seeded from revealed salts.
-- Guns and brawling: enable more `cards.Enabled`, shots first per segment,
-  transcribe the 108 result cards and IMPACT tables.
-  - revamp card design (more readable and fun to watch)
-- Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
-  characters per player; victory points.
 - Session keys (`MsgCreateSession`) so Adena signs once per game.
 - Replace the tbruyelle realm to sthing else
-- Add profile page with specific token and linked reputation (check RPG rules)
-- Add token placement during create/join phase
+- upgrade architecture with player boards and profile preserved
+- Player profile
+  - Add profile page with specific token and linked reputation (check RPG rules)
+  - Add a challenge player button
+  - Can pick a specific character token
 - Lobby
   - Check game list order (sort by most recent)
-- Delay
-  - A "delay card" is a stub draw: a uniform number from 1 to 3.
-  - use real card and track which cards number were drawn
+  - Top players list
+- Showdown
+  - Allow create game with pot
+    - join require to fill the pot with the same amount
+    - cancel game clawbacks the fund
+    - part of the pot is hold by the realm to create events
+  - Add token placement during create/join phase
+  - Delay
+    - A "delay card" is a stub draw: a uniform number from 1 to 3.
+    - use real card and track which cards number were drawn
+  - Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
+    simultaneous selection and dice seeded from revealed salts.
+  - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
+    transcribe the 108 result cards and IMPACT tables.
+  - Revamp card design (more readable and fun to watch)
+  - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
+    characters per player; victory points.
+- Event systems
+  - allow temparory events like "rob the bank" with rewards from realm funds
