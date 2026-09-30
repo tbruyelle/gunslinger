@@ -149,9 +149,19 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   `status`, `tx` by hash, `waitForTx`). Query errors carry the realm panic.
 - `chain/adena.ts`: `window.adena` (`AddEstablish`, `GetAccount`,
   `GetNetwork`/`SwitchNetwork`/`AddNetwork`, `DoContract`, `On`). **Adena
-  broadcasts sync**: success only means "in the mempool", so `realm.ts` waits
-  for the tx result and throws the realm's panic message if it failed. One tx
-  in flight per account.
+  broadcasts sync** (success only means "in the mempool") **and only answers
+  `DoContract` when the user dismisses its result screen** (kept visible, with
+  the notification, through `withNotification`/`isVisibleResult`), so `realm.ts`
+  races the wallet answer against the chain: each write watches the game view
+  for its own effect and returns as soon as it shows; the wallet answer, when
+  it comes first, is followed by the tx result, which carries the realm's
+  panic message if the call failed. One tx in flight per account. Adena
+  tracks site connections **per account**: `DoContract` for an account not
+  connected to the site answers `NOT_CONNECTED` without any popup, so
+  `doContract` first checks `GetAccount` (re-establishing if needed) and
+  throws `wrong-account` when Adena moved to another account. Account
+  switches are detected through `On("changedAccount")` **and** a 3 s
+  `GetAccount` poll, since the event is not always delivered.
 - `chain/poller.ts`: polls `json/game/{id}` every `VITE_POLL_MS` (2 s) and
   fires on `rev` change; backs off on errors; pauses when the tab is hidden.
 - `LobbyScene`: splash screen with an **Enter** button (skipped when a game
@@ -220,3 +230,5 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
   characters per player; victory points.
 - Session keys (`MsgCreateSession`) so Adena signs once per game.
+- Replace the tbruyelle realm to sthing else
+- Add profile page with specific token and linked reputation (check RPG rules)

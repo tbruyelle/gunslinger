@@ -55,6 +55,18 @@ export interface Wallet {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** How long a wallet popup may stay unanswered before the app gives up on it. */
+export const WALLET_TIMEOUT_MS = 3 * 60_000;
+
+/** Rejects with a ChainError("timeout") if the promise takes longer than ms. */
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ChainError("timeout", `${what} after ${Math.round(ms / 1000)} s`)), ms);
+  });
+  return Promise.race([p, guard]).finally(() => clearTimeout(timer));
+}
+
 /** Waits for the extension to inject window.adena. */
 export async function detectAdena(timeoutMs = 1500): Promise<AdenaApi> {
   const start = Date.now();
@@ -75,7 +87,9 @@ export function adenaError(res: AdenaResponse<unknown>, fallback: ChainErrorKind
     case "NO_ACCOUNT":
       return new ChainError("locked", "No account in Adena");
     case "NOT_CONNECTED":
-      return new ChainError("locked", "This site is not connected to Adena");
+      return new ChainError("not-connected", "This site is not connected to the current Adena account");
+    case "ACCOUNT_MISMATCH":
+      return new ChainError("wrong-account", "Adena is on another account");
     case "UNADDED_NETWORK":
       return new ChainError("wrong-network", "Network not added in Adena", chainId);
     case "TRANSACTION_FAILED": {
@@ -111,13 +125,59 @@ class AdenaWallet implements Wallet {
   ) {}
 
   async doContract(call: VmCall): Promise<{ hash: string }> {
-    const params: ContractParams = { messages: [{ type: "/vm.m_call", value: call }], memo: "" };
-    if (this.cfg.gasWanted) params.gasWanted = this.cfg.gasWanted;
-    if (this.cfg.gasFee) params.gasFee = this.cfg.gasFee;
-    const res = await this.adena.DoContract(params, { withNotification: false, isVisibleResult: false });
-    if (res.status === "failure" || !res.data?.hash) throw adenaError(res, "checktx");
-    return { hash: res.data.hash };
+    // Adena only opens its approval popup when the *current* account is
+    // connected to this site, so check the account and re-establish first;
+    // otherwise DoContract answers NOT_CONNECTED without any popup.
+    // Older Adena versions close their approval popup on any other request
+    // from the page, so the account poll is paused while a call is in flight.
+    inFlight++;
+    try {
+      const current = await currentAccount(this.adena);
+      if (current !== this.address) {
+        throw new ChainError("wrong-account", "Adena is on another account", current ? shortAddr(current) : "locked");
+      }
+      const params: ContractParams = { messages: [{ type: "/vm.m_call", value: call }], memo: "" };
+      if (this.cfg.gasWanted) params.gasWanted = this.cfg.gasWanted;
+      if (this.cfg.gasFee) params.gasFee = this.cfg.gasFee;
+      console.debug("[gunslinger] Adena DoContract request", params);
+      // Adena's defaults: it shows its result screen and a notification after
+      // broadcasting, and answers the page once the result screen is closed.
+      // The realm client also watches the chain, so that wait costs nothing.
+      const res = await withTimeout(
+        this.adena.DoContract(params, { withNotification: true, isVisibleResult: true }),
+        WALLET_TIMEOUT_MS,
+        "No answer from Adena",
+      );
+      console.debug("[gunslinger] Adena DoContract response", res);
+      if (res.status === "failure" || !res.data?.hash) throw adenaError(res, "checktx");
+      return { hash: res.data.hash };
+    } finally {
+      inFlight--;
+    }
   }
+}
+
+/**
+ * The address of Adena's current account, establishing the site for that
+ * account when needed (Adena tracks connections per account). Null when the
+ * wallet is locked or has no account.
+ */
+export async function currentAccount(adena: AdenaApi): Promise<string | null> {
+  let acc = await adena.GetAccount();
+  if (acc.status === "failure" && acc.type === "NOT_CONNECTED") {
+    const est = await adena.AddEstablish("Gunslinger");
+    if (est.status === "failure" && est.type !== "ALREADY_CONNECTED") throw adenaError(est, "locked");
+    acc = await adena.GetAccount();
+  }
+  if (acc.status === "failure" || !acc.data?.address) {
+    if (acc.type === "WALLET_LOCKED" || acc.type === "NO_ACCOUNT") return null;
+    throw adenaError(acc, "locked");
+  }
+  return acc.data.address;
+}
+
+function shortAddr(addr: string): string {
+  return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 }
 
 /** Connects the site to Adena, switches it to the configured chain and returns the active account. */
@@ -126,26 +186,56 @@ export async function connectWallet(cfg: ChainConfig): Promise<Wallet> {
   const est = await adena.AddEstablish("Gunslinger");
   if (est.status === "failure" && est.type !== "ALREADY_CONNECTED") throw adenaError(est, "locked");
   await ensureNetwork(adena, cfg);
-  const acc = await adena.GetAccount();
-  if (acc.status === "failure" || !acc.data?.address) throw adenaError(acc, "locked");
-  return new AdenaWallet(adena, acc.data.address, cfg);
+  const address = await currentAccount(adena);
+  if (!address) throw new ChainError("locked", "Unlock Adena and pick an account");
+  lastSeenAddress = address;
+  return new AdenaWallet(adena, address, cfg);
 }
 
 // Adena's On() cannot unsubscribe, so it is registered once and fanned out.
 const accountListeners = new Set<(address: string) => void>();
 const networkListeners = new Set<(chainId: string) => void>();
 let listening = false;
+let lastSeenAddress: string | null = null;
+let accountPoll: ReturnType<typeof setInterval> | null = null;
+let inFlight = 0; // wallet calls in progress
+
+const ACCOUNT_POLL_MS = 3000;
+
+function notifyAccount(address: string) {
+  if (address === lastSeenAddress) return;
+  lastSeenAddress = address;
+  accountListeners.forEach((cb) => cb(address));
+}
 
 function listen() {
   if (listening || !window.adena) return;
   listening = true;
-  window.adena.On("changedAccount", (address) => accountListeners.forEach((cb) => cb(address)));
+  window.adena.On("changedAccount", (address) => notifyAccount(address));
   window.adena.On("changedNetwork", (chainId) => networkListeners.forEach((cb) => cb(chainId)));
+}
+
+// Adena's changedAccount event does not always reach the page (it depends on
+// the extension version and on the account being connected to the site), so
+// the current account is also polled while someone listens.
+function pollAccounts() {
+  if (accountPoll || !window.adena) return;
+  accountPoll = setInterval(async () => {
+    if (accountListeners.size === 0 || document.hidden || !window.adena || inFlight > 0) return;
+    try {
+      const acc = await window.adena.GetAccount();
+      if (acc.status === "success" && acc.data?.address) notifyAccount(acc.data.address);
+      else if (acc.status === "failure" && acc.type === "NOT_CONNECTED") notifyAccount("");
+    } catch {
+      // ignore: the next tick retries
+    }
+  }, ACCOUNT_POLL_MS);
 }
 
 /** Calls cb when the user switches account in Adena; returns an unsubscribe function. */
 export function subscribeAccountChanged(cb: (address: string) => void): () => void {
   listen();
+  pollAccounts();
   accountListeners.add(cb);
   return () => accountListeners.delete(cb);
 }

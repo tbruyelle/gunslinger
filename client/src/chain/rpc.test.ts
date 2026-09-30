@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QueryError, Rpc, RpcError, extractPanic, formatCoins, unwrapQevalString, utf8ToB64 } from "./rpc";
+import { QueryError, Rpc, RpcError, extractPanic, formatCoins, normalizeHash, unwrapQevalString, utf8ToB64 } from "./rpc";
 
 function fakeFetch(replies: Record<string, unknown>) {
   const calls: { method: string; params: Record<string, unknown> }[] = [];
@@ -108,5 +108,18 @@ describe("balance", () => {
     expect(formatCoins("1500000ugnot")).toBe("1.5 GNOT");
     expect(formatCoins("")).toBe("0 GNOT");
     expect(formatCoins("5ugnot,10foo")).toBe("0.000005 GNOT, 10 foo");
+  });
+});
+
+describe("normalizeHash", () => {
+  it("converts hex hashes to base64 and leaves base64 alone", () => {
+    expect(normalizeHash("13b9862972bc7a7a73bf17b0fbb28b141dc0d503ef4a2d3fffe8a2a2f2be594a")).toBe("E7mGKXK8enpzvxew+7KLFB3A1QPvSi0//+iiovK+WUo=");
+    expect(normalizeHash("NTKKcVPcv3tG6kgNn8KTSYoTrTB9Z1A0ww/KMFg7i4c=")).toBe("NTKKcVPcv3tG6kgNn8KTSYoTrTB9Z1A0ww/KMFg7i4c=");
+  });
+
+  it("is used by tx()", async () => {
+    const { fetchFn, calls } = fakeFetch({ tx: { error: { code: -32603, message: "Internal error", data: "Could not find tx result" } } });
+    await new Rpc("http://x", fetchFn).tx("13b9862972bc7a7a73bf17b0fbb28b141dc0d503ef4a2d3fffe8a2a2f2be594a");
+    expect(calls[0].params).toEqual({ hash: "E7mGKXK8enpzvxew+7KLFB3A1QPvSi0//+iiovK+WUo=" });
   });
 });

@@ -8,7 +8,9 @@ export type ChainErrorKind =
   | "rpc"
   | "query"
   | "busy"
-  | "timeout";
+  | "timeout"
+  | "not-connected"
+  | "wrong-account";
 
 /** An error from the wallet, the node, or the realm, with a kind the UI can act on. */
 export class ChainError extends Error {
@@ -30,6 +32,10 @@ export function userMessage(e: unknown): string {
         return "Transaction cancelled.";
       case "wrong-network":
         return `Switch Adena to the "${e.detail ?? "expected"}" network.`;
+      case "not-connected":
+        return "This site is not connected to the current Adena account. Reconnect from the lobby.";
+      case "wrong-account":
+        return `Adena is now on another account (${e.detail ?? "?"}). Reconnect from the lobby.`;
       case "busy":
         return "A transaction is still pending.";
       case "timeout":

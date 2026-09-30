@@ -98,11 +98,11 @@ export class Rpc {
     return data ? (JSON.parse(data) as string) : "";
   }
 
-  /** Fetches a transaction by its base64 hash; null while it is not indexed yet. */
-  async tx(hashB64: string): Promise<TxResult | null> {
+  /** Fetches a transaction by its hash (base64, or hex as newer wallets return it); null while it is not indexed yet. */
+  async tx(hash: string): Promise<TxResult | null> {
     let r: { height: string; tx_result: { ResponseBase: ResponseBase } };
     try {
-      r = await this.call("tx", { hash: hashB64 });
+      r = await this.call("tx", { hash: normalizeHash(hash) });
     } catch (e) {
       if (e instanceof RpcError && /could not find/i.test(`${e.data ?? ""} ${e.message}`)) return null;
       throw e;
@@ -153,6 +153,14 @@ export function unwrapQevalString(s: string): string {
 /** Converts a ChainError-worthy failure of a write into a ChainError. */
 export function txResultError(r: TxResult): ChainError | null {
   return r.error ? new ChainError("delivertx", r.error, r.log) : null;
+}
+
+/** The node wants tx hashes as base64; tm2-js-client 3 (and so Adena) hands out hex. */
+export function normalizeHash(hash: string): string {
+  if (!/^[0-9a-fA-F]{64}$/.test(hash)) return hash;
+  let bin = "";
+  for (let i = 0; i < hash.length; i += 2) bin += String.fromCharCode(parseInt(hash.slice(i, i + 2), 16));
+  return btoa(bin);
 }
 
 export function utf8ToB64(s: string): string {
