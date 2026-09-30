@@ -111,7 +111,7 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 // the games it plays or played, newest first (at most 50 each):
 //
 //	{"open":[summary...],"mine":[summary...]}
-//	summary = {"id","rev","phase","turn","maxTurns","createdAt","updatedAt","players":[{"addr","char"}]}
+//	summary = {"id","rev","phase","turn","maxTurns","winner","endReason","createdAt","updatedAt","players":[{"addr","char"}]}
 func GamesJSON(addr string) string {
 	var b strings.Builder
 	b.WriteString(`{"open":[`)
@@ -146,6 +146,8 @@ func writeSummary(b *strings.Builder, g *Game) {
 	b.WriteString(`,"phase":` + quote(g.Phase.String()))
 	b.WriteString(`,"turn":` + strconv.Itoa(g.Turn))
 	b.WriteString(`,"maxTurns":` + strconv.Itoa(g.MaxTurns))
+	b.WriteString(`,"winner":` + strconv.Itoa(g.Winner))
+	b.WriteString(`,"endReason":` + quote(g.EndReason))
 	b.WriteString(`,"createdAt":` + strconv.FormatInt(g.CreatedAt.Unix(), 10))
 	b.WriteString(`,"updatedAt":` + strconv.FormatInt(g.UpdatedAt.Unix(), 10))
 	b.WriteString(`,"players":[`)

@@ -11,6 +11,7 @@ import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment 
 import { MAX_ACTION_POINTS, encodePlan, isEnabled, planCost, validatePlan, type PlanEntry } from "../game/plan";
 import { replayPlan, type CharView } from "../game/replay";
 import { showToast } from "../ui/toast";
+import { charName } from "./LobbyScene";
 
 // ── Layout constants ────────────────────────────────────────────────────────
 
@@ -486,7 +487,7 @@ export class GameScene extends Phaser.Scene {
       .map((p, i) => {
         if (!p.addr) return "empty seat";
         const who = i === this.myIndex ? "you" : shortAddr(p.addr);
-        return `${p.char.replace(/_/g, " ")} (${who})`;
+        return `${charName(p.char)} (${who})`;
       })
       .join("  vs  ");
     this.rightText.setText(this.netError ? `RPC offline: ${this.netError}` : seats);
@@ -509,7 +510,7 @@ export class GameScene extends Phaser.Scene {
       case "spectate":
         return "Spectating";
       case "ended": {
-        const w = view.winner >= 0 ? `${view.players[view.winner].char.replace(/_/g, " ")} wins` : "no winner";
+        const w = view.winner >= 0 ? `${charName(view.players[view.winner].char)} wins` : "no winner";
         return `Game over (${view.endReason.replace(/_/g, " ")}): ${w}`;
       }
     }
@@ -704,7 +705,7 @@ export class GameScene extends Phaser.Scene {
     const cost = planCost(plan);
     const budget = this.budget();
     const me = this.myIndex >= 0 ? this.view?.players[this.myIndex] : null;
-    const name = me?.char.replace(/_/g, " ") ?? "";
+    const name = me ? charName(me.char) : "";
     if (this.mode === "submitting") {
       this.selectedDisplay.setText("Signing your plan in Adena…").setColor(GOLD_STR);
     } else if (this.choiceMode) {
@@ -932,7 +933,7 @@ export class GameScene extends Phaser.Scene {
   private refreshSequencePanel() {
     const pb = this.playback;
     if (!pb || !this.seqTitle) return;
-    const names = this.view?.players.map((p) => p.char.replace(/_/g, " ")) ?? [];
+    const names = this.view?.players.map((p) => charName(p.char)) ?? [];
     this.seqTitle.setText(pb.seg === 0 ? `Turn ${pb.turn}: start` : `Turn ${pb.turn}: segment ${pb.seg} of ${SEGMENTS}`);
     this.seqDots.setText(Array.from({ length: SEGMENTS }, (_, i) => (i < pb.seg ? "●" : "○")).join(" "));
     let lines: string[];

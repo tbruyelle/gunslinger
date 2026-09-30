@@ -90,7 +90,7 @@ change and is what clients poll. Only the last `TurnResult` is kept.
 | `CancelGame(cur, id)` | creator, while waiting |
 | `SubmitPlan(cur, id, plan) int` | validates, stores; the **second** plan resolves the turn in the same tx; returns Rev |
 | `Resign(cur, id)` | forfeit |
-| `ClaimTimeout(cur, id)` | anyone, after 30 min without progress (`time.Now()`, lazy: no timers on chain) |
+| `ClaimTimeout(cur, id)` | anyone, after 30 min without progress (`time.Now()`, lazy: no timers on chain); waiting → `expired`, one plan in → `timeout` (other forfeits), none → `abandoned` |
 
 Errors are panics prefixed `gunslinger: `; the client extracts them from the
 tx result log. Events: `GameCreated`, `PlayerJoined`, `PlanSubmitted`,

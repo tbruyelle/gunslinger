@@ -229,7 +229,7 @@ func TestClaimTimeout(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(carol))
 	ClaimTimeout(cross(cur), id)
 	g := getGame(id)
-	uassert.Equal(t, "cancelled", g.EndReason)
+	uassert.Equal(t, "expired", g.EndReason)
 	uassert.False(t, openGames.Has(id))
 
 	// One plan in: the other player forfeits.

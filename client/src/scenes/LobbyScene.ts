@@ -349,11 +349,11 @@ export class LobbyScene extends Phaser.Scene {
       .map((g) => ({
         label: `Game ${g.id}`,
         sub: `${charName(g.players[0]?.char)} by ${shortAddr(g.players[0]?.addr ?? "")}`,
-        button: this.busy ? undefined : { text: `Join as ${charName(JOINER_CHAR)}`, onClick: () => this.joinGame(g.id) },
+        button: this.busy ? undefined : { text: "Join", onClick: () => this.joinGame(g.id) },
       }));
     const mine: Row[] = (games?.mine ?? []).map((g) => ({
-      label: `Game ${g.id}  ·  ${summaryLine(g)}`,
-      sub: `${charName(g.players[0]?.char)} vs ${g.players[1]?.addr ? charName(g.players[1].char) : "?"}${seatNote(g, me)}`,
+      label: `Game ${g.id}  ·  ${summaryLine(g, me)}`,
+      sub: g.players.map((p) => (p.addr ? charName(p.char) + (p.addr === me ? " (you)" : "") : "?")).join(" vs "),
       button: this.busy ? undefined : { text: "Open", onClick: () => this.scene.start("GameScene", { gameID: g.id }) },
     }));
 
@@ -452,22 +452,38 @@ export class LobbyScene extends Phaser.Scene {
   }
 }
 
-function charName(key: string | undefined): string {
-  return (key ?? "?").replace(/_/g, " ");
+/** "fast_eddie" -> "Fast Eddie". */
+export function charName(key: string | undefined): string {
+  if (!key) return "?";
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
-function summaryLine(g: GameSummary): string {
+function summaryLine(g: GameSummary, me: string): string {
+  const who = (seat: number) => {
+    const p = g.players[seat];
+    return p?.addr ? charName(p.char) + (p.addr === me ? " (you)" : "") : "?";
+  };
   switch (g.phase) {
     case "waiting":
       return "waiting for an opponent";
     case "planning":
       return `turn ${g.turn}/${g.maxTurns}`;
-    default:
-      return "finished";
   }
-}
-
-function seatNote(g: GameSummary, me: string): string {
-  const seat = g.players.findIndex((p) => p.addr === me);
-  return seat >= 0 ? `  (you: ${charName(g.players[seat].char)})` : "";
+  switch (g.endReason) {
+    case "cancelled":
+      return `cancelled by ${who(0)}`;
+    case "expired":
+      return "expired, nobody joined";
+    case "resign":
+      return `${who(1 - g.winner)} resigned`;
+    case "timeout":
+      return `${who(1 - g.winner)} timed out`;
+    case "abandoned":
+      return "abandoned";
+    default:
+      return g.winner >= 0 ? `won by ${who(g.winner)}` : `finished after ${g.turn} turns, draw`;
+  }
 }

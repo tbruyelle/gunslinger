@@ -65,6 +65,10 @@ export interface GameSummary {
   phase: Phase;
   turn: number;
   maxTurns: number;
+  /** Seat index of the winner, -1 for none. */
+  winner: number;
+  /** "" while running; cancelled, expired, resign, timeout, abandoned, max_turns, last_standing. */
+  endReason: string;
   createdAt: number;
   updatedAt: number;
   players: { addr: string; char: string }[];

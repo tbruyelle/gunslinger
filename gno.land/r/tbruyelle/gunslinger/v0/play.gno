@@ -106,7 +106,7 @@ func Resign(cur realm, id string) {
 }
 
 // ClaimTimeout ends a game that saw no progress for TurnTimeout. Anyone may
-// call it. A waiting game is cancelled; when exactly one player submitted a
+// call it. A waiting game expires; when exactly one player submitted a
 // plan, the other forfeits; when neither did, the game is abandoned.
 func ClaimTimeout(cur realm, id string) {
 	g := getGame(id)
@@ -119,7 +119,7 @@ func ClaimTimeout(cur realm, id string) {
 	switch {
 	case g.Phase == PhaseWaiting:
 		openGames.Remove(id)
-		g.finish("cancelled", -1)
+		g.finish("expired", -1)
 	case g.Submitted[0] != g.Submitted[1]:
 		loser := 0
 		if g.Submitted[0] {
