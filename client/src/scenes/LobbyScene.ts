@@ -25,11 +25,21 @@ const DIM_STR = "#8a7150";
 const DIM_HEX = 0x8a7150;
 const SUBTITLE = "showdowns on the gno.land chain";
 
+/** How much a row should stand out: games in progress first, finished ones last. */
+type Tone = "hot" | "normal" | "dim";
+
 interface Row {
   label: string;
   sub?: string;
+  tone: Tone;
   button?: { text: string; onClick: () => void };
 }
+
+const TONES: Record<Tone, { bg: number; label: string; sub: string; alpha: number }> = {
+  hot: { bg: 0x3a2410, label: "#ffe2a0", sub: "#c4935a", alpha: 1 },
+  normal: { bg: 0x1f1207, label: "#e8d5b0", sub: DIM_STR, alpha: 1 },
+  dim: { bg: 0x160d05, label: "#8a7150", sub: "#5e4d38", alpha: 0.7 },
+};
 
 /**
  * Lobby: shows the splash screen, then connects Adena, lists open games to
@@ -349,11 +359,13 @@ export class LobbyScene extends Phaser.Scene {
       .map((g) => ({
         label: `Game ${g.id}`,
         sub: `${charName(g.players[0]?.char)} by ${shortAddr(g.players[0]?.addr ?? "")}`,
+        tone: "normal" as Tone,
         button: this.busy ? undefined : { text: "Join", onClick: () => this.joinGame(g.id) },
       }));
     const mine: Row[] = (games?.mine ?? []).map((g) => ({
       label: `Game ${g.id}  ·  ${summaryLine(g, me)}`,
       sub: g.players.map((p) => (p.addr ? charName(p.char) + (p.addr === me ? " (you)" : "") : "?")).join(" vs "),
+      tone: g.phase === "planning" ? "hot" : g.phase === "waiting" ? "normal" : "dim",
       button: this.busy ? undefined : { text: "Open", onClick: () => this.scene.start("GameScene", { gameID: g.id }) },
     }));
 
@@ -395,9 +407,11 @@ export class LobbyScene extends Phaser.Scene {
     const max = Math.max(1, Math.floor((h - headerH - pad) / (ROW_H + 8)));
     rows.slice(0, max).forEach((row, i) => {
       const ry = rowsY + i * (ROW_H + 8);
-      this.add.rectangle(x + pad, ry, w - 2 * pad, ROW_H + 2, 0x1f1207).setOrigin(0);
-      this.add.text(x + pad + 8, ry + 4, row.label, { fontSize: "14px", color: "#e8d5b0" });
-      if (row.sub) this.add.text(x + pad + 8, ry + 20, row.sub, { fontSize: "11px", color: DIM_STR });
+      const tone = TONES[row.tone];
+      const bg = this.add.rectangle(x + pad, ry, w - 2 * pad, ROW_H + 2, tone.bg).setOrigin(0);
+      if (row.tone === "hot") bg.setStrokeStyle(1, GOLD, 0.6);
+      this.add.text(x + pad + 8, ry + 4, row.label, { fontSize: "14px", color: tone.label }).setAlpha(tone.alpha);
+      if (row.sub) this.add.text(x + pad + 8, ry + 20, row.sub, { fontSize: "11px", color: tone.sub }).setAlpha(tone.alpha);
       if (row.button) {
         const bw = Math.min(170, w / 2.6);
         this.makeButton(x + w - pad - 8 - bw / 2, ry + ROW_H / 2 + 1, bw, 28, row.button.text, row.button.onClick);
