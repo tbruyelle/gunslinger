@@ -55,10 +55,12 @@ type Player struct {
 	Char string
 }
 
-// TurnResult is the outcome of the last resolved turn, kept so the client
-// can animate it. Seed lets anyone replay the resolution.
+// TurnResult is the outcome of one resolved turn, kept so the client can
+// replay it: the state the turn started from, the plans, and what happened.
+// Seed lets anyone re-run the resolution.
 type TurnResult struct {
 	Turn   int
+	Start  [engine.NumPlayers]engine.Character
 	Plans  [engine.NumPlayers]string
 	Seed   string
 	Events []engine.Event
@@ -74,7 +76,7 @@ type Game struct {
 	Phase     Phase
 	Plans     [engine.NumPlayers]string // current turn, canonical form
 	Submitted [engine.NumPlayers]bool
-	LastTurn  *TurnResult
+	Turns     []*TurnResult // resolved turns, in order (at most MaxTurns)
 	Winner    int // seat index, -1 for none
 	EndReason string
 	Rev       int // bumped on every change; clients poll it
@@ -116,6 +118,14 @@ func (g *Game) mustSeat(addr address) int {
 		panic("gunslinger: you are not a player of this game")
 	}
 	return p
+}
+
+// lastTurn is the most recently resolved turn, or nil.
+func (g *Game) lastTurn() *TurnResult {
+	if len(g.Turns) == 0 {
+		return nil
+	}
+	return g.Turns[len(g.Turns)-1]
 }
 
 // timeoutAt is when the game becomes claimable through ClaimTimeout.

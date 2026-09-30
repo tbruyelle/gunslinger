@@ -127,16 +127,20 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.False(t, g.Submitted[0])
 	uassert.False(t, g.Submitted[1])
 	uassert.Equal(t, "", g.Plans[0])
-	if g.LastTurn == nil {
+	lt := g.lastTurn()
+	if lt == nil {
 		t.Fatal("no turn result")
 	}
-	uassert.Equal(t, 1, g.LastTurn.Turn)
-	uassert.Equal(t, "1f:ahead,2f:ahead", g.LastTurn.Plans[0])
-	uassert.Equal(t, "5b", g.LastTurn.Plans[1])
-	uassert.Equal(t, 64, len(g.LastTurn.Seed))
+	uassert.Equal(t, 1, len(g.Turns))
+	uassert.Equal(t, 1, lt.Turn)
+	uassert.Equal(t, "1f:ahead,2f:ahead", lt.Plans[0])
+	uassert.Equal(t, "5b", lt.Plans[1])
+	uassert.Equal(t, 64, len(lt.Seed))
+	uassert.Equal(t, "A-F3", lt.Start[0].Hex)
+	uassert.Equal(t, "A-F9", lt.Start[1].Hex)
 	// Alice advanced F3->F4 on segment 2 and ran F4->F5 on segment 3;
 	// Bob dropped on segment 3.
-	uassert.Equal(t, 3, len(g.LastTurn.Events))
+	uassert.Equal(t, 3, len(lt.Events))
 	uassert.Equal(t, "A-F5", g.State.Chars[0].Hex)
 	uassert.Equal(t, "A-F9", g.State.Chars[1].Hex)
 	uassert.True(t, g.State.Chars[1].Down)
@@ -144,7 +148,21 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"turn":2`), js)
-	uassert.True(t, strings.Contains(js, `"lastTurn":{"turn":1,"seed":"`+g.LastTurn.Seed+`","plans":["1f:ahead,2f:ahead","5b"],"events":[`), js)
+	uassert.True(t, strings.Contains(js, `"lastTurn":{"turn":1,"seed":"`+lt.Seed+`","plans":["1f:ahead,2f:ahead","5b"],"events":[`), js)
+	uassert.True(t, strings.Contains(js, `"start":[{"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive"},{"hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive"}]}}`), js)
+
+	// A second turn: the history keeps both, oldest first.
+	testing.SetRealm(testing.NewUserRealm(alice))
+	SubmitPlan(cross(cur), id, "")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	SubmitPlan(cross(cur), id, "5b")
+	uassert.Equal(t, 2, len(g.Turns))
+	h := HistoryJSON(id)
+	uassert.True(t, strings.HasPrefix(h, `{"id":"`+id+`","turn":3,"phase":"planning","players":[`), h)
+	uassert.True(t, strings.Contains(h, `"turns":[{"turn":1,`), h)
+	uassert.True(t, strings.Contains(h, `},{"turn":2,`), h)
+	uassert.True(t, strings.Contains(h, `"start":[{"hex":"A-F5","facing":3,"down":false,"delay":0,"status":"alive"},{"hex":"A-F9","facing":0,"down":true,"delay":0,"status":"alive"}]}`), h)
+	uassert.Equal(t, h, Render("json/history/"+id))
 	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":""}`), js)
 	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":""}`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F9","facing":0,"down":true`), js)

@@ -28,10 +28,14 @@ func init() {
 	router.HandleFunc("json/games/{addr}", func(res *mux.ResponseWriter, req *mux.Request) {
 		res.Write(GamesJSON(req.GetVar("addr")))
 	})
+	router.HandleFunc("json/history/{id}", func(res *mux.ResponseWriter, req *mux.Request) {
+		res.Write(HistoryJSON(req.GetVar("id")))
+	})
 }
 
 // Render serves the gnoweb pages ("", "help", "game/{id}") and the raw JSON
-// views the web client reads ("json/game/{id}", "json/games/{addr}").
+// views the web client reads ("json/game/{id}", "json/games/{addr}",
+// "json/history/{id}").
 func Render(path string) string {
 	return router.Render(path)
 }
@@ -117,7 +121,7 @@ func renderGame(res *mux.ResponseWriter, req *mux.Request) {
 	}
 	res.Write(b.String() + "\n")
 
-	if r := g.LastTurn; r != nil {
+	for _, r := range g.Turns {
 		res.Write(md.H3("Turn " + strconv.Itoa(r.Turn)))
 		res.Write(md.Paragraph("Plans: " + md.InlineCode(orPass(r.Plans[0])) + " vs " + md.InlineCode(orPass(r.Plans[1]))))
 		items := make([]string, 0, len(r.Events))

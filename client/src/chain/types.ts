@@ -34,11 +34,31 @@ export interface TurnEvent {
   reason: string;
 }
 
+/** A character's state when a turn began. */
+export interface StartChar {
+  hex: string;
+  facing: number;
+  down: boolean;
+  delay: number;
+  status: PlayerStatus;
+}
+
 export interface TurnResult {
   turn: number;
   seed: string;
   plans: string[];
   events: TurnEvent[];
+  /** State of both seats at the start of the turn. */
+  start: StartChar[];
+}
+
+/** Every resolved turn of a game, oldest first. */
+export interface HistoryView {
+  id: string;
+  turn: number;
+  phase: Phase;
+  players: { addr: string; char: string }[];
+  turns: TurnResult[];
 }
 
 export interface GameView {
@@ -112,6 +132,15 @@ export function parseGameView(json: string): GameView {
     if (!isRecord(v.lastTurn) || !Array.isArray(v.lastTurn.events)) bad("lastTurn");
   }
   return v as unknown as GameView;
+}
+
+export function parseHistoryView(json: string): HistoryView {
+  const v: unknown = JSON.parse(json);
+  if (!isRecord(v) || typeof v.id !== "string" || !Array.isArray(v.players) || !Array.isArray(v.turns)) bad("history");
+  for (const t of v.turns) {
+    if (!isRecord(t) || typeof t.turn !== "number" || !Array.isArray(t.events) || !Array.isArray(t.start)) bad("turn");
+  }
+  return v as unknown as HistoryView;
 }
 
 export function parseGamesView(json: string): GamesView {

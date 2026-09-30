@@ -139,7 +139,6 @@ class AdenaWallet implements Wallet {
       const params: ContractParams = { messages: [{ type: "/vm.m_call", value: call }], memo: "" };
       if (this.cfg.gasWanted) params.gasWanted = this.cfg.gasWanted;
       if (this.cfg.gasFee) params.gasFee = this.cfg.gasFee;
-      console.debug("[gunslinger] Adena DoContract request", params);
       // Adena's defaults: it shows its result screen and a notification after
       // broadcasting, and answers the page once the result screen is closed.
       // The realm client also watches the chain, so that wait costs nothing.
@@ -148,7 +147,6 @@ class AdenaWallet implements Wallet {
         WALLET_TIMEOUT_MS,
         "No answer from Adena",
       );
-      console.debug("[gunslinger] Adena DoContract response", res);
       if (res.status === "failure" || !res.data?.hash) throw adenaError(res, "checktx");
       return { hash: res.data.hash };
     } finally {

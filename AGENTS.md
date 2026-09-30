@@ -80,7 +80,8 @@ assets/                     served as the Vite public dir (boards, tokens, cards
 Plans[2], Submitted[2], LastTurn *TurnResult, Winner, EndReason, Rev,
 CreatedAt, UpdatedAt}` stored in an `avl.Tree` by zero-padded `seqid`;
 `byPlayer` (address → ids) and `openGames` indexes. `Rev` is bumped on every
-change and is what clients poll. Only the last `TurnResult` is kept.
+change and is what clients poll. Every resolved turn is kept in `Turns`
+(`TurnResult{Turn, Start, Plans, Seed, Events}`, at most MaxTurns).
 
 ### Crossing functions (called with MsgCall, args are strings)
 | Function | Notes |
@@ -98,10 +99,12 @@ tx result log. Events: `GameCreated`, `PlayerJoined`, `PlanSubmitted`,
 the RPC, clients poll).
 
 ### Reads
-`Render("json/game/{id}")` and `Render("json/games/{addr}")` return raw JSON
-through `vm/qrender` (`vm/qeval` would Go-quote the string). `Render("")`,
-`game/{id}`, `help` are gnoweb pages. `GameJSON`, `GamesJSON`, `GameRev` are
-plain getters for tests and gnokey.
+`Render("json/game/{id}")`, `Render("json/games/{addr}")` and
+`Render("json/history/{id}")` (every resolved turn with its starting state,
+plans, seed and events, for replays) return raw JSON through `vm/qrender`
+(`vm/qeval` would Go-quote the string). `Render("")`, `game/{id}`, `help` are
+gnoweb pages. `GameJSON`, `GamesJSON`, `HistoryJSON`, `GameRev` are plain
+getters for tests and gnokey.
 
 ### Plan string
 `entry("," entry)*`, `entry := <card 1-12><f|b>[:<dir>]`, dir ∈ `ahead_left
@@ -173,8 +176,10 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   ordered plan with a live preview (`replayPlan`) and relative-direction hex
   picks; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
   resolution log is played back segment by segment (`playback.ts`) from the
-  positions shown before, then the state re-syncs. Only the last selected card
-  can be deselected (choices are relative to the state before it).
+  turn's stored starting state, then the state re-syncs. **Replay** opens
+  the whole history (`json/history/{id}`) with turn navigation and
+  play/pause. Only the last selected card can be deselected (choices are
+  relative to the state before it).
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
@@ -223,7 +228,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 
 ## TODO
 
-- Commit-reveal for plans (`PhaseCommit`/`PhaseReveal` reserved): secret
+- Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
   simultaneous selection and dice seeded from revealed salts.
 - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
   transcribe the 108 result cards and IMPACT tables.
@@ -234,3 +239,8 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Replace the tbruyelle realm to sthing else
 - Add profile page with specific token and linked reputation (check RPG rules)
 - Add token placement during create/join phase
+- Lobby
+  - Check game list order (sort by most recent)
+- Add Back to lobby button
+- Replay mode
+  - Replay any round or finished showdowns

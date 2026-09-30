@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { TurnEvent } from "../chain/types";
-import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment } from "./playback";
+import type { TurnEvent, TurnResult } from "../chain/types";
+import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
   seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", ...partial,
@@ -43,5 +43,25 @@ describe("snapshotAfterSegment", () => {
     expect(describeEvent(events[0], names)).toBe("dude goes down");
     expect(describeEvent(events[1], names)).toBe("dude gains 2 delay (leap), now 2");
     expect(describeEvent(events[4], names)).toBe("dude: advance is cancelled (time)");
+  });
+});
+
+describe("replay stepping", () => {
+  it("walks segments and turns forward and back", () => {
+    expect(stepForward({ index: 0, seg: 0 }, 2)).toEqual({ index: 0, seg: 1 });
+    expect(stepForward({ index: 0, seg: 5 }, 2)).toEqual({ index: 1, seg: 0 });
+    expect(stepForward({ index: 1, seg: 5 }, 2)).toBeNull();
+    expect(stepBack({ index: 1, seg: 0 })).toEqual({ index: 0, seg: 5 });
+    expect(stepBack({ index: 0, seg: 3 })).toEqual({ index: 0, seg: 2 });
+    expect(stepBack({ index: 0, seg: 0 })).toBeNull();
+  });
+
+  it("uses the stored start of a turn, or the fallback", () => {
+    const t: TurnResult = { turn: 1, seed: "", plans: ["", ""], events: [], start: [{ hex: "A-F3", facing: 3, down: false, delay: 1, status: "alive" }, { hex: "A-F9", facing: 0, down: true, delay: 0, status: "alive" }] };
+    expect(startOfTurn(t, start)).toEqual([
+      { hex: "A-F3", facing: 3, down: false, delay: 1 },
+      { hex: "A-F9", facing: 0, down: true, delay: 0 },
+    ]);
+    expect(startOfTurn({ ...t, start: [] }, start)).toEqual(start);
   });
 });

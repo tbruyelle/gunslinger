@@ -2,7 +2,7 @@ import type { Wallet, VmCall } from "./adena";
 import { WALLET_TIMEOUT_MS } from "./adena";
 import { ChainError } from "./errors";
 import { Rpc, unwrapQevalString, type TxResult } from "./rpc";
-import { parseGameView, parseGamesView, seatOf, type GameView, type GamesView } from "./types";
+import { parseGameView, parseGamesView, parseHistoryView, seatOf, type GameView, type GamesView, type HistoryView } from "./types";
 
 const WATCH_INTERVAL_MS = 1500;
 
@@ -25,6 +25,10 @@ export class RealmClient {
 
   async getGame(id: string): Promise<GameView> {
     return parseGameView(await this.rpc.qrender(this.pkgPath, `json/game/${id}`));
+  }
+
+  async getHistory(id: string): Promise<HistoryView> {
+    return parseHistoryView(await this.rpc.qrender(this.pkgPath, `json/history/${id}`));
   }
 
   async listGames(addr: string): Promise<GamesView> {
@@ -101,7 +105,6 @@ export class RealmClient {
       stop.done = true;
       if (first.hash) {
         const tx = await this.rpc.waitForTx(first.hash);
-        console.debug("[gunslinger] tx", func, args, first.hash, tx ?? "not indexed in time");
         if (tx?.error) throw new ChainError("delivertx", tx.error, tx.log);
         // No result in time: ask the chain once whether the effect is there anyway.
         const watched = !tx && watch ? await watch().catch(() => null) : null;
@@ -109,7 +112,6 @@ export class RealmClient {
       }
       // The chain showed the effect first; the wallet's late answer no longer matters.
       fromWallet.catch(() => {});
-      console.debug("[gunslinger] chain confirmed", func, args, first.watched);
       return { hash: null, tx: null, watched: first.watched };
     } finally {
       stop.done = true;

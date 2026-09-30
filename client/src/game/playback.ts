@@ -1,5 +1,33 @@
-import type { TurnEvent } from "../chain/types";
+import type { TurnEvent, TurnResult } from "../chain/types";
 import type { CharView } from "./replay";
+
+export const SEGMENTS = 5;
+
+/** A position in a replay: which turn (index into the list) and the segment shown (0 = start). */
+export interface ReplayPos {
+  index: number;
+  seg: number;
+}
+
+/** The next position, moving into the next turn after segment 5; null at the very end. */
+export function stepForward(pos: ReplayPos, turns: number): ReplayPos | null {
+  if (pos.seg < SEGMENTS) return { index: pos.index, seg: pos.seg + 1 };
+  if (pos.index + 1 < turns) return { index: pos.index + 1, seg: 0 };
+  return null;
+}
+
+/** The previous position, moving to the previous turn's end before segment 0; null at the very start. */
+export function stepBack(pos: ReplayPos): ReplayPos | null {
+  if (pos.seg > 0) return { index: pos.index, seg: pos.seg - 1 };
+  if (pos.index > 0) return { index: pos.index - 1, seg: SEGMENTS };
+  return null;
+}
+
+/** The characters' state when a turn began, from the stored snapshot. */
+export function startOfTurn(t: TurnResult, fallback: CharView[]): CharView[] {
+  if (!t.start || t.start.length === 0) return fallback.map((c) => ({ ...c }));
+  return t.start.map((c) => ({ hex: c.hex, facing: c.facing, down: c.down, delay: c.delay }));
+}
 
 /** The characters' state once every event up to and including segment seg has applied. */
 export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number): CharView[] {

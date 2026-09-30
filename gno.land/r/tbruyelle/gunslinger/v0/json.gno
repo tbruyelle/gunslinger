@@ -18,7 +18,8 @@ const listLimit = 50
 //	{"id","rev","phase","turn","maxTurns","board",
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun"}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
-//	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}]}}
+//	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}],
+//	             "start":[{"hex","facing","down","delay","status"},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
 // The plans of the turn in progress are not exposed, only the submitted flags.
@@ -48,8 +49,35 @@ func GameJSON(id string) string {
 	}
 	b.WriteString(`,"timeoutAt":` + strconv.FormatInt(timeoutAt, 10))
 	b.WriteString(`,"lastTurn":`)
-	writeTurnResult(&b, g.LastTurn)
+	writeTurnResult(&b, g.lastTurn())
 	b.WriteByte('}')
+	return b.String()
+}
+
+// HistoryJSON is every resolved turn of a game, oldest first, for replays:
+//
+//	{"id","turn","phase","players":[{"addr","char"}],"turns":[turn result...]}
+func HistoryJSON(id string) string {
+	g := getGame(id)
+	var b strings.Builder
+	b.WriteString(`{"id":` + quote(g.ID))
+	b.WriteString(`,"turn":` + strconv.Itoa(g.Turn))
+	b.WriteString(`,"phase":` + quote(g.Phase.String()))
+	b.WriteString(`,"players":[`)
+	for i, p := range g.Players {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"addr":` + quote(p.Addr.String()) + `,"char":` + quote(p.Char) + `}`)
+	}
+	b.WriteString(`],"turns":[`)
+	for i, r := range g.Turns {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		writeTurnResult(&b, r)
+	}
+	b.WriteString("]}")
 	return b.String()
 }
 
@@ -88,6 +116,18 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 			b.WriteByte(',')
 		}
 		writeEvent(b, e)
+	}
+	b.WriteString(`],"start":[`)
+	for i, c := range r.Start {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"hex":` + quote(c.Hex))
+		b.WriteString(`,"facing":` + strconv.Itoa(int(c.Facing)))
+		b.WriteString(`,"down":` + strconv.FormatBool(c.Down))
+		b.WriteString(`,"delay":` + strconv.Itoa(c.Delay))
+		b.WriteString(`,"status":` + quote(c.Status.String()))
+		b.WriteByte('}')
 	}
 	b.WriteString("]}")
 }

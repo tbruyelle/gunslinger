@@ -67,9 +67,10 @@ func resolveTurn(g *Game) string {
 		}
 		plans[i] = pl
 	}
+	start := snapshot(g.State.Chars)
 	st, evs := engine.Resolve(hex.A, g.State, plans, engine.NewDice(seed))
 	seedHex := enchex.EncodeToString(seed[:])
-	g.LastTurn = &TurnResult{Turn: g.Turn, Plans: g.Plans, Seed: seedHex, Events: evs}
+	g.Turns = append(g.Turns, &TurnResult{Turn: g.Turn, Start: start, Plans: g.Plans, Seed: seedHex, Events: evs})
 	g.State = engine.EndTurn(st)
 	g.Plans = [engine.NumPlayers]string{}
 	g.Submitted = [engine.NumPlayers]bool{}
@@ -81,6 +82,25 @@ func resolveTurn(g *Game) string {
 		g.Turn++
 	}
 	return seedHex
+}
+
+// snapshot copies the characters field by field. A plain array copy is not
+// enough on a node: a character written earlier in the same transaction
+// stayed shared with the live state, so the stored start of a turn showed its
+// end position.
+func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]engine.Character) {
+	for i, c := range cs {
+		out[i] = engine.Character{
+			Hex:        c.Hex,
+			Facing:     c.Facing,
+			Down:       c.Down,
+			Delay:      c.Delay,
+			Status:     c.Status,
+			PlayedFoot: c.PlayedFoot,
+			PlayedRun:  c.PlayedRun,
+		}
+	}
+	return out
 }
 
 func lastAlive(g *Game) int {

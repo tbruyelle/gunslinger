@@ -6,8 +6,17 @@ import { getChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
 import { userMessage } from "../chain/errors";
 import { GamePoller } from "../chain/poller";
-import { seatOf, shortAddr, type GameView, type TurnEvent } from "../chain/types";
-import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment } from "../game/playback";
+import { seatOf, shortAddr, type GameView, type TurnResult } from "../chain/types";
+import {
+  describeEvent,
+  endOfTurnEvents,
+  eventsForSegment,
+  snapshotAfterSegment,
+  startOfTurn,
+  stepBack,
+  stepForward,
+  type ReplayPos,
+} from "../game/playback";
 import { MAX_ACTION_POINTS, encodePlan, isEnabled, planCost, validatePlan, type PlanEntry } from "../game/plan";
 import { replayPlan, type CharView } from "../game/replay";
 import { showToast } from "../ui/toast";
@@ -126,7 +135,10 @@ export class GameScene extends Phaser.Scene {
   private choiceOverlays: Phaser.GameObjects.GameObject[] = [];
 
   // Playback of the last resolved turn
-  private playback: { start: CharView[]; events: TurnEvent[]; seg: number; turn: number } | null = null;
+  // Replay of resolved turns: a turn that just resolved (live) or the history.
+  private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
+  /** The plan being built when a history replay was opened, restored on close. */
+  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection> } | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -155,10 +167,14 @@ export class GameScene extends Phaser.Scene {
   private infoText!: Phaser.GameObjects.Text;
   private sequenceContainer!: Phaser.GameObjects.Container;
   private seqTitle!: Phaser.GameObjects.Text;
-  private seqDots!: Phaser.GameObjects.Text;
+  private seqDots: Phaser.GameObjects.Text[] = [];
   private seqLog!: Phaser.GameObjects.Text;
   private prevSeqBtn!: Phaser.GameObjects.Text;
   private nextSeqBtn!: Phaser.GameObjects.Text;
+  private prevTurnBtn!: Phaser.GameObjects.Text;
+  private nextTurnBtn!: Phaser.GameObjects.Text;
+  private playBtn!: Phaser.GameObjects.Text;
+  private closeReplayBtn!: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: "GameScene" });
@@ -265,7 +281,7 @@ export class GameScene extends Phaser.Scene {
     // A turn we have not shown yet resolved: replay it from the positions we
     // were showing before the change.
     if (view.lastTurn && view.lastTurn.turn !== this.shownResultTurn && this.committed.length === 2 && !this.playback) {
-      this.startPlayback(view.lastTurn.turn, view.lastTurn.events);
+      this.startPlayback([view.lastTurn], true);
       return;
     }
     if (!this.playback) this.applyState(false);
@@ -392,7 +408,10 @@ export class GameScene extends Phaser.Scene {
 
   /** The characters as they should be drawn right now. */
   private displayChars(): CharView[] {
-    if (this.playback) return snapshotAfterSegment(this.playback.start, this.playback.events, this.playback.seg);
+    if (this.playback) {
+      const t = this.playback.turns[this.playback.index];
+      return snapshotAfterSegment(startOfTurn(t, this.committed), t.events, this.playback.seg);
+    }
     return this.committed.map((c, i) => (i === this.myIndex && this.preview ? this.preview : c));
   }
 
@@ -506,7 +525,7 @@ export class GameScene extends Phaser.Scene {
       case "waiting":
         return view.phase === "waiting" ? "Waiting for a second player…" : "Plan sent, waiting for the opponent…";
       case "playback":
-        return `Turn ${this.playback?.turn ?? ""} resolution`;
+        return this.playback?.live ? `Turn ${this.playback.turns[0].turn} resolution` : "Replay";
       case "spectate":
         return "Spectating";
       case "ended": {
@@ -562,6 +581,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (view.phase === "waiting") buttons.push({ label: "Cancel game", onClick: () => void this.cancelGame() });
     }
+    if (view.lastTurn) buttons.push({ label: "Replay", onClick: () => void this.openReplay() });
     buttons.push({ label: "Back to lobby", onClick: () => this.scene.start("LobbyScene", { splash: false }) });
     const gap = 24;
     const widths = buttons.map((b) => b.label.length * 9 + 40);
@@ -614,6 +634,13 @@ export class GameScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true });
     resign.on("pointerup", () => void this.resign());
     this.cardContainer.add(resign);
+
+    const replay = this.add
+      .text(w - 200, stripY + 6, "Replay", { fontSize: "13px", color: DIM_STR, backgroundColor: "#2a1500", padding: { x: 10, y: 6 } })
+      .setOrigin(1, 0)
+      .setInteractive({ useHandCursor: true });
+    replay.on("pointerup", () => void this.openReplay());
+    this.cardContainer.add(replay);
 
     const totalCardsW = 12 * (CARD_W + CARD_GAP) - CARD_GAP;
     const startX = (w - totalCardsW) / 2;
@@ -889,7 +916,7 @@ export class GameScene extends Phaser.Scene {
     await this.poller?.pokeNow();
   }
 
-  // ── Playback of a resolved turn ───────────────────────────────────────────
+  // ── Replay of resolved turns ──────────────────────────────────────────────
 
   private buildSequencePanel() {
     const w = this.cw;
@@ -898,62 +925,172 @@ export class GameScene extends Phaser.Scene {
     this.sequenceContainer.add(this.add.rectangle(0, y, w, PANEL_H, 0x0d0704).setOrigin(0));
     this.sequenceContainer.add(this.add.rectangle(0, y - 1, w, 1, 0x3a2510).setOrigin(0));
     this.seqTitle = this.add.text(w / 2, y + 26, "", { fontSize: "22px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5);
-    this.seqDots = this.add.text(w / 2, y + 62, "", { fontSize: "30px", color: GOLD_STR }).setOrigin(0.5);
+    // One dot per segment; clicking a dot jumps to the state after that segment.
+    this.seqDots = [];
+    for (let i = 0; i < SEGMENTS; i++) {
+      const dot = this.add
+        .text(w / 2 + (i - (SEGMENTS - 1) / 2) * 36, y + 62, "○", { fontSize: "30px", color: GOLD_STR })
+        .setOrigin(0.5)
+        .setInteractive({ useHandCursor: true });
+      dot.on("pointerup", () => {
+        if (this.playback) this.stepTo({ index: this.playback.index, seg: i + 1 });
+      });
+      this.seqDots.push(dot);
+    }
     this.seqLog = this.add
       .text(w / 2, y + 100, "", { fontSize: "14px", color: "#e8d5b0", align: "center", wordWrap: { width: w - 80 } })
       .setOrigin(0.5, 0);
-    this.sequenceContainer.add([this.seqTitle, this.seqDots, this.seqLog]);
+    this.sequenceContainer.add([this.seqTitle, ...this.seqDots, this.seqLog]);
 
-    const btnY = y + PANEL_H - 50;
-    this.prevSeqBtn = this.add.text(w / 2 - 150, btnY, "Previous", BTN_STYLE).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    this.prevSeqBtn.on("pointerup", () => this.stepPlayback(-1));
-    this.nextSeqBtn = this.add.text(w / 2, btnY, "Next", BTN_STYLE).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    this.nextSeqBtn.on("pointerup", () => this.stepPlayback(1));
-    const end = this.add.text(w / 2 + 150, btnY, "End turn", BTN_STYLE).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    end.on("pointerup", () => this.finishPlayback());
-    this.sequenceContainer.add([this.prevSeqBtn, this.nextSeqBtn, end]);
+    const btn = (x: number, by: number, label: string, onClick: () => void) => {
+      const t = this.add.text(x, by, label, BTN_STYLE).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      t.on("pointerup", onClick);
+      this.sequenceContainer.add(t);
+      return t;
+    };
+    const row1 = y + PANEL_H - 96;
+    const row2 = y + PANEL_H - 46;
+    this.prevTurnBtn = btn(w / 2 - 150, row1, "◀ Turn", () => this.jumpTurn(-1));
+    this.playBtn = btn(w / 2, row1, "Play", () => this.toggleAuto());
+    this.nextTurnBtn = btn(w / 2 + 150, row1, "Turn ▶", () => this.jumpTurn(1));
+    this.prevSeqBtn = btn(w / 2 - 150, row2, "Previous", () => this.stepPlayback(-1));
+    this.nextSeqBtn = btn(w / 2, row2, "Next", () => this.stepPlayback(1));
+    this.closeReplayBtn = btn(w / 2 + 150, row2, "Close", () => this.finishPlayback());
   }
 
-  private startPlayback(turn: number, events: TurnEvent[]) {
+  /**
+   * Shows the given turns from the start of the first one. live is a turn
+   * that just resolved: closing it re-syncs the board and moves on.
+   */
+  private startPlayback(turns: TurnResult[], live: boolean) {
+    this.stopAuto();
     this.clearSelection();
-    this.playback = { start: this.committed.map((c) => ({ ...c })), events, seg: 0, turn };
+    this.playback = { turns, index: 0, seg: 0, live, auto: null };
     this.mode = "playback";
     this.refreshTokens(true);
     this.refreshPanels();
     this.refreshHUD();
   }
 
-  private stepPlayback(delta: number) {
-    if (!this.playback) return;
-    this.playback.seg = Phaser.Math.Clamp(this.playback.seg + delta, 0, SEGMENTS);
+  /** Replays the whole showdown so far, from the chain's history. */
+  private async openReplay() {
+    if (!this.view || this.mode === "playback" || this.mode === "submitting") return;
+    try {
+      const history = await this.chain.realm.getHistory(this.gameID);
+      if (!this.scene.isActive() || this.playback) return;
+      if (history.turns.length === 0) {
+        showToast(this, "No turn has been played yet", "info");
+        return;
+      }
+      if (this.mode === "select" && this.selectionOrder.length > 0) {
+        this.stashedPlan = { turn: this.view.turn, order: [...this.selectionOrder], choices: new Map(this.pendingChoices) };
+      }
+      this.startPlayback(history.turns, false);
+    } catch (e) {
+      if (this.scene.isActive()) showToast(this, userMessage(e), "error");
+    }
+  }
+
+  private stepTo(pos: ReplayPos | null) {
+    if (!this.playback || !pos) return;
+    this.playback.index = pos.index;
+    this.playback.seg = pos.seg;
     this.refreshTokens(true);
     this.refreshSequencePanel();
+  }
+
+  private stepPlayback(delta: 1 | -1) {
+    const pb = this.playback;
+    if (!pb) return;
+    const pos = { index: pb.index, seg: pb.seg };
+    this.stepTo(delta > 0 ? stepForward(pos, pb.turns.length) : stepBack(pos));
+  }
+
+  private jumpTurn(delta: 1 | -1) {
+    const pb = this.playback;
+    if (!pb) return;
+    const index = Phaser.Math.Clamp(pb.index + delta, 0, pb.turns.length - 1);
+    if (index !== pb.index) this.stepTo({ index, seg: 0 });
+  }
+
+  private toggleAuto() {
+    const pb = this.playback;
+    if (!pb) return;
+    if (pb.auto) {
+      this.stopAuto();
+    } else {
+      pb.auto = this.time.addEvent({
+        delay: 900,
+        loop: true,
+        callback: () => {
+          const cur = this.playback;
+          if (!cur) return;
+          const next = stepForward({ index: cur.index, seg: cur.seg }, cur.turns.length);
+          if (next) this.stepTo(next);
+          else this.stopAuto();
+        },
+      });
+    }
+    this.refreshSequencePanel();
+  }
+
+  private stopAuto() {
+    if (this.playback?.auto) {
+      this.playback.auto.remove();
+      this.playback.auto = null;
+    }
   }
 
   private refreshSequencePanel() {
     const pb = this.playback;
     if (!pb || !this.seqTitle) return;
+    const t = pb.turns[pb.index];
     const names = this.view?.players.map((p) => charName(p.char)) ?? [];
-    this.seqTitle.setText(pb.seg === 0 ? `Turn ${pb.turn}: start` : `Turn ${pb.turn}: segment ${pb.seg} of ${SEGMENTS}`);
-    this.seqDots.setText(Array.from({ length: SEGMENTS }, (_, i) => (i < pb.seg ? "●" : "○")).join(" "));
+    const which = pb.turns.length > 1 ? `Turn ${t.turn} of ${pb.turns[pb.turns.length - 1].turn}` : `Turn ${t.turn}`;
+    this.seqTitle.setText(pb.seg === 0 ? `${which}: start` : `${which}: segment ${pb.seg} of ${SEGMENTS}`);
+    this.seqDots.forEach((dot, i) => dot.setText(i < pb.seg ? "●" : "○").setAlpha(i + 1 === pb.seg ? 1 : 0.7));
     let lines: string[];
     if (pb.seg === 0) {
-      lines = ["Plans: " + (this.view?.lastTurn?.plans.map((p, i) => `${names[i]}: ${p || "pass"}`).join("  ·  ") ?? "")];
+      lines = ["Plans: " + t.plans.map((p, i) => `${names[i]}: ${p || "pass"}`).join("  ·  ")];
     } else {
-      lines = eventsForSegment(pb.events, pb.seg).map((e) => describeEvent(e, names));
-      if (pb.seg === SEGMENTS) lines.push(...endOfTurnEvents(pb.events).map((e) => describeEvent(e, names)));
+      lines = eventsForSegment(t.events, pb.seg).map((e) => describeEvent(e, names));
+      if (pb.seg === SEGMENTS) lines.push(...endOfTurnEvents(t.events).map((e) => describeEvent(e, names)));
       if (lines.length === 0) lines = ["Nothing happens."];
     }
     this.seqLog.setText(lines.join("\n"));
-    this.prevSeqBtn.setAlpha(pb.seg > 0 ? 1 : 0.3);
-    this.nextSeqBtn.setAlpha(pb.seg < SEGMENTS ? 1 : 0.3);
+    const pos = { index: pb.index, seg: pb.seg };
+    this.prevSeqBtn.setAlpha(stepBack(pos) ? 1 : 0.3);
+    this.nextSeqBtn.setAlpha(stepForward(pos, pb.turns.length) ? 1 : 0.3);
+    this.prevTurnBtn.setAlpha(pb.index > 0 ? 1 : 0.3);
+    this.nextTurnBtn.setAlpha(pb.index < pb.turns.length - 1 ? 1 : 0.3);
+    this.playBtn.setText(pb.auto ? "Pause" : "Play");
+    this.closeReplayBtn.setText(pb.live ? "End turn" : "Close");
   }
 
+  /** Leaves the replay: a live turn is marked as shown, then the board re-syncs. */
   private finishPlayback() {
-    if (!this.playback) return;
-    this.shownResultTurn = this.playback.turn;
+    const pb = this.playback;
+    if (!pb) return;
+    this.stopAuto();
+    if (pb.live) this.shownResultTurn = pb.turns[pb.turns.length - 1].turn;
     this.playback = null;
+    const view = this.view;
+    // A turn resolved while the history was open: show it live now.
+    if (!pb.live && view?.lastTurn && view.lastTurn.turn !== this.shownResultTurn) {
+      this.stashedPlan = null;
+      this.startPlayback([view.lastTurn], true);
+      return;
+    }
     this.applyState(false);
+    const stash = this.stashedPlan;
+    this.stashedPlan = null;
+    if (stash && this.mode === "select" && view && stash.turn === view.turn) {
+      this.selectionOrder = stash.order;
+      this.pendingChoices = stash.choices;
+      this.updatePreview();
+      this.refreshSelectionDisplay();
+      this.refreshCardHighlights();
+    }
   }
 
   // ── Input (zoom, pan) ─────────────────────────────────────────────────────
