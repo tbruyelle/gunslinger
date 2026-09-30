@@ -7,13 +7,15 @@ import { userMessage } from "../chain/errors";
 import { shortAddr, type GameSummary, type GamesView } from "../chain/types";
 import { showToast } from "../ui/toast";
 
+/** All character tokens, for the picker that will come back later. */
 export const CHARACTERS = Object.keys(CHAR_ARROW_DIR);
 
+/** Default characters until players can pick their own: creator and joiner. */
+export const CREATOR_CHAR = "marshal";
+export const JOINER_CHAR = "fast_eddie";
+
 const TOPBAR_H = 56;
-const STRIP_H = 118;
-const THUMB = 64;
-const THUMB_CELL = 78;
-const STRIP_PAD = 16;
+const BOTTOM_H = 72;
 const ROW_H = 34;
 const GOLD = 0xd4a044;
 const GOLD_STR = "#d4a044";
@@ -27,7 +29,7 @@ interface Row {
 
 /**
  * Lobby: connects Adena, lists open games to join and the player's own games
- * to resume, and creates a game with the picked character.
+ * to resume, and creates a game.
  */
 export class LobbyScene extends Phaser.Scene {
   private chain: Chain | null = null;
@@ -35,11 +37,7 @@ export class LobbyScene extends Phaser.Scene {
   private errorMsg = "";
   private games: GamesView | null = null;
   private gamesKey = "";
-  private selectedChar = "marshal";
   private busy = false;
-  private stripOffset = 0;
-  private thumbs: Phaser.GameObjects.Image[] = [];
-  private thumbFrames: Phaser.GameObjects.Graphics | null = null;
   private refreshTimer: Phaser.Time.TimerEvent | null = null;
   private unsubscribe: (() => void)[] = [];
 
@@ -47,46 +45,10 @@ export class LobbyScene extends Phaser.Scene {
     super({ key: "LobbyScene" });
   }
 
-  init(data: { char?: string }) {
-    if (data?.char && CHARACTERS.includes(data.char)) this.selectedChar = data.char;
-  }
-
-  preload() {
-    let count = 0;
-    for (const ch of CHARACTERS) {
-      const key = `char_${ch}`;
-      if (!this.textures.exists(key)) {
-        this.load.image(key, `${key}.png`);
-        count++;
-      }
-    }
-    if (count === 0) return;
-    const w = this.scale.width;
-    const h = this.scale.height;
-    const barW = Math.min(680, w - 40);
-    const bg = this.add.rectangle(w / 2, h / 2, barW + 4, 20, 0x2a1500);
-    const fill = this.add.rectangle(w / 2 - barW / 2, h / 2, 2, 18, GOLD).setOrigin(0, 0.5);
-    const lbl = this.add.text(w / 2, h / 2 - 30, "Loading characters…", { fontSize: "17px", color: GOLD_STR }).setOrigin(0.5);
-    this.load.on("progress", (v: number) => {
-      fill.width = Math.max(2, barW * v);
-    });
-    this.load.on("complete", () => {
-      bg.destroy();
-      fill.destroy();
-      lbl.destroy();
-    });
-  }
-
   create() {
     this.buildAll();
     const onResize = () => this.buildAll();
     this.scale.on("resize", onResize);
-    this.input.on("wheel", (pointer: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
-      if (pointer.y >= this.scale.height - STRIP_H) {
-        this.stripOffset += dy * 0.5;
-        this.layoutStrip();
-      }
-    });
     this.refreshTimer = this.time.addEvent({ delay: 5000, loop: true, callback: () => void this.refreshGames() });
     this.events.once("shutdown", () => {
       this.scale.off("resize", onResize);
@@ -167,7 +129,7 @@ export class LobbyScene extends Phaser.Scene {
   private createGame() {
     void this.run(async () => {
       const chain = this.chain!;
-      const r = await chain.realm.createGame(this.selectedChar, 10);
+      const r = await chain.realm.createGame(CREATOR_CHAR, 10);
       if (r.gameID) return r.gameID;
       // The tx result was not indexed in time: the game is the newest of ours.
       const games = await chain.realm.listGames(chain.wallet.address);
@@ -177,7 +139,7 @@ export class LobbyScene extends Phaser.Scene {
 
   private joinGame(id: string) {
     void this.run(async () => {
-      await this.chain!.realm.joinGame(id, this.selectedChar);
+      await this.chain!.realm.joinGame(id, JOINER_CHAR);
       return id;
     });
   }
@@ -186,14 +148,12 @@ export class LobbyScene extends Phaser.Scene {
 
   private buildAll() {
     this.children.removeAll(true);
-    this.thumbs = [];
-    this.thumbFrames = null;
     const w = this.scale.width;
     const h = this.scale.height;
     this.add.rectangle(0, 0, w, h, 0x1a1008).setOrigin(0);
     this.buildTopBar();
     if (this.status === "ready") this.buildLists();
-    this.buildStrip();
+    this.buildBottomBar();
   }
 
   private buildTopBar() {
@@ -223,7 +183,7 @@ export class LobbyScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     const top = TOPBAR_H + 16;
-    const bottom = h - STRIP_H - 12;
+    const bottom = h - BOTTOM_H - 12;
     const colW = Math.floor((w - 48) / 2);
     const me = this.chain?.wallet.address ?? "";
     const games = this.games;
@@ -233,7 +193,7 @@ export class LobbyScene extends Phaser.Scene {
       .map((g) => ({
         label: `Game ${g.id}`,
         sub: `${charName(g.players[0]?.char)} by ${shortAddr(g.players[0]?.addr ?? "")}`,
-        button: this.busy ? undefined : { text: `Join as ${charName(this.selectedChar)}`, onClick: () => this.joinGame(g.id) },
+        button: this.busy ? undefined : { text: `Join as ${charName(JOINER_CHAR)}`, onClick: () => this.joinGame(g.id) },
       }));
     const mine: Row[] = (games?.mine ?? []).map((g) => ({
       label: `Game ${g.id}  ·  ${summaryLine(g)}`,
@@ -272,52 +232,24 @@ export class LobbyScene extends Phaser.Scene {
     }
   }
 
-  private buildStrip() {
+  private buildBottomBar() {
     const w = this.scale.width;
     const h = this.scale.height;
-    const y = h - STRIP_H;
-    this.add.rectangle(0, y, w, STRIP_H, 0x0d0704).setOrigin(0);
+    const y = h - BOTTOM_H;
+    this.add.rectangle(0, y, w, BOTTOM_H, 0x0d0704).setOrigin(0);
     this.add.rectangle(0, y - 1, w, 1, 0x3a2510).setOrigin(0);
-
-    const canCreate = this.status === "ready" && !this.busy;
     this.add
-      .text(STRIP_PAD, y + 12, `Play as ${charName(this.selectedChar)}`, { fontSize: "14px", color: GOLD_STR })
-      .setOrigin(0, 0);
+      .text(16, y + BOTTOM_H / 2, `You play ${charName(CREATOR_CHAR)} in a game you create, ${charName(JOINER_CHAR)} in a game you join.`, {
+        fontSize: "13px",
+        color: DIM_STR,
+        wordWrap: { width: Math.max(160, w - 260) },
+      })
+      .setOrigin(0, 0.5);
     if (this.status === "ready") {
-      this.makeButton(w - STRIP_PAD - 90, y + 20, 180, 30, this.busy ? "Signing…" : "Create a game", () => {
-        if (canCreate) this.createGame();
+      this.makeButton(w - 16 - 90, y + BOTTOM_H / 2, 180, 34, this.busy ? "Signing…" : "Create a game", () => {
+        if (!this.busy) this.createGame();
       });
     }
-
-    this.thumbFrames = this.add.graphics();
-    const cy = y + 40 + THUMB / 2 + 4;
-    for (const ch of CHARACTERS) {
-      const img = this.add.image(0, cy, `char_${ch}`).setDisplaySize(THUMB, THUMB).setInteractive({ useHandCursor: true });
-      img.setData("char", ch);
-      img.on("pointerup", () => {
-        this.selectedChar = ch;
-        this.buildAll();
-      });
-      this.thumbs.push(img);
-    }
-    this.layoutStrip();
-  }
-
-  private layoutStrip() {
-    const w = this.scale.width;
-    const total = CHARACTERS.length * THUMB_CELL + STRIP_PAD * 2;
-    const maxOffset = Math.max(0, total - w);
-    this.stripOffset = Phaser.Math.Clamp(this.stripOffset, 0, maxOffset);
-    this.thumbFrames?.clear();
-    this.thumbs.forEach((img, i) => {
-      const x = STRIP_PAD + i * THUMB_CELL + THUMB_CELL / 2 - this.stripOffset;
-      img.setX(x);
-      const visible = x > -THUMB && x < w + THUMB;
-      img.setVisible(visible);
-      if (visible && img.getData("char") === this.selectedChar) {
-        this.thumbFrames?.lineStyle(3, GOLD, 1).strokeRect(x - THUMB / 2 - 3, img.y - THUMB / 2 - 3, THUMB + 6, THUMB + 6);
-      }
-    });
   }
 
   private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void) {

@@ -155,7 +155,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
 - `chain/poller.ts`: polls `json/game/{id}` every `VITE_POLL_MS` (2 s) and
   fires on `rev` change; backs off on errors; pauses when the tab is hidden.
 - `LobbyScene`: connect Adena (switching/adding the network from
-  `VITE_CHAIN_ID`/`VITE_RPC_URL`), pick a character, create / join / open games.
+  `VITE_CHAIN_ID`/`VITE_RPC_URL`), create / join / open games. Characters are
+  fixed for now: the creator plays `marshal`, the joiner `fast_eddie`
+  (`CREATOR_CHAR`/`JOINER_CHAR`); the realm still takes any character key.
 - `GameScene`: renders `committed` state from the chain; card strip builds an
   ordered plan with a live preview (`replayPlan`) and relative-direction hex
   picks; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
@@ -170,9 +172,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
 1. Two accounts in Adena; `ADENA_ADDRS="g1... g1..." make gnodev` (premines
    them); `make web`; open http://localhost:5173, approve connect / add
    network `dev` / switch.
-2. Account A: pick a character, **Create a game**. Switch account in Adena
-   (the app reconnects): **Join** from "Open games". Both see the tokens at
-   A-F1 (facing S) and A-F12 (facing N).
+2. Account A: **Create a game**. Switch account in Adena (the app
+   reconnects): **Join** from "Open games". Both see the marshal at A-F1
+   (facing S) and Fast Eddie at A-F12 (facing N).
 3. Each account picks cards and sends its plan; the second submission
    resolves the turn, both tabs replay it, positions match
    `go tool gnokey query vm/qrender -remote 127.0.0.1:26657 -data 'gno.land/r/tbruyelle/gunslinger/v0:json/game/0000001'`.
