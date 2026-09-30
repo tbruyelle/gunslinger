@@ -133,8 +133,9 @@ class AdenaWallet implements Wallet {
     inFlight++;
     try {
       const current = await currentAccount(this.adena);
+      if (current === null) throw new ChainError("locked", "Adena is locked");
       if (current !== this.address) {
-        throw new ChainError("wrong-account", "Adena is on another account", current ? shortAddr(current) : "locked");
+        throw new ChainError("wrong-account", "Adena is on another account", shortAddr(current));
       }
       const params: ContractParams = { messages: [{ type: "/vm.m_call", value: call }], memo: "" };
       if (this.cfg.gasWanted) params.gasWanted = this.cfg.gasWanted;
