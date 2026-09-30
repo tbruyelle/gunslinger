@@ -73,6 +73,12 @@ class CharacterToken {
     for (const p of this.parts) tweens.add({ targets: p, x: sx, y: sy, duration, ease: "Cubic.easeInOut" });
   }
 
+  setPosition(sx: number, sy: number) {
+    this.sprite.setPosition(sx, sy);
+    this.highlight.setPosition(sx, sy);
+    this.overlay?.setPosition(sx, sy);
+  }
+
   rotateTo(tweens: Phaser.Tweens.TweenManager, targetAngle: number, duration: number) {
     let diff = targetAngle - this.sprite.angle;
     if (diff > 180) diff -= 360;
@@ -462,14 +468,15 @@ export class GameScene extends Phaser.Scene {
       const { sx, sy } = this.hexToScreen(c.hex);
       const angle = dirIndexToAngle(c.facing, t.charKey);
       t.killTweens(this.tweens);
+      // Status first, so a new overlay travels with the token.
+      t.setDown(this, c.down, this.arrMask);
       if (animate) {
         t.moveTo(this.tweens, sx, sy, 450);
         t.rotateTo(this.tweens, angle, 300);
       } else {
-        t.sprite.setPosition(sx, sy).setAngle(angle);
-        t.highlight.setPosition(sx, sy);
+        t.setPosition(sx, sy);
+        t.sprite.setAngle(angle);
       }
-      t.setDown(this, c.down, this.arrMask);
       if (i === this.myIndex) t.setHighlight(0xffffff, this.mode === "select" ? 0.9 : 0.4);
       else t.setHighlight(GOLD, 0);
     });
