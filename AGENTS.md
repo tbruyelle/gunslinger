@@ -170,7 +170,7 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
 - `LobbyScene`: splash screen with an **Enter** button (skipped when a game
   hands back with `{ splash: false }`), then connect Adena (switching/adding
   the network from `VITE_CHAIN_ID`/`VITE_RPC_URL`), create / join / open games. Characters are
-  fixed for now: the creator plays `marshal`, the joiner `fast_eddie`
+  fixed for now: the creator plays `marshal`, the joiner `the_kid`
   (`CREATOR_CHAR`/`JOINER_CHAR`); the realm still takes any character key.
 - `GameScene`: renders `committed` state from the chain; card strip builds an
   ordered plan with a live preview (`replayPlan`) and relative-direction hex
@@ -190,7 +190,7 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
    network `dev` / switch.
 2. Account A: **Create a game**. Switch account in Adena (the app
    reconnects): **Join** from "Open games". Both see the marshal at A-F3
-   (facing S) and Fast Eddie at A-F9 (facing N).
+   (facing S) and The Kid at A-F9 (facing N).
 3. Each account picks cards and sends its plan; the second submission
    resolves the turn, both tabs replay it, positions match
    `go tool gnokey query vm/qrender -remote 127.0.0.1:26657 -data 'gno.land/r/tbruyelle/gunslinger/v0:json/game/0000001'`.
@@ -244,3 +244,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Add Back to lobby button
 - Replay mode
   - Replay any round or finished showdowns
+- Delay
+  - A "delay card" is a stub draw: a uniform number from 1 to 3.
+  - use real card and track which cards number were drawn
+  - show delay token on top of character token

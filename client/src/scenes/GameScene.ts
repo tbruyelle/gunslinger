@@ -878,18 +878,25 @@ export class GameScene extends Phaser.Scene {
     try {
       await this.chain.realm.submitPlan(this.gameID, encodePlan(plan));
       if (!this.scene.isActive()) return;
-      this.clearSelection();
-      this.mode = "waiting";
-      this.refreshTokens(true);
-      this.refreshPanels();
-      this.refreshHUD();
+      // While the wallet was answering (its result screen stays open until
+      // closed), the poll may already have seen the resolved turn and started
+      // its playback: leave that alone.
+      if (!this.playback) {
+        this.clearSelection();
+        this.mode = "waiting";
+        this.refreshTokens(true);
+        this.refreshPanels();
+        this.refreshHUD();
+      }
       await this.poller?.pokeNow();
     } catch (e) {
       if (!this.scene.isActive()) return;
       showToast(this, userMessage(e), "error");
-      this.mode = "select";
-      this.refreshPanels();
-      this.refreshHUD();
+      if (!this.playback) {
+        this.mode = "select";
+        this.refreshPanels();
+        this.refreshHUD();
+      }
       void this.poller?.pokeNow();
     }
   }

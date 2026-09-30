@@ -13,7 +13,7 @@ export const CHARACTERS = Object.keys(CHAR_ARROW_DIR);
 
 /** Default characters until players can pick their own: creator and joiner. */
 export const CREATOR_CHAR = "marshal";
-export const JOINER_CHAR = "fast_eddie";
+export const JOINER_CHAR = "the_kid";
 
 const TOPBAR_H = 56;
 const BOTTOM_H = 44;
