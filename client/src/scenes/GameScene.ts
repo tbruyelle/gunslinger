@@ -49,9 +49,15 @@ type Mode = "sync" | "select" | "submitting" | "waiting" | "playback" | "ended" 
 
 const BTN_STYLE = { fontSize: "16px", color: GOLD_STR, backgroundColor: "#2a1500", padding: { x: 16, y: 8 } };
 
+/** Highest delay marker available (DEL 1 to DEL 8). */
+const MAX_DELAY_MARKER = 8;
+
 /** Groups the display objects of one character token. */
 class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
+  /** The "DEL n" marker in the bottom-right corner, when the character carries delay. */
+  private badge: Phaser.GameObjects.Image | null = null;
+  private badgeOffset = 0;
 
   constructor(
     readonly charKey: string,
@@ -62,6 +68,7 @@ class CharacterToken {
   private get parts(): Phaser.GameObjects.GameObject[] {
     const list: Phaser.GameObjects.GameObject[] = [this.sprite, this.highlight];
     if (this.overlay) list.push(this.overlay);
+    if (this.badge) list.push(this.badge);
     return list;
   }
 
@@ -70,13 +77,40 @@ class CharacterToken {
   }
 
   moveTo(tweens: Phaser.Tweens.TweenManager, sx: number, sy: number, duration: number) {
-    for (const p of this.parts) tweens.add({ targets: p, x: sx, y: sy, duration, ease: "Cubic.easeInOut" });
+    for (const p of this.parts) {
+      const off = p === this.badge ? this.badgeOffset : 0;
+      tweens.add({ targets: p, x: sx + off, y: sy + off, duration, ease: "Cubic.easeInOut" });
+    }
   }
 
   setPosition(sx: number, sy: number) {
     this.sprite.setPosition(sx, sy);
     this.highlight.setPosition(sx, sy);
     this.overlay?.setPosition(sx, sy);
+    this.badge?.setPosition(sx + this.badgeOffset, sy + this.badgeOffset);
+  }
+
+  /** Shows the delay marker for n points (none for 0), sized relative to the token. */
+  setDelay(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask) {
+    if (n <= 0) {
+      this.badge?.destroy();
+      this.badge = null;
+      return;
+    }
+    const key = `delay_${Math.min(n, MAX_DELAY_MARKER)}`;
+    if (!scene.textures.exists(key)) return;
+    const size = this.sprite.displayWidth * 0.42;
+    this.badgeOffset = this.sprite.displayWidth * 0.36;
+    if (!this.badge) {
+      this.badge = scene.add
+        .image(this.sprite.x + this.badgeOffset, this.sprite.y + this.badgeOffset, key)
+        .setOrigin(0.5)
+        .setMask(mask)
+        .setDepth(2);
+    } else if (this.badge.texture.key !== key) {
+      this.badge.setTexture(key);
+    }
+    this.badge.setDisplaySize(size, size);
   }
 
   rotateTo(tweens: Phaser.Tweens.TweenManager, targetAngle: number, duration: number) {
@@ -230,6 +264,9 @@ export class GameScene extends Phaser.Scene {
       if (!this.textures.exists(bKey)) this.load.image(bKey, getActionCardAsset(n, "back"));
     }
     if (!this.textures.exists("state_down")) this.load.image("state_down", "local/state_down.png");
+    for (let i = 1; i <= MAX_DELAY_MARKER; i++) {
+      if (!this.textures.exists(`delay_${i}`)) this.load.image(`delay_${i}`, `del${i}.gif`);
+    }
   }
 
   create() {
@@ -455,6 +492,7 @@ export class GameScene extends Phaser.Scene {
         .setMask(this.arrMask);
       const token = new CharacterToken(p.char, img, hl);
       token.setDown(this, c.down, this.arrMask);
+      token.setDelay(this, c.delay, this.arrMask);
       this.tokens.push(token);
     });
   }
@@ -468,8 +506,9 @@ export class GameScene extends Phaser.Scene {
       const { sx, sy } = this.hexToScreen(c.hex);
       const angle = dirIndexToAngle(c.facing, t.charKey);
       t.killTweens(this.tweens);
-      // Status first, so a new overlay travels with the token.
+      // Status and delay first, so new markers travel with the token.
       t.setDown(this, c.down, this.arrMask);
+      t.setDelay(this, c.delay, this.arrMask);
       if (animate) {
         t.moveTo(this.tweens, sx, sy, 450);
         t.rotateTo(this.tweens, angle, 300);
