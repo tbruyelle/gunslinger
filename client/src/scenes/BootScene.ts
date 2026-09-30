@@ -7,6 +7,7 @@ export class BootScene extends Phaser.Scene {
 
   preload() {
     this.load.image("splash", "splash_screen.png");
+    this.load.image("adena_icon", "adena_icon.png");
   }
 
   create() {

@@ -20,6 +20,7 @@ const ROW_H = 34;
 const GOLD = 0xd4a044;
 const GOLD_STR = "#d4a044";
 const DIM_STR = "#8a7150";
+const SUBTITLE = "showdowns on the gno.land chain";
 
 interface Row {
   label: string;
@@ -28,10 +29,11 @@ interface Row {
 }
 
 /**
- * Lobby: connects Adena, lists open games to join and the player's own games
- * to resume, and creates a game.
+ * Lobby: shows the splash screen, then connects Adena, lists open games to
+ * join and the player's own games to resume, and creates a game.
  */
 export class LobbyScene extends Phaser.Scene {
+  private screen: "splash" | "lobby" = "splash";
   private chain: Chain | null = null;
   private status: "connecting" | "ready" | "error" = "connecting";
   private errorMsg = "";
@@ -45,6 +47,16 @@ export class LobbyScene extends Phaser.Scene {
     super({ key: "LobbyScene" });
   }
 
+  /** Coming back from a game passes { splash: false } to land on the lists directly. */
+  init(data?: { splash?: boolean }) {
+    this.screen = data?.splash === false ? "lobby" : "splash";
+    this.chain = null;
+    this.status = "connecting";
+    this.games = null;
+    this.gamesKey = "";
+    this.busy = false;
+  }
+
   create() {
     this.buildAll();
     const onResize = () => this.buildAll();
@@ -56,6 +68,11 @@ export class LobbyScene extends Phaser.Scene {
       for (const u of this.unsubscribe) u();
       this.unsubscribe = [];
     });
+    if (this.screen === "lobby") void this.connect();
+  }
+
+  private enter() {
+    this.screen = "lobby";
     void this.connect();
   }
 
@@ -151,9 +168,29 @@ export class LobbyScene extends Phaser.Scene {
     const w = this.scale.width;
     const h = this.scale.height;
     this.add.rectangle(0, 0, w, h, 0x1a1008).setOrigin(0);
+    if (this.screen === "splash") {
+      this.buildSplash();
+      return;
+    }
     this.buildTopBar();
     if (this.status === "ready") this.buildLists();
     this.buildBottomBar();
+  }
+
+  private buildSplash() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+    let subtitleY = h * 0.6;
+    if (this.textures.exists("splash")) {
+      const img = this.add.image(w / 2, h * 0.42, "splash");
+      const scale = Math.min((h * 0.7) / img.height, (w - 40) / img.width);
+      img.setScale(scale);
+      subtitleY = img.y + (img.height * scale) / 2 + 22;
+    } else {
+      this.add.text(w / 2, h * 0.4, "GUNSLINGER", { fontSize: "48px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5);
+    }
+    this.add.text(w / 2, subtitleY + 6, SUBTITLE.toUpperCase(), { fontSize: "24px", color: GOLD_STR, letterSpacing: 6 }).setOrigin(0.5);
+    this.makeButton(w / 2, subtitleY + 70, 260, 52, "Connect with Adena", () => this.enter(), "adena_icon");
   }
 
   private buildTopBar() {
@@ -161,7 +198,7 @@ export class LobbyScene extends Phaser.Scene {
     this.add.rectangle(0, 0, w, TOPBAR_H, 0x0f0804).setOrigin(0);
     this.add.text(16, TOPBAR_H / 2, "GUNSLINGER", { fontSize: "24px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0, 0.5);
     this.add
-      .text(170, TOPBAR_H / 2, "showdowns on the gno.land chain", { fontSize: "13px", color: DIM_STR })
+      .text(170, TOPBAR_H / 2, SUBTITLE, { fontSize: "13px", color: DIM_STR })
       .setOrigin(0, 0.5);
 
     if (this.status === "ready" && this.chain) {
@@ -252,7 +289,7 @@ export class LobbyScene extends Phaser.Scene {
     }
   }
 
-  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void) {
+  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string) {
     const bg = this.add.graphics();
     const draw = (fill: number) => {
       bg.clear();
@@ -262,7 +299,15 @@ export class LobbyScene extends Phaser.Scene {
       bg.strokeRoundedRect(cx - bw / 2, cy - bh / 2, bw, bh, 5);
     };
     draw(0x3a1f00);
-    this.add.text(cx, cy, label, { fontSize: `${Math.min(15, bh - 12)}px`, color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5);
+    const text = this.add.text(cx, cy, label, { fontSize: `${Math.min(15, bh - 12)}px`, color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5);
+    if (icon && this.textures.exists(icon)) {
+      // Icon on the left, text and icon centred together.
+      const size = bh - 16;
+      const gap = 10;
+      const total = size + gap + text.width;
+      const img = this.add.image(cx - total / 2 + size / 2, cy, icon).setDisplaySize(size, size);
+      text.setX(img.x + size / 2 + gap + text.width / 2);
+    }
     const zone = this.add.zone(cx, cy, bw, bh).setInteractive({ useHandCursor: true });
     zone.on("pointerover", () => draw(0x5a3200));
     zone.on("pointerout", () => draw(0x3a1f00));

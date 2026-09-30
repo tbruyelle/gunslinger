@@ -154,8 +154,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   in flight per account.
 - `chain/poller.ts`: polls `json/game/{id}` every `VITE_POLL_MS` (2 s) and
   fires on `rev` change; backs off on errors; pauses when the tab is hidden.
-- `LobbyScene`: connect Adena (switching/adding the network from
-  `VITE_CHAIN_ID`/`VITE_RPC_URL`), create / join / open games. Characters are
+- `LobbyScene`: splash screen with an **Enter** button (skipped when a game
+  hands back with `{ splash: false }`), then connect Adena (switching/adding
+  the network from `VITE_CHAIN_ID`/`VITE_RPC_URL`), create / join / open games. Characters are
   fixed for now: the creator plays `marshal`, the joiner `fast_eddie`
   (`CREATOR_CHAR`/`JOINER_CHAR`); the realm still takes any character key.
 - `GameScene`: renders `committed` state from the chain; card strip builds an

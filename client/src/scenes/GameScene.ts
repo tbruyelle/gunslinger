@@ -229,7 +229,7 @@ export class GameScene extends Phaser.Scene {
     const leave = (why: string) => {
       if (!this.scene.isActive()) return;
       showToast(this, why, "info");
-      this.scene.start("LobbyScene");
+      this.scene.start("LobbyScene", { splash: false });
     };
     this.unsubscribe.push(
       subscribeAccountChanged(() => leave("Account changed")),
@@ -276,7 +276,7 @@ export class GameScene extends Phaser.Scene {
       this.netError = msg;
       if (this.scene.isActive()) {
         showToast(this, msg, "error");
-        if (/game not found|invalid game id/.test(msg)) this.scene.start("LobbyScene");
+        if (/game not found|invalid game id/.test(msg)) this.scene.start("LobbyScene", { splash: false });
       }
     }
     this.refreshHUD();
@@ -561,7 +561,7 @@ export class GameScene extends Phaser.Scene {
       }
       if (view.phase === "waiting") buttons.push({ label: "Cancel game", onClick: () => void this.cancelGame() });
     }
-    buttons.push({ label: "Back to lobby", onClick: () => this.scene.start("LobbyScene") });
+    buttons.push({ label: "Back to lobby", onClick: () => this.scene.start("LobbyScene", { splash: false }) });
     const gap = 24;
     const widths = buttons.map((b) => b.label.length * 9 + 40);
     const total = widths.reduce((a, b) => a + b, 0) + gap * (buttons.length - 1);
