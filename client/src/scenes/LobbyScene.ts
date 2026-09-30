@@ -16,8 +16,9 @@ export const CREATOR_CHAR = "marshal";
 export const JOINER_CHAR = "fast_eddie";
 
 const TOPBAR_H = 56;
-const BOTTOM_H = 72;
+const BOTTOM_H = 44;
 const ROW_H = 34;
+const PANEL_PAD = 16; // margin around and inside the game panels
 const GOLD = 0xd4a044;
 const GOLD_STR = "#d4a044";
 const DIM_STR = "#8a7150";
@@ -286,9 +287,9 @@ export class LobbyScene extends Phaser.Scene {
   private buildLists() {
     const w = this.scale.width;
     const h = this.scale.height;
-    const top = TOPBAR_H + 16;
-    const bottom = h - BOTTOM_H - 12;
-    const colW = Math.floor((w - 48) / 2);
+    const top = TOPBAR_H + PANEL_PAD;
+    const bottom = h - BOTTOM_H - PANEL_PAD;
+    const colW = Math.floor((w - 3 * PANEL_PAD) / 2);
     const me = this.chain?.wallet.address ?? "";
     const games = this.games;
 
@@ -305,34 +306,54 @@ export class LobbyScene extends Phaser.Scene {
       button: this.busy ? undefined : { text: "Open", onClick: () => this.scene.start("GameScene", { gameID: g.id }) },
     }));
 
-    this.drawList(16, top, colW, bottom - top, "Open games", games ? open : null, "No game is waiting for an opponent.");
-    this.drawList(32 + colW, top, colW, bottom - top, "My games", games ? mine : null, "You have no game yet.");
+    const create = { text: this.busy ? "Signing…" : "Create a game", onClick: () => {
+      if (!this.busy) this.createGame();
+    } };
+    this.drawList(PANEL_PAD, top, colW, bottom - top, "My games", games ? mine : null, "You have no game yet.", create);
+    this.drawList(2 * PANEL_PAD + colW, top, colW, bottom - top, "Open games", games ? open : null, "No game is waiting for an opponent.");
   }
 
-  private drawList(x: number, y: number, w: number, h: number, title: string, rows: Row[] | null, empty: string) {
+  private drawList(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    title: string,
+    rows: Row[] | null,
+    empty: string,
+    header?: { text: string; onClick: () => void },
+  ) {
+    // Same 16px inside the panel as the panel keeps from the window.
+    const pad = PANEL_PAD;
+    const headerH = 56;
     this.add.rectangle(x, y, w, h, 0x120b04).setOrigin(0).setStrokeStyle(1, 0x3a2510);
-    this.add.text(x + 12, y + 10, title, { fontSize: "18px", color: GOLD_STR, fontStyle: "bold" });
+    this.add.text(x + pad, y + headerH / 2, title, { fontSize: "18px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0, 0.5);
+    if (header) {
+      const bw = Math.min(160, w / 2.4);
+      this.makeButton(x + w - pad - bw / 2, y + headerH / 2, bw, 30, header.text, header.onClick);
+    }
+    const rowsY = y + headerH;
     if (!rows) {
-      this.add.text(x + 12, y + 44, "Loading…", { fontSize: "14px", color: DIM_STR });
+      this.add.text(x + pad, rowsY, "Loading…", { fontSize: "14px", color: DIM_STR });
       return;
     }
     if (rows.length === 0) {
-      this.add.text(x + 12, y + 44, empty, { fontSize: "14px", color: DIM_STR });
+      this.add.text(x + pad, rowsY, empty, { fontSize: "14px", color: DIM_STR });
       return;
     }
-    const max = Math.max(1, Math.floor((h - 44) / (ROW_H + 8)));
+    const max = Math.max(1, Math.floor((h - headerH - pad) / (ROW_H + 8)));
     rows.slice(0, max).forEach((row, i) => {
-      const ry = y + 44 + i * (ROW_H + 8);
-      this.add.rectangle(x + 8, ry, w - 16, ROW_H + 2, 0x1f1207).setOrigin(0);
-      this.add.text(x + 16, ry + 4, row.label, { fontSize: "14px", color: "#e8d5b0" });
-      if (row.sub) this.add.text(x + 16, ry + 20, row.sub, { fontSize: "11px", color: DIM_STR });
+      const ry = rowsY + i * (ROW_H + 8);
+      this.add.rectangle(x + pad, ry, w - 2 * pad, ROW_H + 2, 0x1f1207).setOrigin(0);
+      this.add.text(x + pad + 8, ry + 4, row.label, { fontSize: "14px", color: "#e8d5b0" });
+      if (row.sub) this.add.text(x + pad + 8, ry + 20, row.sub, { fontSize: "11px", color: DIM_STR });
       if (row.button) {
         const bw = Math.min(170, w / 2.6);
-        this.makeButton(x + w - 16 - bw / 2, ry + ROW_H / 2 + 1, bw, 28, row.button.text, row.button.onClick);
+        this.makeButton(x + w - pad - 8 - bw / 2, ry + ROW_H / 2 + 1, bw, 28, row.button.text, row.button.onClick);
       }
     });
     if (rows.length > max) {
-      this.add.text(x + 12, y + h - 20, `+${rows.length - max} more`, { fontSize: "11px", color: DIM_STR });
+      this.add.text(x + pad, y + h - pad - 12, `+${rows.length - max} more`, { fontSize: "11px", color: DIM_STR });
     }
   }
 
@@ -346,14 +367,9 @@ export class LobbyScene extends Phaser.Scene {
       .text(16, y + BOTTOM_H / 2, `You play ${charName(CREATOR_CHAR)} in a game you create, ${charName(JOINER_CHAR)} in a game you join.`, {
         fontSize: "13px",
         color: DIM_STR,
-        wordWrap: { width: Math.max(160, w - 260) },
+        wordWrap: { width: Math.max(160, w - 32) },
       })
       .setOrigin(0, 0.5);
-    if (this.status === "ready") {
-      this.makeButton(w - 16 - 90, y + BOTTOM_H / 2, 180, 34, this.busy ? "Signing…" : "Create a game", () => {
-        if (!this.busy) this.createGame();
-      });
-    }
   }
 
   private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string, depth = 0) {
