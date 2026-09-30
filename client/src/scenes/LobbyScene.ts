@@ -22,6 +22,7 @@ const PANEL_PAD = 16; // margin around and inside the game panels
 const GOLD = 0xd4a044;
 const GOLD_STR = "#d4a044";
 const DIM_STR = "#8a7150";
+const DIM_HEX = 0x8a7150;
 const SUBTITLE = "showdowns on the gno.land chain";
 
 interface Row {
@@ -270,18 +271,68 @@ export class LobbyScene extends Phaser.Scene {
     const y = TOPBAR_H + 8;
     const chainId = this.chain?.config.chainId ?? "";
     const depth = 30; // above the game lists
-    this.add.rectangle(x, y, pw, ph, 0x1f1207).setOrigin(0).setStrokeStyle(1, GOLD).setDepth(depth);
-    this.add.text(x + 14, y + 12, "Connected account", { fontSize: "13px", color: DIM_STR }).setDepth(depth);
-    this.add.text(x + 14, y + 34, addr, { fontSize: "14px", color: "#e8d5b0", wordWrap: { width: pw - 28 } }).setDepth(depth);
-    this.add.text(x + 14, y + 58, `network ${chainId}`, { fontSize: "12px", color: DIM_STR }).setDepth(depth);
-    this.add.text(x + 14, y + 80, `balance: ${this.balance ?? "…"}`, { fontSize: "14px", color: GOLD_STR }).setDepth(depth);
-    const by = y + ph - 28;
-    this.makeButton(x + 14 + 50, by, 100, 30, "Copy", () => void this.copyAddress(addr), undefined, depth + 1);
-    this.makeButton(x + 14 + 100 + 12 + 50, by, 100, 30, "Quit", () => this.quit(), undefined, depth + 1);
-    this.makeButton(x + pw - 14 - 50, by, 100, 30, "Close", () => {
+    // A click anywhere outside the panel closes it: an invisible catcher
+    // under the panel takes those clicks, and the panel body swallows its own.
+    const backdrop = this.add.zone(0, 0, this.scale.width, this.scale.height).setOrigin(0).setInteractive().setDepth(depth - 1);
+    backdrop.on("pointerup", () => {
       this.accountPanel = false;
       this.buildAll();
-    }, undefined, depth + 1);
+    });
+    this.add.rectangle(x, y, pw, ph, 0x1f1207).setOrigin(0).setStrokeStyle(1, GOLD).setInteractive().setDepth(depth);
+    this.add.text(x + 14, y + 12, "Connected account", { fontSize: "13px", color: DIM_STR }).setDepth(depth);
+    const addrText = this.add
+      .text(x + 14, y + 34, addr, { fontSize: "14px", color: "#e8d5b0", wordWrap: { width: pw - 28 - 28 } })
+      .setDepth(depth);
+    this.drawCopyIcon(addrText.x + addrText.width + 14, addrText.y + 9, depth + 1, () => void this.copyAddress(addr));
+    this.add.text(x + 14, y + 58, `network ${chainId}`, { fontSize: "12px", color: DIM_STR }).setDepth(depth);
+    this.add.text(x + 14, y + 80, `balance: ${this.balance ?? "…"}`, { fontSize: "14px", color: GOLD_STR }).setDepth(depth);
+    this.drawCloseIcon(x + pw - 16, y + 16, depth + 1, () => {
+      this.accountPanel = false;
+      this.buildAll();
+    });
+    this.makeButton(x + pw - 14 - 60, y + ph - 28, 120, 30, "Disconnect", () => this.quit(), undefined, depth + 1);
+  }
+
+  /** A small cross centred on (cx, cy). */
+  private drawCloseIcon(cx: number, cy: number, depth: number, onClick: () => void) {
+    const g = this.add.graphics().setDepth(depth);
+    const draw = (color: number) => {
+      g.clear();
+      g.lineStyle(2, color, 1);
+      g.beginPath();
+      g.moveTo(cx - 5, cy - 5);
+      g.lineTo(cx + 5, cy + 5);
+      g.moveTo(cx + 5, cy - 5);
+      g.lineTo(cx - 5, cy + 5);
+      g.strokePath();
+    };
+    draw(DIM_HEX);
+    const zone = this.add.zone(cx, cy, 24, 24).setInteractive({ useHandCursor: true }).setDepth(depth);
+    zone.on("pointerover", () => draw(0xffe2a0));
+    zone.on("pointerout", () => draw(DIM_HEX));
+    zone.on("pointerup", onClick);
+  }
+
+  /** A small "two sheets" copy icon centred on (cx, cy). */
+  private drawCopyIcon(cx: number, cy: number, depth: number, onClick: () => void) {
+    const g = this.add.graphics().setDepth(depth);
+    const draw = (color: number) => {
+      g.clear();
+      g.lineStyle(1.5, color, 1);
+      g.strokeRoundedRect(cx - 7, cy - 3, 10, 10, 2); // front sheet
+      g.beginPath();
+      g.moveTo(cx - 3, cy - 3);
+      g.lineTo(cx - 3, cy - 7);
+      g.lineTo(cx + 7, cy - 7);
+      g.lineTo(cx + 7, cy + 3);
+      g.lineTo(cx + 3, cy + 3);
+      g.strokePath(); // back sheet, behind the front one
+    };
+    draw(GOLD);
+    const zone = this.add.zone(cx, cy, 22, 22).setInteractive({ useHandCursor: true }).setDepth(depth);
+    zone.on("pointerover", () => draw(0xffe2a0));
+    zone.on("pointerout", () => draw(GOLD));
+    zone.on("pointerup", onClick);
   }
 
   private buildLists() {
