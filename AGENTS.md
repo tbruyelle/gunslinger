@@ -242,9 +242,6 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Lobby
   - Check game list order (sort by most recent)
 - Add Back to lobby button
-- Replay mode
-  - Replay any round or finished showdowns
 - Delay
   - A "delay card" is a stub draw: a uniform number from 1 to 3.
   - use real card and track which cards number were drawn
-  - show delay token on top of character token
