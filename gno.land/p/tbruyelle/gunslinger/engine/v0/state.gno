@@ -53,12 +53,12 @@ type State struct {
 	Chars [NumPlayers]Character
 }
 
-// NewState is the fixed showdown setup ([H3]): seat 0 at the north end of
-// board A facing south, seat 1 at the south end facing north.
+// NewState is the fixed showdown setup ([H3]): seat 0 in the north half of
+// board A facing south, seat 1 in the south half facing north, six hexes apart.
 func NewState() State {
 	return State{Chars: [NumPlayers]Character{
-		{Hex: "A-F1", Facing: hex.S},
-		{Hex: "A-F12", Facing: hex.N},
+		{Hex: "A-F3", Facing: hex.S},
+		{Hex: "A-F9", Facing: hex.N},
 	}}
 }
 

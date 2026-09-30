@@ -27,13 +27,13 @@ func TestCreateAndJoin(cur realm, t *testing.T) {
 	uassert.Equal(t, "marshal", g.Players[0].Char)
 	uassert.Equal(t, "", g.Players[1].Addr.String())
 	uassert.True(t, openGames.Has(id))
-	uassert.Equal(t, "A-F1", g.State.Chars[0].Hex)
-	uassert.Equal(t, "A-F12", g.State.Chars[1].Hex)
+	uassert.Equal(t, "A-F3", g.State.Chars[0].Hex)
+	uassert.Equal(t, "A-F9", g.State.Chars[1].Hex)
 
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"id":"`+id+`"`), js)
 	uassert.True(t, strings.Contains(js, `"phase":"waiting"`), js)
-	uassert.True(t, strings.Contains(js, `"hex":"A-F1","facing":3,"down":false,"delay":0,"status":"alive","submitted":false`), js)
+	uassert.True(t, strings.Contains(js, `"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":null}`), js)
 
 	uassert.AbortsWithMessage(t, cur, "gunslinger: you cannot join your own game", func() {
@@ -134,20 +134,20 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.Equal(t, "1f:ahead,2f:ahead", g.LastTurn.Plans[0])
 	uassert.Equal(t, "5b", g.LastTurn.Plans[1])
 	uassert.Equal(t, 64, len(g.LastTurn.Seed))
-	// Alice advanced F1->F2 on segment 2 and ran F2->F3 on segment 3;
+	// Alice advanced F3->F4 on segment 2 and ran F4->F5 on segment 3;
 	// Bob dropped on segment 3.
 	uassert.Equal(t, 3, len(g.LastTurn.Events))
-	uassert.Equal(t, "A-F3", g.State.Chars[0].Hex)
-	uassert.Equal(t, "A-F12", g.State.Chars[1].Hex)
+	uassert.Equal(t, "A-F5", g.State.Chars[0].Hex)
+	uassert.Equal(t, "A-F9", g.State.Chars[1].Hex)
 	uassert.True(t, g.State.Chars[1].Down)
 	uassert.False(t, g.State.Chars[0].PlayedFoot) // cleared at end of turn
 
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"turn":2`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":{"turn":1,"seed":"`+g.LastTurn.Seed+`","plans":["1f:ahead,2f:ahead","5b"],"events":[`), js)
-	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F1","to":"A-F2","facing":3,"down":false,"n":0,"delay":0,"reason":""}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":""}`), js)
 	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":""}`), js)
-	uassert.True(t, strings.Contains(js, `"hex":"A-F12","facing":0,"down":true`), js)
+	uassert.True(t, strings.Contains(js, `"hex":"A-F9","facing":0,"down":true`), js)
 }
 
 func TestMaxTurnsFinish(cur realm, t *testing.T) {
@@ -272,7 +272,7 @@ func TestRender(cur realm, t *testing.T) {
 
 	page := Render("game/" + id)
 	uassert.True(t, strings.Contains(page, "# Game "+id), page)
-	uassert.True(t, strings.Contains(page, "| A-F1 | S |"), page)
+	uassert.True(t, strings.Contains(page, "| A-F3 | S |"), page)
 	uassert.True(t, strings.Contains(page, "planning"), page)
 	uassert.True(t, strings.Contains(page, "func=SubmitPlan"), page)
 
@@ -281,8 +281,8 @@ func TestRender(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	SubmitPlan(cross(cur), id, "1f:ahead")
 	page = Render("game/" + id)
-	uassert.True(t, strings.Contains(page, "seg 2: marshal advance: A-F1 → A-F2"), page)
-	uassert.True(t, strings.Contains(page, "seg 2: dude advance: A-F12 → A-F11"), page)
+	uassert.True(t, strings.Contains(page, "seg 2: marshal advance: A-F3 → A-F4"), page)
+	uassert.True(t, strings.Contains(page, "seg 2: dude advance: A-F9 → A-F8"), page)
 
 	help := Render("help")
 	uassert.True(t, strings.Contains(help, "1f:ahead_left,2f:ahead,3f"), help)

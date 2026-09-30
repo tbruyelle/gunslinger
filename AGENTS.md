@@ -184,8 +184,8 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
    them); `make web`; open http://localhost:5173, approve connect / add
    network `dev` / switch.
 2. Account A: **Create a game**. Switch account in Adena (the app
-   reconnects): **Join** from "Open games". Both see the marshal at A-F1
-   (facing S) and Fast Eddie at A-F12 (facing N).
+   reconnects): **Join** from "Open games". Both see the marshal at A-F3
+   (facing S) and Fast Eddie at A-F9 (facing N).
 3. Each account picks cards and sends its plan; the second submission
    resolves the turn, both tabs replay it, positions match
    `go tool gnokey query vm/qrender -remote 127.0.0.1:26657 -data 'gno.land/r/tbruyelle/gunslinger/v0:json/game/0000001'`.
@@ -227,8 +227,10 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   simultaneous selection and dice seeded from revealed salts.
 - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
   transcribe the 108 result cards and IMPACT tables.
+  - revamp card design (more readable and fun to watch)
 - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
   characters per player; victory points.
 - Session keys (`MsgCreateSession`) so Adena signs once per game.
 - Replace the tbruyelle realm to sthing else
 - Add profile page with specific token and linked reputation (check RPG rules)
+- Add token placement during create/join phase

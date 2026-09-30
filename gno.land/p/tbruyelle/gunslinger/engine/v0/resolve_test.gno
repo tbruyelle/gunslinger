@@ -40,10 +40,10 @@ func TestMultiCostActionExecutesOnce(t *testing.T) {
 		t.Fatalf("got %d move events: %v", len(moves), evs)
 	}
 	m := moves[0]
-	if m.Seg != 2 || m.From != "A-F1" || m.To != "A-F2" || m.Action != cards.Advance || m.Facing != hex.S || m.Down {
+	if m.Seg != 2 || m.From != "A-F3" || m.To != "A-F4" || m.Action != cards.Advance || m.Facing != hex.S || m.Down {
 		t.Errorf("move = %+v", m)
 	}
-	if st.Chars[0].Hex != "A-F2" || st.Chars[0].Delay != 0 {
+	if st.Chars[0].Hex != "A-F4" || st.Chars[0].Delay != 0 {
 		t.Errorf("char 0 = %+v", st.Chars[0])
 	}
 	if len(evs) != 1 {
@@ -65,7 +65,7 @@ func TestCarriedDelayPushesActions(t *testing.T) {
 	if len(turns) != 1 || turns[0].Seg != 4 || turns[0].Facing != hex.SE {
 		t.Errorf("turn ahead_left from S should execute at seg 4 facing SE: %v", turns)
 	}
-	if st.Chars[0].Facing != hex.SE || st.Chars[0].Hex != "A-F2" {
+	if st.Chars[0].Facing != hex.SE || st.Chars[0].Hex != "A-F4" {
 		t.Errorf("char 0 = %+v", st.Chars[0])
 	}
 }
@@ -79,8 +79,8 @@ func TestSegmentFiveCancels(t *testing.T) {
 	// Two delay cards for the leap: applied from segment 2, so the advance
 	// (1 used + 2 cost + 2 delay) lands on segment 5, crawling.
 	moves := ofKind(evs, 0, EvMove)
-	if len(moves) != 1 || moves[0].Seg != 5 || !moves[0].Down || moves[0].To != "A-F2" {
-		t.Errorf("advance should crawl to A-F2 at seg 5: %v", moves)
+	if len(moves) != 1 || moves[0].Seg != 5 || !moves[0].Down || moves[0].To != "A-F4" {
+		t.Errorf("advance should crawl to A-F4 at seg 5: %v", moves)
 	}
 	delays := ofKind(evs, 0, EvDelay)
 	if len(delays) != 2 || delays[0].Reason != ReasonLeap || delays[0].N != 2 || delays[0].Delay != 2 ||
@@ -144,7 +144,7 @@ func TestSprintGoesStraightAndDrawsDelay(t *testing.T) {
 		t.Fatalf("moves = %v", moves)
 	}
 	// Facing S: ahead_left is SE, then ahead and sprint go S.
-	h1 := neighbor(t, "A-F1", hex.SE)
+	h1 := neighbor(t, "A-F3", hex.SE)
 	h2 := neighbor(t, h1, hex.S)
 	h3 := neighbor(t, h2, hex.S)
 	want := []struct {
@@ -174,14 +174,14 @@ func TestCrawlPenalty(t *testing.T) {
 	if len(d) != 1 || d[0].Reason != ReasonCrawl || d[0].N != 2 || d[0].Seg != 2 {
 		t.Errorf("delays = %v", d)
 	}
-	if st.Chars[0].Hex != "A-F2" || st.Chars[0].Delay != 2 {
+	if st.Chars[0].Hex != "A-F4" || st.Chars[0].Delay != 2 {
 		t.Errorf("char 0 = %+v", st.Chars[0])
 	}
 }
 
 func TestOffBoardMoveIsCancelledButConsumesTime(t *testing.T) {
 	st := NewState()
-	st.Chars[1].Facing = hex.S // A-F12 is on the bottom edge
+	st.Chars[1] = Character{Hex: "A-F12", Facing: hex.S} // the bottom edge
 	st, evs := resolve(t, st, "", "1f:ahead,3b:ahead_left")
 	if m := ofKind(evs, 1, EvMove); len(m) != 0 {
 		t.Errorf("unexpected moves: %v", m)
@@ -226,7 +226,7 @@ func TestOutPlayerIsSkipped(t *testing.T) {
 			t.Errorf("event for the out player: %+v", e)
 		}
 	}
-	if st.Chars[1].Hex != "A-F12" || st.Chars[0].Hex != "A-F2" {
+	if st.Chars[1].Hex != "A-F9" || st.Chars[0].Hex != "A-F4" {
 		t.Errorf("state = %+v", st)
 	}
 	if AliveCount(st) != 1 {
@@ -263,7 +263,7 @@ func TestEndTurnAndBudget(t *testing.T) {
 			t.Errorf("Budget with delay %d = %d, want %d", tt[0], got, tt[1])
 		}
 	}
-	if s := NewState(); s.Chars[0].Hex != "A-F1" || s.Chars[0].Facing != hex.S || s.Chars[1].Hex != "A-F12" || s.Chars[1].Facing != hex.N || AliveCount(s) != 2 {
+	if s := NewState(); s.Chars[0].Hex != "A-F3" || s.Chars[0].Facing != hex.S || s.Chars[1].Hex != "A-F9" || s.Chars[1].Facing != hex.N || AliveCount(s) != 2 {
 		t.Errorf("NewState = %+v", s)
 	}
 	if Alive.String() != "alive" || Out.String() != "out" {

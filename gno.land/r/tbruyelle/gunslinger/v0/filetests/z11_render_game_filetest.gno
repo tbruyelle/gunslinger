@@ -48,17 +48,17 @@ func main(cur realm) {
 //
 // | Seat | Player | Character | Hex | Facing | Down | Delay | Status | Plan |
 // |---|---|---|---|---|---|---|---|---|
-// | 0 | `g1alice00000000000000000000000000000000` | marshal | A-G4 | S | no | 0 | alive | pending |
-// | 1 | `g1bob0000000000000000000000000000000000` | dude | A-F12 | N | yes | 1 | alive | pending |
+// | 0 | `g1alice00000000000000000000000000000000` | marshal | A-G6 | S | no | 0 | alive | pending |
+// | 1 | `g1bob0000000000000000000000000000000000` | dude | A-F9 | N | yes | 1 | alive | pending |
 //
 // ### Turn 1
 // Plans: `1f:ahead_left,2f:ahead,3f` vs `4b,1f:ahead`
 //
 // - seg 1: dude goes down
 // - seg 1: dude gains 3 delay (leap), now 3
-// - seg 2: marshal advance: A-F1 → A-G2
-// - seg 3: marshal run: A-G2 → A-G3
-// - seg 4: marshal sprint: A-G3 → A-G4
+// - seg 2: marshal advance: A-F3 → A-G4
+// - seg 3: marshal run: A-G4 → A-G5
+// - seg 4: marshal sprint: A-G5 → A-G6
 // - seg 4: marshal gains 1 delay (sprint), now 1
 // - end of turn: dude: advance is cancelled (time)
 //
