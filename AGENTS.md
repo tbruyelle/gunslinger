@@ -235,9 +235,14 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Add profile page with specific token and linked reputation (check RPG rules)
   - Add a challenge player button
   - Can pick a specific character token
+  - Buy more character tokens 
+  - Buy guns
 - Lobby
   - Check game list order (sort by most recent)
   - Top players list
+  - Create game options
+    - only the default gun
+    - any gun bought
 - Showdown
   - Allow create game with pot
     - join require to fill the pot with the same amount
