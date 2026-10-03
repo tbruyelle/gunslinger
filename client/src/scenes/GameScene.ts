@@ -25,9 +25,10 @@ import { charName } from "./LobbyScene";
 // ── Layout constants ────────────────────────────────────────────────────────
 
 const HUD_H = 48;
-const PANEL_H = 340;
-const CARD_W = 108;
-const CARD_H = 147;
+const PANEL_H = 380;
+// Card images are 630×880; the strip shows them at 119×162.
+const CARD_W = 119;
+const CARD_H = 162;
 const CARD_GAP = 6;
 const CARD_ROW_GAP = 6;
 const TOKEN_SCALE_FACTOR = 1.7;
@@ -203,6 +204,10 @@ export class GameScene extends Phaser.Scene {
   private cardHighlights: Phaser.GameObjects.Rectangle[] = [];
   private selectedDisplay!: Phaser.GameObjects.Text;
   private sendBtn!: Phaser.GameObjects.Text;
+  /** Full-size copy of the hovered card, drawn over it. */
+  private cardPreview: Phaser.GameObjects.Image | null = null;
+  /** Set by a click on a card; cleared once the pointer leaves the card panel. */
+  private previewSuppressed = false;
   private infoContainer!: Phaser.GameObjects.Container;
   private infoText!: Phaser.GameObjects.Text;
   private sequenceContainer!: Phaser.GameObjects.Container;
@@ -386,6 +391,7 @@ export class GameScene extends Phaser.Scene {
     this.cardImages = [];
     this.cardHighlights = [];
     this.choiceOverlays = [];
+    this.cardPreview = null;
 
     const w = this.cw;
     const h = this.ch;
@@ -594,6 +600,7 @@ export class GameScene extends Phaser.Scene {
 
   private refreshPanels() {
     if (!this.cardContainer) return;
+    this.hideCardPreview();
     this.cardContainer.setVisible(this.mode === "select" || this.mode === "submitting");
     this.sequenceContainer.setVisible(this.mode === "playback");
     this.infoContainer.setVisible(!(this.mode === "select" || this.mode === "submitting" || this.mode === "playback"));
@@ -717,12 +724,37 @@ export class GameScene extends Phaser.Scene {
         img.setData("card", card);
         img.setData("side", side);
         img.on("pointerup", () => {
+          this.previewSuppressed = true;
+          this.hideCardPreview();
           if (this.mode === "select") this.toggleCard(card, side);
         });
+        img.on("pointerover", () => this.showCardPreview(img));
+        img.on("pointerout", () => this.hideCardPreview());
         this.cardContainer.add(img);
         this.cardImages.push(img);
       }
     }
+  }
+
+  /**
+   * Shows the hovered card at its full image size just above it (the preview's
+   * bottom sits on the card's top edge), shrunk only if the window is too short.
+   */
+  private showCardPreview(card: Phaser.GameObjects.Image) {
+    this.hideCardPreview();
+    if (!this.cardContainer.visible || this.previewSuppressed) return;
+    const src = card.texture.getSourceImage() as { width: number; height: number };
+    const top = card.y - card.displayHeight / 2;
+    const h = Math.min(src.height, top - HUD_H - 8);
+    const w = (h * src.width) / src.height;
+    const x = Phaser.Math.Clamp(card.x, w / 2 + 4, this.cw - w / 2 - 4);
+    this.cardPreview = this.add.image(x, top - 2, card.texture.key).setOrigin(0.5, 1).setDepth(900);
+    this.cardPreview.setDisplaySize(w, h);
+  }
+
+  private hideCardPreview() {
+    this.cardPreview?.destroy();
+    this.cardPreview = null;
   }
 
   private cardIdx(card: CardNumber, side: CardSide): number {
@@ -1182,6 +1214,8 @@ export class GameScene extends Phaser.Scene {
       this.refreshView();
     });
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+      // Leaving the card panel re-arms the hover preview after a click.
+      if (pointer.y < this.panelY) this.previewSuppressed = false;
       if (this.zoom > MIN_ZOOM && pointer.isDown && pointer.y > HUD_H && pointer.y < this.panelY) {
         const dx = pointer.x - this.dragStartX;
         const dy = pointer.y - this.dragStartY;

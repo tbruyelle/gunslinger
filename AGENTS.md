@@ -223,7 +223,7 @@ once combat lands); effects apply at segment end. Full rules:
 ## Assets
 
 `assets/` (TTS mod dump, served by Vite): boards 1600×2232 (`board_A.png` …),
-character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png`,
+character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png` (630×880),
 `hex_grid.json` (hex centres, scaled 2×). `assets/local/` (VASSAL): status
 overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 (not needed, everything is present).
@@ -251,6 +251,11 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - cancel game clawbacks the fund
     - part of the pot is hold by the realm to create events
   - Add token placement during create/join phase
+  - Cards
+    - make border transparent
+  - Obstacles
+    - implement walls 
+    - obstacles delay
   - Delay
     - A "delay card" is a stub draw: a uniform number from 1 to 3.
     - use real card and track which cards number were drawn
