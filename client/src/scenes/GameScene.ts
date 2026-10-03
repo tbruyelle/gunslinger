@@ -17,7 +17,7 @@ import {
   stepForward,
   type ReplayPos,
 } from "../game/playback";
-import { MAX_ACTION_POINTS, encodePlan, isEnabled, planCost, validatePlan, type PlanEntry } from "../game/plan";
+import { MAX_ACTION_POINTS, canPlay, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
 import { replayPlan, type CharView } from "../game/replay";
 import { showToast } from "../ui/toast";
 import { charName } from "./LobbyScene";
@@ -741,6 +741,12 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Whether my character played a Run on the previous turn (needed to Sprint). */
+  private ranLastTurn(): boolean {
+    const me = this.myIndex >= 0 ? this.view?.players[this.myIndex] : null;
+    return !!me?.ranLastTurn;
+  }
+
   private budget(): number {
     const me = this.myIndex >= 0 ? this.committed[this.myIndex] : null;
     return Math.max(0, MAX_ACTION_POINTS - (me?.delay ?? 0));
@@ -761,7 +767,7 @@ export class GameScene extends Phaser.Scene {
     const wasSelected = this.isSelected(card, side);
     const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
     if (!wasSelected) {
-      if (otherSelected || !isEnabled({ card, side })) return;
+      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn())) return;
       if (planCost(this.currentPlan()) + def.cost > this.budget()) return;
     }
     this.exitChoiceMode();
@@ -800,11 +806,11 @@ export class GameScene extends Phaser.Scene {
         const def = getActionDef(e);
         return e.dir ? `${def.name}(${def.cost})→${e.dir.replace(/_/g, " ")}` : `${def.name}(${def.cost})`;
       });
-      const problem = validatePlan(plan, budget);
+      const problem = validatePlan(plan, budget, this.ranLastTurn());
       this.selectedDisplay.setText(`${name}: ${names.join(" + ")} = ${cost}/${budget} points${problem ? `  ⚠ ${problem}` : ""}`);
       this.selectedDisplay.setColor(problem ? "#ff9944" : GOLD_STR);
     }
-    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget) === null;
+    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget, this.ranLastTurn()) === null;
     this.sendBtn.setColor(canSend ? GOLD_STR : "#555");
   }
 
@@ -840,7 +846,7 @@ export class GameScene extends Phaser.Scene {
         img.setAlpha(0.6);
       } else {
         hl.setStrokeStyle(2, GOLD, 0);
-        const usable = !blockedByChoice && !otherSelected && !wouldExceed && isEnabled({ card, side });
+        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn());
         img.setAlpha(usable ? 1 : 0.3);
       }
     }
@@ -922,7 +928,7 @@ export class GameScene extends Phaser.Scene {
   private async sendPlan() {
     if (this.mode !== "select" || this.choiceMode || !this.view) return;
     const plan = this.currentPlan();
-    const problem = validatePlan(plan, this.budget());
+    const problem = validatePlan(plan, this.budget(), this.ranLastTurn());
     if (problem) {
       showToast(this, problem, "error");
       return;

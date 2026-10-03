@@ -96,8 +96,9 @@ func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]en
 			Down:       c.Down,
 			Delay:      c.Delay,
 			Status:     c.Status,
-			PlayedFoot: c.PlayedFoot,
-			PlayedRun:  c.PlayedRun,
+			PlayedFoot:  c.PlayedFoot,
+			PlayedRun:   c.PlayedRun,
+			RanLastTurn: c.RanLastTurn,
 		}
 	}
 	return out

@@ -151,9 +151,18 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(js, `"lastTurn":{"turn":1,"seed":"`+lt.Seed+`","plans":["1f:ahead,2f:ahead","5b"],"events":[`), js)
 	uassert.True(t, strings.Contains(js, `"start":[{"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive"},{"hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive"}]}}`), js)
 
+	// Alice ran on turn 1, so she may sprint on turn 2; Bob did not.
+	uassert.True(t, g.State.Chars[0].RanLastTurn)
+	uassert.False(t, g.State.Chars[1].RanLastTurn)
+	uassert.True(t, strings.Contains(js, `"playedRun":false,"ranLastTurn":true}`), js)
+	testing.SetRealm(testing.NewUserRealm(bob))
+	uassert.AbortsWithMessage(t, cur, "gunslinger: sprint can only be played after a run on the previous turn", func() {
+		SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead,3f")
+	})
+
 	// A second turn: the history keeps both, oldest first.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	SubmitPlan(cross(cur), id, "")
+	SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead,3f")
 	testing.SetRealm(testing.NewUserRealm(bob))
 	SubmitPlan(cross(cur), id, "5b")
 	uassert.Equal(t, 2, len(g.Turns))

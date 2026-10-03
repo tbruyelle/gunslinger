@@ -21,9 +21,14 @@ func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(alice))
-	gunslinger.SubmitPlan(cross(cur), id, "1f:ahead_left,2f:ahead,3f")
+	gunslinger.SubmitPlan(cross(cur), id, "1f:ahead_left,2f:ahead")
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.SubmitPlan(cross(cur), id, "4b,1f:ahead")
+	// Turn 2: alice ran on turn 1, so she can sprint now.
+	testing.SetRealm(testing.NewUserRealm(alice))
+	gunslinger.SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead,3f")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	gunslinger.SubmitPlan(cross(cur), id, "")
 	println(gunslinger.Render(""))
 	println(gunslinger.Render("game/" + id))
 }
@@ -40,27 +45,34 @@ func main(cur realm) {
 // ## Recent games
 // | Game | Players | Turn | Phase |
 // |---|---|---|---|
-// | [0000001](/r/tbruyelle/gunslinger/v0:game/0000001) | marshal vs dude | 2/10 | planning |
+// | [0000001](/r/tbruyelle/gunslinger/v0:game/0000001) | marshal vs dude | 3/10 | planning |
 //
 //
 // # Game 0000001
-// Turn 2 of 10 · planning
+// Turn 3 of 10 · planning
 //
 // | Seat | Player | Character | Hex | Facing | Down | Delay | Status | Plan |
 // |---|---|---|---|---|---|---|---|---|
-// | 0 | `g1alice00000000000000000000000000000000` | marshal | A-G6 | S | no | 0 | alive | pending |
-// | 1 | `g1bob0000000000000000000000000000000000` | dude | A-F9 | N | yes | 1 | alive | pending |
+// | 0 | `g1alice00000000000000000000000000000000` | marshal | A-G8 | S | no | 0 | alive | pending |
+// | 1 | `g1bob0000000000000000000000000000000000` | dude | A-F8 | N | yes | 1 | alive | pending |
 //
 // ### Turn 1
-// Plans: `1f:ahead_left,2f:ahead,3f` vs `4b,1f:ahead`
+// Plans: `1f:ahead_left,2f:ahead` vs `4b,1f:ahead`
 //
 // - seg 1: dude goes down
-// - seg 1: dude gains 3 delay (leap), now 3
+// - seg 1: dude gains 2 delay (leap), now 2
 // - seg 2: marshal advance: A-F3 → A-G4
 // - seg 3: marshal run: A-G4 → A-G5
-// - seg 4: marshal sprint: A-G5 → A-G6
+// - seg 5: dude advance: A-F9 → A-F8 (crawling)
+// - seg 5: dude gains 2 delay (crawl), now 4
+//
+// ### Turn 2
+// Plans: `1f:ahead,2f:ahead,3f` vs `(pass)`
+//
+// - seg 2: marshal advance: A-G5 → A-G6
+// - seg 3: marshal run: A-G6 → A-G7
+// - seg 4: marshal sprint: A-G7 → A-G8
 // - seg 4: marshal gains 1 delay (sprint), now 1
-// - end of turn: dude: advance is cancelled (time)
 //
 // [Submit a plan]($help&func=SubmitPlan&id=0000001&plan=) · [Resign]($help&func=Resign&id=0000001) · [Claim timeout]($help&func=ClaimTimeout&id=0000001) (after 2009-02-14 00:01 UTC)
 //

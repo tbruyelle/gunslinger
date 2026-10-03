@@ -16,6 +16,8 @@ export interface PlayerView {
   submitted: boolean;
   playedFoot: boolean;
   playedRun: boolean;
+  /** A Run was played on the previous turn: required to Sprint (rule 9.23). */
+  ranLastTurn: boolean;
 }
 
 export interface TurnEvent {

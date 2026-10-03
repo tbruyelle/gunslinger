@@ -16,7 +16,7 @@ const listLimit = 50
 // GameJSON is the full view of a game:
 //
 //	{"id","rev","phase","turn","maxTurns","board",
-//	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun"}],
+//	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn"}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}],
 //	             "start":[{"hex","facing","down","delay","status"},..]}}
@@ -93,6 +93,7 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 	b.WriteString(`,"submitted":` + strconv.FormatBool(g.Submitted[i]))
 	b.WriteString(`,"playedFoot":` + strconv.FormatBool(c.PlayedFoot))
 	b.WriteString(`,"playedRun":` + strconv.FormatBool(c.PlayedRun))
+	b.WriteString(`,"ranLastTurn":` + strconv.FormatBool(c.RanLastTurn))
 	b.WriteByte('}')
 }
 

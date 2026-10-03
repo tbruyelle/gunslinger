@@ -176,8 +176,13 @@ func (p Plan) Validate(c Character) error {
 	if p.Has(cards.Run) && !p.Has(cards.Advance) {
 		return errors.New("run can only be played together with advance")
 	}
-	if p.Has(cards.Sprint) && !p.Has(cards.Run) {
-		return errors.New("sprint can only be played together with run")
+	if p.Has(cards.Sprint) {
+		if !p.Has(cards.Run) {
+			return errors.New("sprint can only be played together with run")
+		}
+		if !c.RanLastTurn { // rule 9.23: speed is built up over two turns
+			return errors.New("sprint can only be played after a run on the previous turn")
+		}
 	}
 	return nil
 }

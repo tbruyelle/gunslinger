@@ -255,6 +255,15 @@ func TestEndTurnAndBudget(t *testing.T) {
 		if st.Chars[0].PlayedFoot || st.Chars[0].PlayedRun {
 			t.Error("flags not cleared")
 		}
+		if !st.Chars[0].RanLastTurn {
+			t.Error("RanLastTurn should carry PlayedRun over")
+		}
+	}
+	if st := EndTurn(NewState()); st.Chars[0].RanLastTurn {
+		t.Error("RanLastTurn set without a run")
+	}
+	if st := EndTurn(EndTurn(func() State { s := NewState(); s.Chars[0].PlayedRun = true; return s }())); st.Chars[0].RanLastTurn {
+		t.Error("RanLastTurn should last one turn only")
 	}
 	for _, tt := range [][2]int{{0, 5}, {2, 3}, {5, 0}, {7, 0}} {
 		st := NewState()

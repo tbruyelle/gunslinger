@@ -106,7 +106,7 @@ func TestValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		p := mustPlan(t, tt.plan)
-		err := p.Validate(Character{Delay: tt.delay})
+		err := p.Validate(Character{Delay: tt.delay, RanLastTurn: true})
 		switch {
 		case tt.err == "" && err != nil:
 			t.Errorf("Validate(%q, delay %d) = %v, want ok", tt.plan, tt.delay, err)
@@ -115,5 +115,22 @@ func TestValidate(t *testing.T) {
 		case tt.err != "" && !strings.Contains(err.Error(), tt.err):
 			t.Errorf("Validate(%q, delay %d) = %v, want %q", tt.plan, tt.delay, err, tt.err)
 		}
+	}
+}
+
+func TestValidateSprintNeedsRunOnPreviousTurn(t *testing.T) {
+	fresh := Character{}
+	if err := mustPlan(t, "1f:ahead,2f:ahead,3f").Validate(fresh); err == nil || !strings.Contains(err.Error(), "previous turn") {
+		t.Errorf("sprint without a run last turn: %v", err)
+	}
+	if err := mustPlan(t, "1f:ahead,2f:ahead").Validate(fresh); err != nil {
+		t.Errorf("run without sprint should be fine: %v", err)
+	}
+	if err := mustPlan(t, "1f:ahead,2f:ahead,3f,4f").Validate(Character{RanLastTurn: true}); err != nil {
+		t.Errorf("sprint after a run last turn: %v", err)
+	}
+	// The missing-run-this-turn message comes first.
+	if err := mustPlan(t, "1f:ahead,3f").Validate(fresh); err == nil || !strings.Contains(err.Error(), "together with run") {
+		t.Errorf("sprint without run this turn: %v", err)
 	}
 }

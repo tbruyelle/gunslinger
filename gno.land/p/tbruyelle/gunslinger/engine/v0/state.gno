@@ -46,6 +46,9 @@ type Character struct {
 	// a foot action / a Run, whether or not it executes ([H12], rules 13.61-62).
 	PlayedFoot bool
 	PlayedRun  bool
+	// RanLastTurn is PlayedRun carried over from the previous turn: Sprint
+	// needs a Run on the previous turn as well (rule 9.23, "build up speed").
+	RanLastTurn bool
 }
 
 // State is the whole game state the engine acts on.
@@ -89,6 +92,7 @@ func EndTurn(s State) State {
 	for p := range s.Chars {
 		c := &s.Chars[p]
 		c.Delay -= (c.Delay + 1) / 2
+		c.RanLastTurn = c.PlayedRun
 		c.PlayedFoot = false
 		c.PlayedRun = false
 	}

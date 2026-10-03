@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodePlan, encodePlan, planCost, validatePlan, type PlanEntry } from "./plan";
+import { canPlay, decodePlan, encodePlan, planCost, validatePlan, type PlanEntry } from "./plan";
 
 describe("plan encoding", () => {
   it("round-trips the realm's format", () => {
@@ -48,7 +48,17 @@ describe("validatePlan", () => {
   ];
   for (const [plan, budget, want] of cases) {
     it(`${JSON.stringify(plan)} with budget ${budget}`, () => {
-      expect(validatePlan(decodePlan(plan), budget)).toBe(want);
+      expect(validatePlan(decodePlan(plan), budget, true)).toBe(want);
     });
   }
+
+  it("needs a run on the previous turn to sprint", () => {
+    expect(validatePlan(decodePlan("1f:ahead,2f:ahead,3f"), 5, false)).toBe("sprint can only be played after a run on the previous turn");
+    expect(validatePlan(decodePlan("1f:ahead,3f"), 5, false)).toBe("sprint can only be played together with run");
+    expect(validatePlan(decodePlan("1f:ahead,2f:ahead"), 5, false)).toBeNull();
+    expect(canPlay({ card: 3, side: "front" }, false)).toBe(false);
+    expect(canPlay({ card: 3, side: "front" }, true)).toBe(true);
+    expect(canPlay({ card: 2, side: "front" }, false)).toBe(true);
+    expect(canPlay({ card: 7, side: "front" }, true)).toBe(false);
+  });
 });

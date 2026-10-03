@@ -111,7 +111,9 @@ getters for tests and gnokey.
 ahead ahead_right back_left back back_right`, at most 5 entries, empty = pass.
 Example `1f:ahead_left,2f:ahead,3f`. Rules (engine `Plan.Validate`): one side
 per card, dir required for move/turn cards and in the right set, no dir
-otherwise, total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs Run.
+otherwise, total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs Run
+in the same plan **and** a Run played on the previous turn (`RanLastTurn`,
+carried over by `EndTurn`; rule 9.23).
 
 ### Directions
 Absolute 0=N 1=NE 2=SE 3=S 4=SW 5=NW (flat-top hexes, vertical columns).
@@ -259,5 +261,9 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Revamp card design (more readable and fun to watch)
   - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
     characters per player; victory points.
+  - Sounds
+    - Add western music
+    - Movements/Turn
+    - Shots + Hits
 - Event systems
   - allow temparory events like "rob the bank" with rewards from realm funds

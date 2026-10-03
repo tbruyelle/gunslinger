@@ -21,6 +21,12 @@ export function isEnabled(entry: { card: CardNumber; side: CardSide }): boolean 
   return ENABLED_ACTIONS.has(getActionDef(entry).name);
 }
 
+/** Whether a side can be picked now: implemented, and Sprint only after a Run on the previous turn. */
+export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean): boolean {
+  if (!isEnabled(entry)) return false;
+  return ranLastTurn || getActionDef(entry).name !== "Sprint";
+}
+
 /** The realm's plan string: "<card><f|b>[:<dir>]" entries joined by commas. */
 export function encodePlan(plan: PlanEntry[]): string {
   return plan
@@ -54,9 +60,10 @@ export function planCost(plan: PlanEntry[]): number {
 
 /**
  * Checks the plan the way the realm does (engine.Plan.Validate); returns the
- * error message or null. budget is 5 minus the character's carried delay.
+ * error message or null. budget is 5 minus the character's carried delay;
+ * ranLastTurn says whether a Run was played on the previous turn.
  */
-export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS): string | null {
+export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranLastTurn = true): string | null {
   if (plan.length > MAX_PLAN_ENTRIES) return "too many actions in plan";
   const used = new Set<number>();
   const names = new Set<string>();
@@ -81,6 +88,9 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS): str
   }
   if (planCost(plan) > budget) return "those actions cost more time points than you have";
   if (names.has("Run") && !names.has("Advance")) return "run can only be played together with advance";
-  if (names.has("Sprint") && !names.has("Run")) return "sprint can only be played together with run";
+  if (names.has("Sprint")) {
+    if (!names.has("Run")) return "sprint can only be played together with run";
+    if (!ranLastTurn) return "sprint can only be played after a run on the previous turn";
+  }
   return null;
 }
