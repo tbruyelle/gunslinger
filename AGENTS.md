@@ -256,6 +256,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Obstacles
     - implement walls 
     - obstacles delay
+    - characters collision (make it visible and add delay)
   - Delay
     - A "delay card" is a stub draw: a uniform number from 1 to 3.
     - use real card and track which cards number were drawn
@@ -263,7 +264,6 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     simultaneous selection and dice seeded from revealed salts.
   - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
     transcribe the 108 result cards and IMPACT tables.
-  - Revamp card design (more readable and fun to watch)
   - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
     characters per player; victory points.
   - Sounds
