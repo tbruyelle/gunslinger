@@ -274,22 +274,30 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Can pick a specific character token
   - Buy more character tokens 
   - Buy guns
+- Tutorial
+  - Basic tutorial
+    - Movement
+    - draw & cock
+    - aim & shoot
+  - Advanced tutorial
 - Lobby
   - Check game list order (sort by most recent)
   - Top players list
   - Create game options
+    - Allow create game with pot
+      - join require to fill the pot with the same amount
+      - cancel game clawbacks the fund
+      - part of the pot is hold by the realm to create events
     - only the default gun
     - any gun bought
     - chose number of turns
     - move timeout in the same form
 - Showdown
-  - Allow create game with pot
-    - join require to fill the pot with the same amount
-    - cancel game clawbacks the fund
-    - part of the pot is hold by the realm to create events
   - Add token placement during create/join phase
   - Cards
     - make border transparent
+    - add drop weapon action cards
+    - allow move aim
   - Obstacles
     - implement walls 
     - obstacles delay
