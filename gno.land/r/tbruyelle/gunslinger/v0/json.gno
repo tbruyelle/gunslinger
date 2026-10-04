@@ -17,7 +17,8 @@ const listLimit = 50
 // GameJSON is the full view of a game:
 //
 //	{"id","rev","phase","turn","maxTurns","timeout" (seconds),"board",
-//	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn"}],
+//	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn",
+//	             "guns":[{"type","name","location","cocked","shells","capacity"}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}],
 //	             "start":[{"hex","facing","down","delay","status"},..]}}
@@ -96,7 +97,26 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 	b.WriteString(`,"playedFoot":` + strconv.FormatBool(c.PlayedFoot))
 	b.WriteString(`,"playedRun":` + strconv.FormatBool(c.PlayedRun))
 	b.WriteString(`,"ranLastTurn":` + strconv.FormatBool(c.RanLastTurn))
-	b.WriteByte('}')
+	b.WriteString(`,"guns":[`)
+	n := 0
+	for _, g := range c.Guns {
+		if g.Type == engine.NoGun {
+			continue
+		}
+		if n > 0 {
+			b.WriteByte(',')
+		}
+		n++
+		spec := g.Type.Spec()
+		b.WriteString(`{"type":` + quote(string(g.Type)))
+		b.WriteString(`,"name":` + quote(spec.Name))
+		b.WriteString(`,"location":` + quote(g.Location.String()))
+		b.WriteString(`,"cocked":` + strconv.FormatBool(g.Cocked))
+		b.WriteString(`,"shells":` + strconv.Itoa(g.Shells))
+		b.WriteString(`,"capacity":` + strconv.Itoa(spec.Capacity))
+		b.WriteByte('}')
+	}
+	b.WriteString("]}")
 }
 
 func writeTurnResult(b *strings.Builder, r *TurnResult) {

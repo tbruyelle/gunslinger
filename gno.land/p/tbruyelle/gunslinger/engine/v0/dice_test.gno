@@ -41,3 +41,21 @@ func TestCharKeys(t *testing.T) {
 		t.Error("IsCharKey")
 	}
 }
+
+func TestStartingGuns(t *testing.T) {
+	for i, c := range NewState().Chars {
+		if c.Guns.Count() != 1 {
+			t.Fatalf("char %d carries %d guns", i, c.Guns.Count())
+		}
+		g := c.Guns[0]
+		if g.Type != Colt45 || g.Location != Holstered || g.Cocked || g.Shells != 6 {
+			t.Errorf("char %d gun = %+v", i, g)
+		}
+	}
+	if Colt45.Spec().Capacity != 6 || Colt45.Spec().Name != "Colt 45" || !Colt45.Spec().OneHanded {
+		t.Error("Colt 45 spec")
+	}
+	if Holstered.String() != "holstered" || GunHand.String() != "gun_hand" || NoGun.Spec().Capacity != 0 {
+		t.Error("gun names")
+	}
+}

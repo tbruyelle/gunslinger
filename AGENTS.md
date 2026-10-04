@@ -185,7 +185,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   sheet** (`ui/characterSheet.ts`): an HTML overlay built from the design
   template `ui/characterSheet.html` (1100×850, fonts Rye / Zilla Slab from
   Google Fonts), filled with the name, token and a live status row; hands,
-  holster, wounds and endurance stay empty until combat lands.
+  holster boxes list the character's guns; wounds and endurance stay empty
+  until combat lands. Every character starts with a loaded, uncocked Colt 45
+  in the holster (`engine.startingGuns`); gun actions are still disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
@@ -228,7 +230,8 @@ once combat lands); effects apply at segment end. Full rules:
 
 `assets/` (TTS mod dump, served by Vite): boards 1600×2232 (`board_A.png` …),
 character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png` (630×880),
-`hex_grid.json` (hex centres, scaled 2×). `assets/local/` (VASSAL): status
+`hex_grid.json` (hex centres, scaled 2×), gun icons `guns/<type>.gif` (from the
+VASSAL module). `assets/local/` (VASSAL): status
 overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 (not needed, everything is present).
 
@@ -263,6 +266,9 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - implement walls 
     - obstacles delay
     - characters collision (make it visible and add delay)
+  - Guns icons
+    - added cock icon
+    - show remaining bullets
   - Delay
     - A "delay card" is a stub draw: a uniform number from 1 to 3.
     - use real card and track which cards number were drawn

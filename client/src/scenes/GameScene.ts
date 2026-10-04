@@ -810,6 +810,7 @@ export class GameScene extends Phaser.Scene {
       submitted: p.submitted,
       phase: view.phase,
       isMe: seat === this.myIndex,
+      guns: p.guns ?? [],
       },
       () => {
         if (this.scene.isActive()) this.input.enabled = true;

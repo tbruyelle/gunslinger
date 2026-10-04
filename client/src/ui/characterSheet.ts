@@ -1,3 +1,4 @@
+import type { GunView } from "../chain/types";
 import { CHAR_ARROW_DIR } from "../rules";
 import template from "./characterSheet.html?raw";
 
@@ -14,6 +15,7 @@ export interface SheetData {
   submitted: boolean;
   phase: string;
   isMe: boolean;
+  guns: GunView[];
 }
 
 const DIRS = ["N", "NE", "SE", "S", "SW", "NW"];
@@ -39,7 +41,11 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
     .replace(/{{accent}}/g, accent)
     .replace("{{characterName}}", escapeHtml(d.name))
     .replace("{{tokenImage}}", tokenImage(d))
-    .replace("{{statusRow}}", statusRow(d, accent));
+    .replace("{{statusRow}}", statusRow(d, accent))
+    .replace("{{otherHand}}", gunBox(d.guns, "other_hand"))
+    .replace("{{bothHands}}", gunBox(d.guns, "both_hands"))
+    .replace("{{gunHand}}", gunBox(d.guns, "gun_hand"))
+    .replace("{{holstered}}", gunBox(d.guns, "holstered"));
 
   backdrop = document.createElement("div");
   backdrop.style.cssText =
@@ -149,6 +155,22 @@ function statusRow(d: SheetData, accent: string): string {
   ];
   if (d.isMe) chips.push(`<div style="margin-left: auto; font-family: Rye, Georgia, serif; font-size: 22px; color: ${accent}; letter-spacing: 1px">YOUR CHARACTER</div>`);
   return `<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">${chips.join("")}</div>`;
+}
+
+/** The guns kept at one location, as cards inside the sheet's box. */
+function gunBox(guns: GunView[], location: GunView["location"]): string {
+  const cards = guns
+    .filter((g) => g.location === location)
+    .map(
+      (g) =>
+        `<div style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px">` +
+        `<img src="/guns/${escapeHtml(g.type)}.gif" alt="" style="width: 56px; height: 56px; image-rendering: pixelated; flex: none">` +
+        `<div>` +
+        `<div style="font-family: Rye, Georgia, serif; font-size: 22px; letter-spacing: 1px">${escapeHtml(g.name)}</div>` +
+        `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells</div>` +
+        `</div></div>`,
+    );
+  return `<div style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start">${cards.join("")}</div>`;
 }
 
 function escapeHtml(s: string): string {

@@ -18,6 +18,18 @@ export interface PlayerView {
   playedRun: boolean;
   /** A Run was played on the previous turn: required to Sprint (rule 9.23). */
   ranLastTurn: boolean;
+  guns: GunView[];
+}
+
+export type GunLocation = "holstered" | "gun_hand" | "other_hand" | "both_hands";
+
+export interface GunView {
+  type: string;
+  name: string;
+  location: GunLocation;
+  cocked: boolean;
+  shells: number;
+  capacity: number;
 }
 
 export interface TurnEvent {

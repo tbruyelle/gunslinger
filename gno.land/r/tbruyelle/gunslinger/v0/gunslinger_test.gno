@@ -36,6 +36,7 @@ func TestCreateAndJoin(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(js, `"phase":"waiting"`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":null}`), js)
+	uassert.True(t, strings.Contains(js, `"guns":[{"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]`), js)
 
 	uassert.AbortsWithMessage(t, cur, "gunslinger: you cannot join your own game", func() {
 		JoinGame(cross(cur), id, "dude")
@@ -161,7 +162,7 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	// Alice ran on turn 1, so she may sprint on turn 2; Bob did not.
 	uassert.True(t, g.State.Chars[0].RanLastTurn)
 	uassert.False(t, g.State.Chars[1].RanLastTurn)
-	uassert.True(t, strings.Contains(js, `"playedRun":false,"ranLastTurn":true}`), js)
+	uassert.True(t, strings.Contains(js, `"playedRun":false,"ranLastTurn":true,"guns":[`), js)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	uassert.AbortsWithMessage(t, cur, "gunslinger: sprint can only be played after a run on the previous turn", func() {
 		SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead,3f")

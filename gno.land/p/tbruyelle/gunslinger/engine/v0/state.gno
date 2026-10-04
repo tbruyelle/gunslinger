@@ -49,6 +49,8 @@ type Character struct {
 	// RanLastTurn is PlayedRun carried over from the previous turn: Sprint
 	// needs a Run on the previous turn as well (rule 9.23, "build up speed").
 	RanLastTurn bool
+	// Guns carried; gun actions are not implemented yet, so they do not change.
+	Guns Guns
 }
 
 // State is the whole game state the engine acts on.
@@ -60,8 +62,8 @@ type State struct {
 // board A facing south, seat 1 in the south half facing north, six hexes apart.
 func NewState() State {
 	return State{Chars: [NumPlayers]Character{
-		{Hex: "A-F3", Facing: hex.S},
-		{Hex: "A-F9", Facing: hex.N},
+		{Hex: "A-F3", Facing: hex.S, Guns: startingGuns()},
+		{Hex: "A-F9", Facing: hex.N, Guns: startingGuns()},
 	}}
 }
 
