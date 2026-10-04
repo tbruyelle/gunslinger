@@ -21,6 +21,8 @@ const DIRS = ["N", "NE", "SE", "S", "SW", "NW"];
 const ACCENTS = ["#33307F", "#8E2F1A"];
 const SHEET_W = 1100;
 const SHEET_H = 850;
+/** Length of the open/close animation. */
+const ANIM_MS = 180;
 
 let backdrop: HTMLDivElement | null = null;
 let onClose: (() => void) | null = null;
@@ -41,7 +43,8 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
 
   backdrop = document.createElement("div");
   backdrop.style.cssText =
-    "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(10,6,2,.72);cursor:pointer";
+    "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(10,6,2,.72);cursor:pointer;" +
+    `opacity:0;transition:opacity ${ANIM_MS}ms ease-out`;
   backdrop.addEventListener("click", (e) => {
     if (e.target === backdrop) closeCharacterSheet();
   });
@@ -51,7 +54,9 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
   }
 
   const frame = document.createElement("div");
-  frame.style.cssText = "position:relative;cursor:default;transform-origin:center center";
+  frame.style.cssText =
+    "position:relative;cursor:default;transform-origin:center center;" +
+    `transition:transform ${ANIM_MS}ms cubic-bezier(.2,.8,.3,1.1),opacity ${ANIM_MS}ms ease-out;opacity:0`;
   frame.innerHTML = html;
   const close = document.createElement("button");
   close.textContent = "×";
@@ -63,12 +68,25 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
   backdrop.appendChild(frame);
   document.body.appendChild(backdrop);
 
+  let scale = 1;
   const fit = () => {
     const h = Math.max(SHEET_H, frame.querySelector<HTMLElement>(".gs-sheet")?.offsetHeight ?? SHEET_H);
-    const s = Math.min(1, (window.innerWidth - 32) / SHEET_W, (window.innerHeight - 32) / h);
-    frame.style.transform = `scale(${s})`;
+    scale = Math.min(1, (window.innerWidth - 32) / SHEET_W, (window.innerHeight - 32) / h);
+    frame.style.transform = `scale(${scale})`;
   };
+  // Start slightly smaller and lower, then settle: the transition does the rest.
   fit();
+  frame.style.transform = `scale(${scale * 0.94}) translateY(16px)`;
+  requestAnimationFrame(() => {
+    if (!backdrop) return;
+    backdrop.style.opacity = "1";
+    frame.style.opacity = "1";
+    frame.style.transform = `scale(${scale})`;
+  });
+  exitAnimation = () => {
+    frame.style.transform = `scale(${scale * 0.96}) translateY(8px)`;
+    frame.style.opacity = "0";
+  };
   window.addEventListener("resize", fit);
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") closeCharacterSheet();
@@ -81,13 +99,20 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
 }
 
 let cleanup: (() => void) | null = null;
+let exitAnimation: (() => void) | null = null;
 
 export function closeCharacterSheet(): void {
-  if (!backdrop) return;
+  const el = backdrop;
+  if (!el) return;
   cleanup?.();
   cleanup = null;
-  backdrop.remove();
   backdrop = null;
+  // Fade out, then drop the element.
+  el.style.pointerEvents = "none";
+  el.style.opacity = "0";
+  exitAnimation?.();
+  exitAnimation = null;
+  setTimeout(() => el.remove(), ANIM_MS + 20);
   const cb = onClose;
   onClose = null;
   cb?.();
