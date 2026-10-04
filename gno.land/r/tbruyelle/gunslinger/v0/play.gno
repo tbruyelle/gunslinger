@@ -126,7 +126,7 @@ func Resign(cur realm, id string) {
 	save(g)
 }
 
-// ClaimTimeout ends a game that saw no progress for TurnTimeout. Anyone may
+// ClaimTimeout ends a game that saw no progress for its Timeout. Anyone may
 // call it. A waiting game expires; when exactly one player submitted a
 // plan, the other forfeits; when neither did, the game is abandoned.
 func ClaimTimeout(cur realm, id string) {

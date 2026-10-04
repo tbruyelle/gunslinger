@@ -50,7 +50,7 @@ func renderHome(res *mux.ResponseWriter, _ *mux.Request) {
 	res.Write(md.Paragraph("Two-player showdowns on board A, the Corral. " +
 		"Create a game, wait for an opponent, then submit a plan every turn. " +
 		link("How to play", "help") + "."))
-	res.Write(md.Paragraph(md.Link("Create a game as the marshal", txlink.Call("CreateGame", "charKey", "marshal", "maxTurns", "10"))))
+	res.Write(md.Paragraph(md.Link("Create a game as the marshal", txlink.Call("CreateGame", "charKey", "marshal", "maxTurns", "10", "timeoutMinutes", "0"))))
 
 	res.Write(md.H2("Open games"))
 	n := 0

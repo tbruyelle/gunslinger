@@ -15,9 +15,12 @@ import (
 const (
 	realmPath = "gno.land/r/tbruyelle/gunslinger/v0"
 
-	// TurnTimeout is how long a game may sit without progress before
-	// anyone can call ClaimTimeout on it.
-	TurnTimeout = 30 * time.Minute
+	// DefaultTimeout is how long a game may sit without progress before
+	// anyone can call ClaimTimeout on it, when CreateGame gets 0.
+	DefaultTimeout = 48 * time.Hour
+	// MinTimeout and MaxTimeout bound the timeout a creator may pick.
+	MinTimeout = 5 * time.Minute
+	MaxTimeout = 30 * 24 * time.Hour
 	// DefaultMaxTurns is the game length when CreateGame gets 0.
 	DefaultMaxTurns = 10
 	// MaxMaxTurns bounds the game length.
@@ -73,6 +76,7 @@ type Game struct {
 	State     engine.State
 	Turn      int // 1-based
 	MaxTurns  int
+	Timeout   time.Duration // inactivity after which ClaimTimeout succeeds
 	Phase     Phase
 	Plans     [engine.NumPlayers]string // current turn, canonical form
 	Submitted [engine.NumPlayers]bool
@@ -129,7 +133,7 @@ func (g *Game) lastTurn() *TurnResult {
 }
 
 // timeoutAt is when the game becomes claimable through ClaimTimeout.
-func (g *Game) timeoutAt() time.Time { return g.UpdatedAt.Add(TurnTimeout) }
+func (g *Game) timeoutAt() time.Time { return g.UpdatedAt.Add(g.Timeout) }
 
 func (g *Game) finish(reason string, winner int) {
 	g.Phase = PhaseFinished

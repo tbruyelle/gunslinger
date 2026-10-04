@@ -3,6 +3,7 @@ package gunslinger
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"gno.land/p/tbruyelle/gunslinger/engine/v0"
 )
@@ -15,7 +16,7 @@ const listLimit = 50
 
 // GameJSON is the full view of a game:
 //
-//	{"id","rev","phase","turn","maxTurns","board",
+//	{"id","rev","phase","turn","maxTurns","timeout" (seconds),"board",
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn"}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}],
@@ -31,6 +32,7 @@ func GameJSON(id string) string {
 	b.WriteString(`,"phase":` + quote(g.Phase.String()))
 	b.WriteString(`,"turn":` + strconv.Itoa(g.Turn))
 	b.WriteString(`,"maxTurns":` + strconv.Itoa(g.MaxTurns))
+	b.WriteString(`,"timeout":` + strconv.FormatInt(int64(g.Timeout/time.Second), 10))
 	b.WriteString(`,"board":"A"`)
 	b.WriteString(`,"players":[`)
 	for i := range g.Players {
@@ -152,7 +154,7 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 // the games it plays or played, newest first (at most 50 each):
 //
 //	{"open":[summary...],"mine":[summary...]}
-//	summary = {"id","rev","phase","turn","maxTurns","winner","endReason","createdAt","updatedAt","players":[{"addr","char"}]}
+//	summary = {"id","rev","phase","turn","maxTurns","timeout","winner","endReason","createdAt","updatedAt","players":[{"addr","char"}]}
 func GamesJSON(addr string) string {
 	var b strings.Builder
 	b.WriteString(`{"open":[`)
@@ -187,6 +189,7 @@ func writeSummary(b *strings.Builder, g *Game) {
 	b.WriteString(`,"phase":` + quote(g.Phase.String()))
 	b.WriteString(`,"turn":` + strconv.Itoa(g.Turn))
 	b.WriteString(`,"maxTurns":` + strconv.Itoa(g.MaxTurns))
+	b.WriteString(`,"timeout":` + strconv.FormatInt(int64(g.Timeout/time.Second), 10))
 	b.WriteString(`,"winner":` + strconv.Itoa(g.Winner))
 	b.WriteString(`,"endReason":` + quote(g.EndReason))
 	b.WriteString(`,"createdAt":` + strconv.FormatInt(g.CreatedAt.Unix(), 10))

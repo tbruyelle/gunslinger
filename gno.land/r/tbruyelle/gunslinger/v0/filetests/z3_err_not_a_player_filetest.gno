@@ -16,7 +16,7 @@ const (
 
 func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := gunslinger.CreateGame(cross(cur), "marshal", 10)
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(carol))

@@ -16,12 +16,12 @@ const (
 
 func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := gunslinger.CreateGame(cross(cur), "marshal", 10)
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10, 0)
 	gunslinger.CancelGame(cross(cur), id)
 	println(gunslinger.GameJSON(id))
 	println(gunslinger.GamesJSON(alice.String()))
 }
 
 // Output:
-// {"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"board":"A","players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal","hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false},{"addr":"","char":"","hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false}],"winner":-1,"endReason":"cancelled","createdAt":1234567890,"updatedAt":1234567890,"timeoutAt":0,"lastTurn":null}
-// {"open":[],"mine":[{"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"winner":-1,"endReason":"cancelled","createdAt":1234567890,"updatedAt":1234567890,"players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal"},{"addr":"","char":""}]}]}
+// {"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"timeout":172800,"board":"A","players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal","hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false},{"addr":"","char":"","hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false}],"winner":-1,"endReason":"cancelled","createdAt":1234567890,"updatedAt":1234567890,"timeoutAt":0,"lastTurn":null}
+// {"open":[],"mine":[{"id":"0000001","rev":2,"phase":"finished","turn":1,"maxTurns":10,"timeout":172800,"winner":-1,"endReason":"cancelled","createdAt":1234567890,"updatedAt":1234567890,"players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal"},{"addr":"","char":""}]}]}

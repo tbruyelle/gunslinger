@@ -17,7 +17,7 @@ const (
 // The gnoweb pages after a resolved turn.
 func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := gunslinger.CreateGame(cross(cur), "marshal", 10)
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(alice))
@@ -37,7 +37,7 @@ func main(cur realm) {
 // # Gunslinger
 // Two-player showdowns on board A, the Corral. Create a game, wait for an opponent, then submit a plan every turn. [How to play](/r/tbruyelle/gunslinger/v0:help).
 //
-// [Create a game as the marshal]($help&func=CreateGame&charKey=marshal&maxTurns=10)
+// [Create a game as the marshal]($help&func=CreateGame&charKey=marshal&maxTurns=10&timeoutMinutes=0)
 //
 // ## Open games
 // No game is waiting for an opponent.
@@ -74,6 +74,6 @@ func main(cur realm) {
 // - seg 4: marshal sprint: A-G7 → A-G8
 // - seg 4: marshal gains 1 delay (sprint), now 1
 //
-// [Submit a plan]($help&func=SubmitPlan&id=0000001&plan=) · [Resign]($help&func=Resign&id=0000001) · [Claim timeout]($help&func=ClaimTimeout&id=0000001) (after 2009-02-14 00:01 UTC)
+// [Submit a plan]($help&func=SubmitPlan&id=0000001&plan=) · [Resign]($help&func=Resign&id=0000001) · [Claim timeout]($help&func=ClaimTimeout&id=0000001) (after 2009-02-15 23:31 UTC)
 //
 // [Back to the lobby](/r/tbruyelle/gunslinger/v0:)

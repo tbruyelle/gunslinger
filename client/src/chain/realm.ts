@@ -35,11 +35,15 @@ export class RealmClient {
     return parseGamesView(await this.rpc.qrender(this.pkgPath, `json/games/${addr}`));
   }
 
-  /** Creates a game and returns its id (null only if neither the wallet nor the chain told us in time). */
-  async createGame(charKey: string, maxTurns: number): Promise<{ hash: string | null; gameID: string | null }> {
+  /**
+   * Creates a game and returns its id (null only if neither the wallet nor
+   * the chain told us in time). timeoutMinutes 0 keeps the realm's default
+   * inactivity timeout (2 days).
+   */
+  async createGame(charKey: string, maxTurns: number, timeoutMinutes = 0): Promise<{ hash: string | null; gameID: string | null }> {
     const me = this.wallet.address;
     const before = new Set((await this.listGames(me)).mine.map((g) => g.id));
-    const r = await this.send("CreateGame", [charKey, String(maxTurns)], async () => {
+    const r = await this.send("CreateGame", [charKey, String(maxTurns), String(timeoutMinutes)], async () => {
       const games = await this.listGames(me);
       const fresh = games.mine.find((g) => !before.has(g.id) && g.players[0]?.addr === me);
       return fresh?.id ?? null;

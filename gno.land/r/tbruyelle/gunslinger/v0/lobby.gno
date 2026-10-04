@@ -8,8 +8,10 @@ import (
 )
 
 // CreateGame opens a showdown with the caller in seat 0 playing charKey,
-// and returns the game id. maxTurns 0 means DefaultMaxTurns.
-func CreateGame(cur realm, charKey string, maxTurns int) string {
+// and returns the game id. maxTurns 0 means DefaultMaxTurns; timeoutMinutes
+// is the inactivity after which anyone may end the game with ClaimTimeout,
+// 0 meaning DefaultTimeout (2 days).
+func CreateGame(cur realm, charKey string, maxTurns int, timeoutMinutes int) string {
 	caller := cur.Previous().Address()
 	assertCharKey(charKey)
 	if maxTurns == 0 {
@@ -18,12 +20,20 @@ func CreateGame(cur realm, charKey string, maxTurns int) string {
 	if maxTurns < 1 || maxTurns > MaxMaxTurns {
 		panic("gunslinger: maxTurns must be between 1 and " + strconv.Itoa(MaxMaxTurns))
 	}
+	timeout := DefaultTimeout
+	if timeoutMinutes != 0 {
+		timeout = time.Duration(timeoutMinutes) * time.Minute
+	}
+	if timeout < MinTimeout || timeout > MaxTimeout {
+		panic("gunslinger: timeoutMinutes must be between " + strconv.Itoa(int(MinTimeout/time.Minute)) + " and " + strconv.Itoa(int(MaxTimeout/time.Minute)))
+	}
 	id := gameSeq.Next().String()
 	g := &Game{
 		ID:        id,
 		State:     engine.NewState(),
 		Turn:      1,
 		MaxTurns:  maxTurns,
+		Timeout:   timeout,
 		Phase:     PhaseWaiting,
 		Winner:    -1,
 		CreatedAt: time.Now(),
@@ -32,7 +42,8 @@ func CreateGame(cur realm, charKey string, maxTurns int) string {
 	openGames.Set(id, g)
 	index(caller, id)
 	save(g)
-	emit("GameCreated", "id", id, "creator", caller.String(), "char", charKey, "maxTurns", strconv.Itoa(maxTurns))
+	emit("GameCreated", "id", id, "creator", caller.String(), "char", charKey, "maxTurns", strconv.Itoa(maxTurns),
+		"timeoutMinutes", strconv.Itoa(int(timeout/time.Minute)))
 	return id
 }
 

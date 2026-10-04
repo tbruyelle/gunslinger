@@ -16,7 +16,7 @@ const (
 
 func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := gunslinger.CreateGame(cross(cur), "marshal", 10)
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(bob))
@@ -25,4 +25,4 @@ func main(cur realm) {
 }
 
 // Output:
-// {"id":"0000001","rev":3,"phase":"finished","turn":1,"maxTurns":10,"board":"A","players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal","hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false},{"addr":"g1bob0000000000000000000000000000000000","char":"dude","hex":"A-F9","facing":0,"down":false,"delay":0,"status":"out","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false}],"winner":0,"endReason":"resign","createdAt":1234567890,"updatedAt":1234567890,"timeoutAt":0,"lastTurn":null}
+// {"id":"0000001","rev":3,"phase":"finished","turn":1,"maxTurns":10,"timeout":172800,"board":"A","players":[{"addr":"g1alice00000000000000000000000000000000","char":"marshal","hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false},{"addr":"g1bob0000000000000000000000000000000000","char":"dude","hex":"A-F9","facing":0,"down":false,"delay":0,"status":"out","submitted":false,"playedFoot":false,"playedRun":false,"ranLastTurn":false}],"winner":0,"endReason":"resign","createdAt":1234567890,"updatedAt":1234567890,"timeoutAt":0,"lastTurn":null}

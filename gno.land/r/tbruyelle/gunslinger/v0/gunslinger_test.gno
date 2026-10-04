@@ -16,10 +16,11 @@ var (
 
 func TestCreateAndJoin(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 0)
+	id := CreateGame(cross(cur), "marshal", 0, 0)
 	g := getGame(id)
 	uassert.Equal(t, "waiting", g.Phase.String())
 	uassert.Equal(t, DefaultMaxTurns, g.MaxTurns)
+	uassert.Equal(t, int64(DefaultTimeout), int64(g.Timeout))
 	uassert.Equal(t, 1, g.Turn)
 	uassert.Equal(t, 1, g.Rev)
 	uassert.Equal(t, -1, g.Winner)
@@ -64,10 +65,16 @@ func TestCreateAndJoin(cur realm, t *testing.T) {
 func TestCreateValidation(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
 	uassert.AbortsWithMessage(t, cur, "gunslinger: unknown character bogus", func() {
-		CreateGame(cross(cur), "bogus", 10)
+		CreateGame(cross(cur), "bogus", 10, 0)
 	})
 	uassert.AbortsWithMessage(t, cur, "gunslinger: maxTurns must be between 1 and 50", func() {
-		CreateGame(cross(cur), "marshal", 51)
+		CreateGame(cross(cur), "marshal", 51, 0)
+	})
+	uassert.AbortsWithMessage(t, cur, "gunslinger: timeoutMinutes must be between 5 and 43200", func() {
+		CreateGame(cross(cur), "marshal", 10, 43201)
+	})
+	uassert.AbortsWithMessage(t, cur, "gunslinger: timeoutMinutes must be between 5 and 43200", func() {
+		CreateGame(cross(cur), "marshal", 10, 4)
 	})
 	uassert.AbortsWithMessage(t, cur, "gunslinger: game not found", func() {
 		JoinGame(cross(cur), "9999999", "dude")
@@ -79,7 +86,7 @@ func TestCreateValidation(cur realm, t *testing.T) {
 
 func TestSubmitAndResolve(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 10)
+	id := CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	g := getGame(id)
@@ -179,7 +186,7 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 
 func TestMaxTurnsFinish(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 1)
+	id := CreateGame(cross(cur), "marshal", 1, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(alice))
@@ -204,7 +211,7 @@ func TestMaxTurnsFinish(cur realm, t *testing.T) {
 
 func TestResign(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 10)
+	id := CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(carol))
@@ -225,7 +232,7 @@ func TestResign(cur realm, t *testing.T) {
 
 func TestCancel(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 10)
+	id := CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	uassert.AbortsWithMessage(t, cur, "gunslinger: only the creator can cancel the game", func() {
 		CancelGame(cross(cur), id)
@@ -248,11 +255,11 @@ func TestCancel(cur realm, t *testing.T) {
 func TestClaimTimeout(cur realm, t *testing.T) {
 	// A waiting game nobody joined is cancelled.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 10)
+	id := CreateGame(cross(cur), "marshal", 10, 30)
 	uassert.AbortsWithMessage(t, cur, "gunslinger: the game has not timed out yet", func() {
 		ClaimTimeout(cross(cur), id)
 	})
-	testing.SkipHeights(361) // 5s per height: past the 30 minute timeout
+	testing.SkipHeights(361) // 5s per height: past the 30 minute timeout picked above
 	testing.SetRealm(testing.NewUserRealm(carol))
 	ClaimTimeout(cross(cur), id)
 	g := getGame(id)
@@ -261,7 +268,7 @@ func TestClaimTimeout(cur realm, t *testing.T) {
 
 	// One plan in: the other player forfeits.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id = CreateGame(cross(cur), "marshal", 10)
+	id = CreateGame(cross(cur), "marshal", 10, 30)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(alice))
@@ -276,7 +283,7 @@ func TestClaimTimeout(cur realm, t *testing.T) {
 
 	// No plan in: abandoned.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id = CreateGame(cross(cur), "marshal", 10)
+	id = CreateGame(cross(cur), "marshal", 10, 30)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	testing.SkipHeights(361)
@@ -289,7 +296,7 @@ func TestClaimTimeout(cur realm, t *testing.T) {
 
 func TestRender(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 10)
+	id := CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	home := Render("")

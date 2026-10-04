@@ -7,9 +7,20 @@ import { userMessage } from "../chain/errors";
 import { formatCoins } from "../chain/rpc";
 import { shortAddr, type GameSummary, type GamesView } from "../chain/types";
 import { showToast } from "../ui/toast";
+import { attachTooltip } from "../ui/tooltip";
 
 /** All character tokens, for the picker that will come back later. */
 export const CHARACTERS = Object.keys(CHAR_ARROW_DIR);
+
+/** Timeout choices for a new game, in minutes; the realm's default is 2 days. */
+export const TIMEOUT_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 30, label: "30 min" },
+  { minutes: 120, label: "2 hours" },
+  { minutes: 12 * 60, label: "12 hours" },
+  { minutes: 2 * 24 * 60, label: "2 days" },
+  { minutes: 7 * 24 * 60, label: "7 days" },
+];
+const DEFAULT_TIMEOUT_INDEX = 3;
 
 /** Default characters until players can pick their own: creator and joiner. */
 export const CREATOR_CHAR = "marshal";
@@ -55,6 +66,7 @@ export class LobbyScene extends Phaser.Scene {
   private busy = false;
   private accountPanel = false;
   private balance: string | null = null;
+  private timeoutIndex = DEFAULT_TIMEOUT_INDEX;
   private refreshTimer: Phaser.Time.TimerEvent | null = null;
   private unsubscribe: (() => void)[] = [];
 
@@ -194,7 +206,7 @@ export class LobbyScene extends Phaser.Scene {
   private createGame() {
     void this.run(async () => {
       const chain = this.chain!;
-      const r = await chain.realm.createGame(CREATOR_CHAR, 10);
+      const r = await chain.realm.createGame(CREATOR_CHAR, 10, TIMEOUT_OPTIONS[this.timeoutIndex].minutes);
       if (r.gameID) return r.gameID;
       // The tx result was not indexed in time: the game is the newest of ours.
       const games = await chain.realm.listGames(chain.wallet.address);
@@ -358,13 +370,13 @@ export class LobbyScene extends Phaser.Scene {
       .filter((g) => g.players[0]?.addr !== me)
       .map((g) => ({
         label: `Game ${g.id}`,
-        sub: `${charName(g.players[0]?.char)} by ${shortAddr(g.players[0]?.addr ?? "")}`,
+        sub: `${charName(g.players[0]?.char)} by ${shortAddr(g.players[0]?.addr ?? "")}${timeoutNote(g)}`,
         tone: "normal" as Tone,
         button: this.busy ? undefined : { text: "Join", onClick: () => this.joinGame(g.id) },
       }));
     const mine: Row[] = (games?.mine ?? []).map((g) => ({
       label: `Game ${g.id}  ·  ${summaryLine(g, me)}`,
-      sub: g.players.map((p) => (p.addr ? charName(p.char) + (p.addr === me ? " (you)" : "") : "?")).join(" vs "),
+      sub: g.players.map((p) => (p.addr ? charName(p.char) + (p.addr === me ? " (you)" : "") : "?")).join(" vs ") + timeoutNote(g),
       tone: g.phase === "planning" ? "hot" : g.phase === "waiting" ? "normal" : "dim",
       button: this.busy ? undefined : { text: "Open", onClick: () => this.scene.start("GameScene", { gameID: g.id }) },
     }));
@@ -372,7 +384,17 @@ export class LobbyScene extends Phaser.Scene {
     const create = { text: this.busy ? "Signing…" : "Create a game", onClick: () => {
       if (!this.busy) this.createGame();
     } };
-    this.drawList(PANEL_PAD, top, colW, bottom - top, "My games", games ? mine : null, "You have no game yet.", create);
+    const timeout = {
+      text: `⏱ ${TIMEOUT_OPTIONS[this.timeoutIndex].label}`,
+      onClick: () => {
+        this.timeoutIndex = (this.timeoutIndex + 1) % TIMEOUT_OPTIONS.length;
+        this.buildAll();
+      },
+      tooltip:
+        "Timeout of the game you create: after this long without a move, anyone can end the game " +
+        "(the player who did not answer loses). Click to change.",
+    };
+    this.drawList(PANEL_PAD, top, colW, bottom - top, "My games", games ? mine : null, "You have no game yet.", create, timeout);
     this.drawList(2 * PANEL_PAD + colW, top, colW, bottom - top, "Open games", games ? open : null, "No game is waiting for an opponent.");
   }
 
@@ -385,15 +407,23 @@ export class LobbyScene extends Phaser.Scene {
     rows: Row[] | null,
     empty: string,
     header?: { text: string; onClick: () => void },
+    secondary?: { text: string; onClick: () => void; tooltip?: string },
   ) {
     // Same 16px inside the panel as the panel keeps from the window.
     const pad = PANEL_PAD;
     const headerH = 56;
     this.add.rectangle(x, y, w, h, 0x120b04).setOrigin(0).setStrokeStyle(1, 0x3a2510);
     this.add.text(x + pad, y + headerH / 2, title, { fontSize: "18px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0, 0.5);
+    let right = x + w - pad;
     if (header) {
       const bw = Math.min(160, w / 2.4);
-      this.makeButton(x + w - pad - bw / 2, y + headerH / 2, bw, 30, header.text, header.onClick);
+      this.makeButton(right - bw / 2, y + headerH / 2, bw, 30, header.text, header.onClick);
+      right -= bw + 10;
+    }
+    if (secondary) {
+      // A cycling option next to the main button (the new game's timeout).
+      const bw = Math.min(120, w / 3.2);
+      this.makeButton(right - bw / 2, y + headerH / 2, bw, 30, secondary.text, secondary.onClick, undefined, 0, secondary.tooltip);
     }
     const rowsY = y + headerH;
     if (!rows) {
@@ -437,7 +467,7 @@ export class LobbyScene extends Phaser.Scene {
       .setOrigin(0, 0.5);
   }
 
-  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string, depth = 0) {
+  private makeButton(cx: number, cy: number, bw: number, bh: number, label: string, onClick: () => void, icon?: string, depth = 0, tooltip?: string) {
     const bg = this.add.graphics();
     const draw = (fill: number) => {
       bg.clear();
@@ -463,6 +493,7 @@ export class LobbyScene extends Phaser.Scene {
     bg.setDepth(depth);
     text.setDepth(depth + 1);
     zone.setDepth(depth + 1);
+    if (tooltip) attachTooltip(this, zone, tooltip, bh / 2 + 6);
   }
 }
 
@@ -500,4 +531,20 @@ function summaryLine(g: GameSummary, me: string): string {
     default:
       return g.winner >= 0 ? `won by ${who(g.winner)}` : `finished after ${g.turn} turns, draw`;
   }
+}
+
+/** The game's inactivity timeout, for the row details of games still running. */
+function timeoutNote(g: GameSummary): string {
+  return g.phase === "finished" ? "" : `  ·  timeout ${formatDuration(g.timeout)}`;
+}
+
+/** 172800 seconds -> "2 days", 1800 -> "30 min". */
+export function formatDuration(seconds: number): string {
+  if (!seconds) return "?";
+  const m = Math.round(seconds / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} hour${h > 1 ? "s" : ""}`;
+  const d = Math.round(h / 24);
+  return `${d} day${d > 1 ? "s" : ""}`;
 }

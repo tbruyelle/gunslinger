@@ -69,6 +69,8 @@ export interface GameView {
   phase: Phase;
   turn: number;
   maxTurns: number;
+  /** Inactivity, in seconds, after which anyone may claim the timeout. */
+  timeout: number;
   board: string;
   players: PlayerView[];
   /** Seat index of the winner, -1 for none. */
@@ -87,6 +89,8 @@ export interface GameSummary {
   phase: Phase;
   turn: number;
   maxTurns: number;
+  /** Inactivity, in seconds, after which anyone may claim the timeout. */
+  timeout: number;
   /** Seat index of the winner, -1 for none. */
   winner: number;
   /** "" while running; cancelled, expired, resign, timeout, abandoned, max_turns, last_standing. */
