@@ -2,7 +2,7 @@
 
 export type Phase = "waiting" | "planning" | "finished";
 export type PlayerStatus = "alive" | "out";
-export type EventKind = "move" | "turn" | "flip" | "delay" | "cancel";
+export type EventKind = "move" | "turn" | "flip" | "delay" | "cancel" | "draw";
 
 export interface PlayerView {
   addr: string;
@@ -24,6 +24,8 @@ export interface PlayerView {
 export type GunLocation = "holstered" | "gun_hand" | "other_hand" | "both_hands";
 
 export interface GunView {
+  /** Stable id of the gun within the game (the plan string refers to it). */
+  id: number;
   type: string;
   name: string;
   location: GunLocation;
@@ -46,6 +48,9 @@ export interface TurnEvent {
   n: number;
   delay: number;
   reason: string;
+  /** Gun type and id for gun events ("" and 0 otherwise). */
+  gun: string;
+  gunId: number;
 }
 
 /** A character's state when a turn began. */

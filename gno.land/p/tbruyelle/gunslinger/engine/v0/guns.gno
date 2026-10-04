@@ -36,6 +36,26 @@ const (
 	BothHands
 )
 
+// Hand codes used in plan strings: 0 = gun hand, 1 = other hand, 2 = both hands.
+const (
+	HandGun   = 0
+	HandOther = 1
+	HandBoth  = 2
+)
+
+// HandLocation maps a plan hand code to the location it designates.
+func HandLocation(code int) (GunLocation, bool) {
+	switch code {
+	case HandGun:
+		return GunHand, true
+	case HandOther:
+		return OtherHand, true
+	case HandBoth:
+		return BothHands, true
+	}
+	return 0, false
+}
+
 // String returns the location name used in JSON views.
 func (l GunLocation) String() string {
 	switch l {
@@ -51,8 +71,10 @@ func (l GunLocation) String() string {
 	return "?"
 }
 
-// Gun is one weapon carried by a character.
+// Gun is one weapon carried by a character. ID identifies it for the whole
+// game (plans refer to it), even among several guns of the same model.
 type Gun struct {
+	ID       int
 	Type     GunType
 	Location GunLocation
 	Cocked   bool
@@ -64,6 +86,37 @@ const MaxGuns = 3
 
 // Guns is a character's weapons; empty slots have Type NoGun.
 type Guns [MaxGuns]Gun
+
+// Find returns the slot of the gun with the given id, or -1.
+func (g Guns) Find(id int) int {
+	for i, gun := range g {
+		if gun.Type != NoGun && gun.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// NextID is a free id for a gun added to this character.
+func (g Guns) NextID() int {
+	n := 0
+	for _, gun := range g {
+		if gun.Type != NoGun && gun.ID > n {
+			n = gun.ID
+		}
+	}
+	return n + 1
+}
+
+// At returns the slot of the gun held at a location, or -1.
+func (g Guns) At(loc GunLocation) int {
+	for i, gun := range g {
+		if gun.Type != NoGun && gun.Location == loc {
+			return i
+		}
+	}
+	return -1
+}
 
 // Count is the number of guns carried.
 func (g Guns) Count() int {
@@ -77,7 +130,7 @@ func (g Guns) Count() int {
 }
 
 // startingGuns is the fixed loadout at game creation: a loaded, uncocked
-// Colt 45 in the holster.
+// Colt 45 in the holster, gun 1.
 func startingGuns() Guns {
-	return Guns{{Type: Colt45, Location: Holstered, Cocked: false, Shells: 6}}
+	return Guns{{ID: 1, Type: Colt45, Location: Holstered, Cocked: false, Shells: 6}}
 }

@@ -15,6 +15,7 @@ export type CardSide = "front" | "back";
  * - move_ahead / move_back: one of the three forward / backward hexes
  * - turn_ahead / turn_back: a new facing among the three forward / backward directions
  * - target_ranged / target_melee / target_defend: a character (combat, not implemented yet)
+ * - gun: one of the character's holstered guns (Draw & Cock)
  * - none: nothing
  */
 export type ChoiceType =
@@ -25,6 +26,7 @@ export type ChoiceType =
   | "target_ranged"
   | "target_melee"
   | "target_defend"
+  | "gun"
   | "none";
 
 /** Static data for one side of an action card. */
@@ -63,7 +65,7 @@ export const ACTION_CARDS: ActionCardDef[] = [
                back:  { name: "Strength",        cost: 2, category: "strength", choiceType: "none" } },
   { card: 8,  front: { name: "Load",            cost: 3, category: "hand",     choiceType: "none" },
                back:  { name: "Head Out/Back",   cost: 2, category: "foot",     choiceType: "none" } },
-  { card: 9,  front: { name: "Draw & Cock",     cost: 3, category: "hand",     choiceType: "none" },
+  { card: 9,  front: { name: "Draw & Cock",     cost: 3, category: "hand",     choiceType: "gun" },
                back:  { name: "Head Out/Back",   cost: 2, category: "foot",     choiceType: "none" } },
   { card: 10, front: { name: "Jab",             cost: 2, category: "attack",   choiceType: "target_melee" },
                back:  { name: "Duck",            cost: 1, category: "defense",  choiceType: "target_defend" } },

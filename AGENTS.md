@@ -107,11 +107,16 @@ gnoweb pages. `GameJSON`, `GamesJSON`, `HistoryJSON`, `GameRev` are plain
 getters for tests and gnokey.
 
 ### Plan string
-`entry("," entry)*`, `entry := <card 1-12><f|b>[:<dir>]`, dir ∈ `ahead_left
-ahead ahead_right back_left back back_right`, at most 5 entries, empty = pass.
-Example `1f:ahead_left,2f:ahead,3f`. Rules (engine `Plan.Validate`): one side
-per card, dir required for move/turn cards and in the right set, no dir
-otherwise, total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs Run
+`entry("," entry)*`, `entry := <card 1-12><f|b>[:<choice>]`; the choice is a
+direction for move/turn cards (`ahead_left ahead ahead_right back_left back
+back_right`) or, for Draw & Cock, `<gun id>:<hand>` (`9f:1:0`: gun 1 to the
+gun hand; hands: 0 gun hand, 1 other hand, 2 both hands; every gun has a
+stable id within the game, the starting Colt is 1); at most 5 entries, empty
+= pass. Example `1f:ahead_left,2f:ahead,3f`. Rules (engine `Plan.Validate`):
+one side per card, dir required for move/turn cards and in the right set, no
+choice otherwise, Draw & Cock needs that gun to be holstered, the gun hand
+as destination (the other hands come later) and that hand free, total cost ≤
+5 − carried delay, Run needs Advance, Sprint needs Run
 in the same plan **and** a Run played on the previous turn (`RanLastTurn`,
 carried over by `EndTurn`; rule 9.23).
 
@@ -187,7 +192,11 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   Google Fonts), filled with the name, token and a live status row; hands,
   holster boxes list the character's guns; wounds and endurance stay empty
   until combat lands. Every character starts with a loaded, uncocked Colt 45
-  in the holster (`engine.startingGuns`); gun actions are still disabled.
+  in the holster (`engine.startingGuns`). **Draw & Cock** (card 9 front) is
+  the first gun action: picking it opens the sheet in pick mode, where the
+  holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
+  carries the gun id and hand (`9f:1:0`) and the resolution moves and cocks the gun
+  (`draw` event). Other gun actions stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
@@ -276,6 +285,10 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     simultaneous selection and dice seeded from revealed salts.
   - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
     transcribe the 108 result cards and IMPACT tables.
+  - With more than one gun, Draw & Cock into the other hand (hand code 1,
+    second gun): lift the "only the gun hand" checks in `engine.Plan.Validate`
+    and `client/src/game/plan.ts`, and add `other_hand` to the sheet's
+    `DROP_HANDS`.
   - Multi-board layouts (bring back SetupScene/TokenPlacementScene) and more
     characters per player; victory points.
   - Sounds

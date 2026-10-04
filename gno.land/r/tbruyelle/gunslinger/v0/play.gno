@@ -101,7 +101,7 @@ func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]en
 			RanLastTurn: c.RanLastTurn,
 		}
 		for j, g := range c.Guns {
-			out[i].Guns[j] = engine.Gun{Type: g.Type, Location: g.Location, Cocked: g.Cocked, Shells: g.Shells}
+			out[i].Guns[j] = engine.Gun{ID: g.ID, Type: g.Type, Location: g.Location, Cocked: g.Cocked, Shells: g.Shells}
 		}
 	}
 	return out

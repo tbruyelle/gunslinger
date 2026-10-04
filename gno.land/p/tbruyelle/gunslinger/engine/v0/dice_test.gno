@@ -48,7 +48,7 @@ func TestStartingGuns(t *testing.T) {
 			t.Fatalf("char %d carries %d guns", i, c.Guns.Count())
 		}
 		g := c.Guns[0]
-		if g.Type != Colt45 || g.Location != Holstered || g.Cocked || g.Shells != 6 {
+		if g.ID != 1 || g.Type != Colt45 || g.Location != Holstered || g.Cocked || g.Shells != 6 {
 			t.Errorf("char %d gun = %+v", i, g)
 		}
 	}
@@ -57,5 +57,13 @@ func TestStartingGuns(t *testing.T) {
 	}
 	if Holstered.String() != "holstered" || GunHand.String() != "gun_hand" || NoGun.Spec().Capacity != 0 {
 		t.Error("gun names")
+	}
+	for code, want := range map[int]GunLocation{HandGun: GunHand, HandOther: OtherHand, HandBoth: BothHands} {
+		if loc, ok := HandLocation(code); !ok || loc != want {
+			t.Errorf("HandLocation(%d) = %v, %v", code, loc, ok)
+		}
+	}
+	if _, ok := HandLocation(3); ok {
+		t.Error("HandLocation(3) should be invalid")
 	}
 }

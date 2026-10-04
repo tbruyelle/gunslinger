@@ -18,7 +18,7 @@ func TestDeck(t *testing.T) {
 		{{CockAimShoot, 2, ChoiceTargetRanged}, {Throw, 2, ChoiceTargetRanged}},
 		{{Shoot, 1, ChoiceTargetRanged}, {Strength, 2, ChoiceNone}},
 		{{Load, 3, ChoiceNone}, {HeadOutBack, 2, ChoiceNone}},
-		{{DrawAndCock, 3, ChoiceNone}, {HeadOutBack, 2, ChoiceNone}},
+		{{DrawAndCock, 3, ChoiceGun}, {HeadOutBack, 2, ChoiceNone}},
 		{{Jab, 2, ChoiceTargetMelee}, {Duck, 1, ChoiceTargetDefend}},
 		{{Swing, 3, ChoiceTargetMelee}, {Block, 2, ChoiceTargetDefend}},
 		{{Belt, 3, ChoiceTargetMelee}, {Guard, 2, ChoiceTargetDefend}},
@@ -67,8 +67,8 @@ func TestEnabledAndKinds(t *testing.T) {
 		for _, side := range [2]Side{c.Front, c.Back} {
 			if Enabled(side.Code) {
 				enabled[side.Code] = true
-				if side.Kind != KindFoot {
-					t.Errorf("enabled action %s is not a foot action", side.Code)
+				if side.Kind != KindFoot && side.Code != DrawAndCock {
+					t.Errorf("enabled action %s is neither a foot action nor Draw & Cock", side.Code)
 				}
 			}
 			if IsMove(side.Code) && side.Kind != KindFoot {
@@ -79,8 +79,11 @@ func TestEnabledAndKinds(t *testing.T) {
 			}
 		}
 	}
-	if len(enabled) != 8 {
-		t.Errorf("%d enabled actions, want 8: %v", len(enabled), enabled)
+	if len(enabled) != 9 {
+		t.Errorf("%d enabled actions, want 9: %v", len(enabled), enabled)
+	}
+	if !ChoiceGun.NeedsGun() || ChoiceMoveAhead.NeedsGun() || ChoiceGun.NeedsRel() {
+		t.Error("NeedsGun")
 	}
 	for _, c := range []Code{Advance, BackUp, Run, Sprint} {
 		if !IsMove(c) {

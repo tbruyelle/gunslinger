@@ -279,3 +279,32 @@ func TestEndTurnAndBudget(t *testing.T) {
 		t.Error("Status.String")
 	}
 }
+
+func TestDrawAndCock(t *testing.T) {
+	st, evs := resolve(t, NewState(), "9f:1:0", "")
+	draws := ofKind(evs, 0, EvDraw)
+	if len(draws) != 1 || draws[0].Seg != 3 || draws[0].Gun != Colt45 || draws[0].GunID != 1 || draws[0].From != "holstered" || draws[0].To != "gun_hand" {
+		t.Fatalf("draws = %v", draws)
+	}
+	g := st.Chars[0].Guns[0]
+	if g.Location != GunHand || !g.Cocked || g.Shells != 6 {
+		t.Errorf("gun = %+v", g)
+	}
+	if st.Chars[1].Guns[0].Location != Holstered {
+		t.Error("the other character's gun moved")
+	}
+	// With a carried delay of 3 the draw (cost 3) is out of time.
+	st = NewState()
+	st.Chars[0].Delay = 3
+	st, evs = resolve(t, st, "9f:1:0", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonTime || st.Chars[0].Guns[0].Location != Holstered {
+		t.Errorf("cancels = %v, gun = %+v", c, st.Chars[0].Guns[0])
+	}
+	// A gun that is no longer holstered when the action executes cancels it.
+	st = NewState()
+	st.Chars[0].Guns[0].Location = GunHand
+	_, evs = resolve(t, st, "9f:1:0", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
+		t.Errorf("cancels = %v", c)
+	}
+}

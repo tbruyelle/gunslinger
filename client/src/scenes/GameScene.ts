@@ -17,9 +17,9 @@ import {
   stepForward,
   type ReplayPos,
 } from "../game/playback";
-import { MAX_ACTION_POINTS, canPlay, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
+import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
 import { replayPlan, type CharView } from "../game/replay";
-import { closeCharacterSheet, openCharacterSheet } from "../ui/characterSheet";
+import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
 import { charName } from "./LobbyScene";
 
@@ -167,6 +167,8 @@ export class GameScene extends Phaser.Scene {
   // Plan being built
   private selectionOrder: PlanEntry[] = [];
   private pendingChoices: Map<number, RelativeDirection> = new Map();
+  /** Gun id and destination hand chosen for cards that draw a gun (Draw & Cock). */
+  private pendingGuns: Map<number, { gun: number; hand: number }> = new Map();
   private preview: CharView | null = null;
   private choiceMode: {
     card: CardNumber;
@@ -180,7 +182,7 @@ export class GameScene extends Phaser.Scene {
   // Replay of resolved turns: a turn that just resolved (live) or the history.
   private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
-  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection> } | null = null;
+  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }> } | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -784,13 +786,25 @@ export class GameScene extends Phaser.Scene {
   /** The plan in selection order, with the committed directions. */
   private currentPlan(): PlanEntry[] {
     return this.selectionOrder.map((e) => {
+      const entry: PlanEntry = { card: e.card, side: e.side };
       const dir = this.pendingChoices.get(e.card);
-      return dir ? { ...e, dir } : { card: e.card, side: e.side };
+      if (dir) entry.dir = dir;
+      const pick = this.pendingGuns.get(e.card);
+      if (pick) {
+        entry.gun = pick.gun;
+        entry.hand = pick.hand;
+      }
+      return entry;
     });
   }
 
+  /** My character's guns, as the chain shows them. */
+  private myGuns() {
+    return (this.myIndex >= 0 ? this.view?.players[this.myIndex]?.guns : undefined) ?? [];
+  }
+
   /** Shows the character sheet of a seat, with what the board currently displays for it. */
-  private openSheet(seat: number) {
+  private openSheet(seat: number, pick?: GunPick, onClosed?: () => void) {
     const view = this.view;
     const p = view?.players[seat];
     const c = this.displayChars()[seat];
@@ -814,7 +828,9 @@ export class GameScene extends Phaser.Scene {
       },
       () => {
         if (this.scene.isActive()) this.input.enabled = true;
+        onClosed?.();
       },
+      pick,
     );
   }
 
@@ -832,6 +848,7 @@ export class GameScene extends Phaser.Scene {
   private clearSelection() {
     this.selectionOrder = [];
     this.pendingChoices.clear();
+    this.pendingGuns.clear();
     this.preview = null;
     this.choiceMode = null;
     this.clearChoiceOverlays();
@@ -844,7 +861,7 @@ export class GameScene extends Phaser.Scene {
     const wasSelected = this.isSelected(card, side);
     const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
     if (!wasSelected) {
-      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn())) return;
+      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn(), this.myGuns())) return;
       if (planCost(this.currentPlan()) + def.cost > this.budget()) return;
     }
     this.exitChoiceMode();
@@ -855,9 +872,11 @@ export class GameScene extends Phaser.Scene {
       if (!last || last.card !== card || last.side !== side) return;
       this.selectionOrder.pop();
       this.pendingChoices.delete(card);
+      this.pendingGuns.delete(card);
     } else {
       this.selectionOrder.push({ card, side });
-      if (def.choiceType !== "none") this.enterChoiceMode(card, side, def.choiceType);
+      if (def.choiceType === "gun") this.enterGunChoice(card, side);
+      else if (def.choiceType !== "none") this.enterChoiceMode(card, side, def.choiceType);
     }
     this.updatePreview();
     this.refreshSelectionDisplay();
@@ -879,15 +898,17 @@ export class GameScene extends Phaser.Scene {
       const carry = me && me.delay > 0 ? ` (${me.delay} carried delay)` : "";
       this.selectedDisplay.setText(`${name}: select action cards, or send an empty plan to pass (0/${budget} points${carry})`).setColor("#888");
     } else {
+      const guns = this.myGuns();
       const names = plan.map((e) => {
         const def = getActionDef(e);
+        if (e.gun !== undefined) return `${def.name}(${def.cost})→${guns.find((g) => g.id === e.gun)?.name ?? "gun"}`;
         return e.dir ? `${def.name}(${def.cost})→${e.dir.replace(/_/g, " ")}` : `${def.name}(${def.cost})`;
       });
-      const problem = validatePlan(plan, budget, this.ranLastTurn());
+      const problem = validatePlan(plan, budget, this.ranLastTurn(), guns);
       this.selectedDisplay.setText(`${name}: ${names.join(" + ")} = ${cost}/${budget} points${problem ? `  ⚠ ${problem}` : ""}`);
       this.selectedDisplay.setColor(problem ? "#ff9944" : GOLD_STR);
     }
-    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget, this.ranLastTurn()) === null;
+    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget, this.ranLastTurn(), this.myGuns()) === null;
     this.sendBtn.setColor(canSend ? GOLD_STR : "#555");
   }
 
@@ -904,7 +925,7 @@ export class GameScene extends Phaser.Scene {
       const def = getActionDef({ card, side });
       const selected = this.isSelected(card, side);
       const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
-      const needsChoice = def.choiceType !== "none" && !this.pendingChoices.has(card);
+      const needsChoice = def.choiceType !== "none" && !this.pendingChoices.has(card) && !this.pendingGuns.has(card);
       const wouldExceed = !selected && cost + def.cost > budget;
       const blockedByChoice = !!this.choiceMode && !(card === this.choiceMode.card && side === this.choiceMode.side);
       const isLast = selected && !!last && last.card === card && last.side === side;
@@ -923,13 +944,46 @@ export class GameScene extends Phaser.Scene {
         img.setAlpha(0.6);
       } else {
         hl.setStrokeStyle(2, GOLD, 0);
-        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn());
+        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn(), this.myGuns());
         img.setAlpha(usable ? 1 : 0.3);
       }
     }
   }
 
   // ── Choice mode ───────────────────────────────────────────────────────────
+
+  /**
+   * Draw & Cock: the player picks the gun on the character sheet by dragging
+   * it from the holster to the gun hand. Closing the sheet without a pick
+   * drops the card again.
+   */
+  private enterGunChoice(card: CardNumber, side: CardSide) {
+    if (this.myIndex < 0) return;
+    const guns = drawableGuns(this.myGuns());
+    if (guns.length === 0) return;
+    let picked = false;
+    this.input.enabled = false;
+    this.openSheet(
+      this.myIndex,
+      {
+        prompt: "Draw & Cock: drag your gun from the holster to the gun hand",
+        onPick: (gunId, hand) => {
+          picked = true;
+          this.pendingGuns.set(card, { gun: gunId, hand });
+          this.refreshSelectionDisplay();
+          this.refreshCardHighlights();
+        },
+      },
+      () => {
+        if (!picked && this.isSelected(card, side)) {
+          const last = this.selectionOrder[this.selectionOrder.length - 1];
+          if (last && last.card === card && last.side === side) this.selectionOrder.pop();
+          this.refreshSelectionDisplay();
+          this.refreshCardHighlights();
+        }
+      },
+    );
+  }
 
   private enterChoiceMode(card: CardNumber, side: CardSide, choiceType: ChoiceType) {
     this.exitChoiceMode();
@@ -1005,7 +1059,7 @@ export class GameScene extends Phaser.Scene {
   private async sendPlan() {
     if (this.mode !== "select" || this.choiceMode || !this.view) return;
     const plan = this.currentPlan();
-    const problem = validatePlan(plan, this.budget(), this.ranLastTurn());
+    const problem = validatePlan(plan, this.budget(), this.ranLastTurn(), this.myGuns());
     if (problem) {
       showToast(this, problem, "error");
       return;
@@ -1128,7 +1182,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (this.mode === "select" && this.selectionOrder.length > 0) {
-        this.stashedPlan = { turn: this.view.turn, order: [...this.selectionOrder], choices: new Map(this.pendingChoices) };
+        this.stashedPlan = { turn: this.view.turn, order: [...this.selectionOrder], choices: new Map(this.pendingChoices), guns: new Map(this.pendingGuns) };
       }
       this.startPlayback(history.turns, false);
     } catch (e) {
@@ -1232,6 +1286,7 @@ export class GameScene extends Phaser.Scene {
     if (stash && this.mode === "select" && view && stash.turn === view.turn) {
       this.selectionOrder = stash.order;
       this.pendingChoices = stash.choices;
+      this.pendingGuns = stash.guns;
       this.updatePreview();
       this.refreshSelectionDisplay();
       this.refreshCardHighlights();

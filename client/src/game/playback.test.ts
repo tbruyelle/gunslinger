@@ -3,7 +3,7 @@ import type { TurnEvent, TurnResult } from "../chain/types";
 import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
-  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", ...partial,
+  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", gun: "", gunId: 0, ...partial,
 });
 
 const events: TurnEvent[] = [
@@ -43,6 +43,7 @@ describe("snapshotAfterSegment", () => {
     expect(describeEvent(events[0], names)).toBe("dude goes down");
     expect(describeEvent(events[1], names)).toBe("dude gains 2 delay (leap), now 2");
     expect(describeEvent(events[4], names)).toBe("dude: advance is cancelled (time)");
+    expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", gun: "colt45" }), names)).toBe("marshal draws and cocks the Colt 45");
   });
 });
 

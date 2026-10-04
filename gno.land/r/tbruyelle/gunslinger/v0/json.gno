@@ -18,9 +18,9 @@ const listLimit = 50
 //
 //	{"id","rev","phase","turn","maxTurns","timeout" (seconds),"board",
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn",
-//	             "guns":[{"type","name","location","cocked","shells","capacity"}]}],
+//	             "guns":[{"id","type","name","location","cocked","shells","capacity"}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
-//	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason"}],
+//	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","gun","gunId"}],
 //	             "start":[{"hex","facing","down","delay","status"},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
@@ -108,7 +108,8 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 		}
 		n++
 		spec := g.Type.Spec()
-		b.WriteString(`{"type":` + quote(string(g.Type)))
+		b.WriteString(`{"id":` + strconv.Itoa(g.ID))
+		b.WriteString(`,"type":` + quote(string(g.Type)))
 		b.WriteString(`,"name":` + quote(spec.Name))
 		b.WriteString(`,"location":` + quote(g.Location.String()))
 		b.WriteString(`,"cocked":` + strconv.FormatBool(g.Cocked))
@@ -167,6 +168,8 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 	b.WriteString(`,"n":` + strconv.Itoa(e.N))
 	b.WriteString(`,"delay":` + strconv.Itoa(e.Delay))
 	b.WriteString(`,"reason":` + quote(e.Reason))
+	b.WriteString(`,"gun":` + quote(string(e.Gun)))
+	b.WriteString(`,"gunId":` + strconv.Itoa(e.GunID))
 	b.WriteByte('}')
 }
 

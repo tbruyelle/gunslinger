@@ -36,7 +36,7 @@ func TestCreateAndJoin(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(js, `"phase":"waiting"`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":null}`), js)
-	uassert.True(t, strings.Contains(js, `"guns":[{"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]`), js)
+	uassert.True(t, strings.Contains(js, `"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]`), js)
 
 	uassert.AbortsWithMessage(t, cur, "gunslinger: you cannot join your own game", func() {
 		JoinGame(cross(cur), id, "dude")
@@ -180,8 +180,8 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(h, `},{"turn":2,`), h)
 	uassert.True(t, strings.Contains(h, `"start":[{"hex":"A-F5","facing":3,"down":false,"delay":0,"status":"alive"},{"hex":"A-F9","facing":0,"down":true,"delay":0,"status":"alive"}]}`), h)
 	uassert.Equal(t, h, Render("json/history/"+id))
-	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":""}`), js)
-	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":""}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":"","gun":"","gunId":0}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":"","gun":"","gunId":0}`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F9","facing":0,"down":true`), js)
 }
 
@@ -325,4 +325,30 @@ func TestRender(cur realm, t *testing.T) {
 
 	uassert.Equal(t, GameJSON(id), Render("json/game/"+id))
 	uassert.Equal(t, GamesJSON(alice.String()), Render("json/games/"+alice.String()))
+}
+
+func TestDrawAndCock(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(alice))
+	id := CreateGame(cross(cur), "marshal", 10, 0)
+	testing.SetRealm(testing.NewUserRealm(bob))
+	JoinGame(cross(cur), id, "dude")
+	testing.SetRealm(testing.NewUserRealm(alice))
+	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is not in a holster", func() {
+		SubmitPlan(cross(cur), id, "9f:2:0")
+	})
+	SubmitPlan(cross(cur), id, "9f:1:0")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	SubmitPlan(cross(cur), id, "")
+	g := getGame(id)
+	gun := g.State.Chars[0].Guns[0]
+	uassert.Equal(t, "gun_hand", gun.Location.String())
+	uassert.True(t, gun.Cocked)
+	js := GameJSON(id)
+	uassert.True(t, strings.Contains(js, `"location":"gun_hand","cocked":true,"shells":6`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":3,"p":0,"kind":"draw","action":"draw_and_cock","from":"holstered","to":"gun_hand","facing":0,"down":false,"n":0,"delay":0,"reason":"","gun":"colt45","gunId":1}`), js)
+	// Drawing again: nothing left in the holster.
+	testing.SetRealm(testing.NewUserRealm(alice))
+	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is not in a holster", func() {
+		SubmitPlan(cross(cur), id, "9f:1:0")
+	})
 }

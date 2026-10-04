@@ -66,6 +66,7 @@ export function endOfTurnEvents(events: TurnEvent[]): TurnEvent[] {
 }
 
 const DIRS = ["N", "NE", "SE", "S", "SW", "NW"];
+const GUN_NAMES: Record<string, string> = { colt45: "Colt 45" };
 
 /** A one-line description of an event; names are indexed by seat. */
 export function describeEvent(e: TurnEvent, names: string[]): string {
@@ -81,7 +82,9 @@ export function describeEvent(e: TurnEvent, names: string[]): string {
     case "delay":
       return `${who} gains ${e.n} delay (${e.reason}), now ${e.delay}`;
     case "cancel":
-      return `${who}: ${action} is cancelled (${e.reason})`;
+      return `${who}: ${action} is cancelled (${e.reason.replace(/_/g, " ")})`;
+    case "draw":
+      return `${who} draws and cocks the ${GUN_NAMES[e.gun] ?? e.gun}`;
     default:
       return `${who} ${e.kind}`;
   }

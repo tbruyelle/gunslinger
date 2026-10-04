@@ -1,17 +1,34 @@
+import type { GunView } from "../chain/types";
 import { getActionDef, type CardNumber, type CardSide, type RelativeDirection } from "../rules";
 
-/** One card side in the turn plan, with its committed direction when it takes one. */
+/** One card side in the turn plan, with its committed choice when it takes one. */
 export interface PlanEntry {
   card: CardNumber;
   side: CardSide;
+  /** Relative direction, for move and turn cards. */
   dir?: RelativeDirection;
+  /** Gun id, for Draw & Cock. */
+  gun?: number;
+  /** Destination hand for Draw & Cock: 0 gun hand, 1 other hand, 2 both hands. */
+  hand?: number;
 }
+
+export const HAND_GUN = 0;
+export const HAND_OTHER = 1;
+export const HAND_BOTH = 2;
+export const HAND_LOCATION: Record<number, GunView["location"]> = { 0: "gun_hand", 1: "other_hand", 2: "both_hands" };
 
 export const MAX_ACTION_POINTS = 5;
 export const MAX_PLAN_ENTRIES = 5;
 
-/** Actions the realm implements so far (foot actions only). */
-export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down"]);
+/** Actions the realm implements so far: the foot actions and Draw & Cock. */
+export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down", "Draw & Cock"]);
+
+/** The holstered guns a Draw & Cock may take, given the character's guns. */
+export function drawableGuns(guns: GunView[]): GunView[] {
+  if (guns.some((g) => g.location === "gun_hand")) return [];
+  return guns.filter((g) => g.location === "holstered");
+}
 
 const AHEAD = new Set<RelativeDirection>(["ahead_left", "ahead", "ahead_right"]);
 const BACK = new Set<RelativeDirection>(["back_left", "back", "back_right"]);
@@ -21,19 +38,27 @@ export function isEnabled(entry: { card: CardNumber; side: CardSide }): boolean 
   return ENABLED_ACTIONS.has(getActionDef(entry).name);
 }
 
-/** Whether a side can be picked now: implemented, and Sprint only after a Run on the previous turn. */
-export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean): boolean {
+/**
+ * Whether a side can be picked now: implemented, Sprint only after a Run on
+ * the previous turn, Draw & Cock only with a holstered gun and a free gun hand.
+ */
+export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean, guns: GunView[] = []): boolean {
   if (!isEnabled(entry)) return false;
-  return ranLastTurn || getActionDef(entry).name !== "Sprint";
+  const name = getActionDef(entry).name;
+  if (name === "Sprint") return ranLastTurn;
+  if (name === "Draw & Cock") return drawableGuns(guns).length > 0;
+  return true;
 }
 
-/** The realm's plan string: "<card><f|b>[:<dir>]" entries joined by commas. */
+/** The realm's plan string: "<card><f|b>[:<choice>]" entries joined by commas (a direction, or "<gun id>:<hand>" for Draw & Cock). */
 export function encodePlan(plan: PlanEntry[]): string {
   return plan
     .map((e) => {
       const def = getActionDef(e);
+      const base = `${e.card}${e.side === "front" ? "f" : "b"}`;
+      if (def.choiceType === "gun") return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
       const needsDir = def.choiceType === "move_ahead" || def.choiceType === "move_back" || def.choiceType === "turn_ahead" || def.choiceType === "turn_back";
-      return `${e.card}${e.side === "front" ? "f" : "b"}${needsDir && e.dir ? `:${e.dir}` : ""}`;
+      return needsDir && e.dir ? `${base}:${e.dir}` : base;
     })
     .join(",");
 }
@@ -41,14 +66,21 @@ export function encodePlan(plan: PlanEntry[]): string {
 export function decodePlan(s: string): PlanEntry[] {
   if (s === "") return [];
   return s.split(",").map((token) => {
-    const m = /^(\d{1,2})([fb])(?::([a-z_]+))?$/.exec(token);
+    const m = /^(\d{1,2})([fb])(?::([a-z_0-9:]+))?$/.exec(token);
     if (!m) throw new Error(`invalid plan entry "${token}"`);
     const card = Number(m[1]);
     if (card < 1 || card > 12) throw new Error(`invalid card ${card}`);
     const entry: PlanEntry = { card: card as CardNumber, side: m[2] === "f" ? "front" : "back" };
     if (m[3] !== undefined) {
-      if (!ALL_DIRS.has(m[3])) throw new Error(`invalid direction "${m[3]}"`);
-      entry.dir = m[3] as RelativeDirection;
+      if (getActionDef(entry).choiceType === "gun") {
+        const g = /^([1-9][0-9]*):([0-2])$/.exec(m[3]);
+        if (!g) throw new Error(`invalid gun choice "${m[3]}" (expected <gun id>:<hand>)`);
+        entry.gun = Number(g[1]);
+        entry.hand = Number(g[2]);
+      } else {
+        if (!ALL_DIRS.has(m[3])) throw new Error(`invalid direction "${m[3]}"`);
+        entry.dir = m[3] as RelativeDirection;
+      }
     }
     return entry;
   });
@@ -61,9 +93,10 @@ export function planCost(plan: PlanEntry[]): number {
 /**
  * Checks the plan the way the realm does (engine.Plan.Validate); returns the
  * error message or null. budget is 5 minus the character's carried delay;
- * ranLastTurn says whether a Run was played on the previous turn.
+ * ranLastTurn says whether a Run was played on the previous turn; guns are
+ * the character's guns, for Draw & Cock.
  */
-export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranLastTurn = true): string | null {
+export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranLastTurn = true, guns: GunView[] = []): string | null {
   if (plan.length > MAX_PLAN_ENTRIES) return "too many actions in plan";
   const used = new Set<number>();
   const names = new Set<string>();
@@ -82,8 +115,18 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
       case "turn_back":
         if (!e.dir || !BACK.has(e.dir)) return "choose a backward direction";
         break;
+      case "gun": {
+        if (e.gun === undefined) return "choose the gun to draw";
+        const g = guns.find((x) => x.id === e.gun);
+        if (!g || g.location !== "holstered") return "that gun is not in a holster";
+        const hand = e.hand ?? HAND_GUN;
+        if (hand !== HAND_GUN) return "only the gun hand can draw for now";
+        if (guns.some((x) => x.location === HAND_LOCATION[hand])) return "that hand already holds a gun";
+        break;
+      }
       default:
         if (e.dir) return "that action takes no direction";
+        if (e.gun !== undefined) return "that action takes no gun";
     }
   }
   if (planCost(plan) > budget) return "those actions cost more time points than you have";

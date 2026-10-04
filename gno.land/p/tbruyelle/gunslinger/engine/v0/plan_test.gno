@@ -26,6 +26,8 @@ func TestParsePlanRoundTrip(t *testing.T) {
 		"1b:back_right,3b:ahead",
 		"12b",
 		"5b,3b:ahead_right,4b",
+		"9f:1:0",
+		"9f:12:2",
 	} {
 		p := mustPlan(t, s)
 		if got := p.String(); got != s {
@@ -34,9 +36,9 @@ func TestParsePlanRoundTrip(t *testing.T) {
 	}
 	p := mustPlan(t, "1f:ahead_left,2f:ahead,3f")
 	want := Plan{
-		{Card: 1, Side: 'f', Code: cards.Advance, Cost: 2, Dir: hex.AheadLeft},
-		{Card: 2, Side: 'f', Code: cards.Run, Cost: 1, Dir: hex.Ahead},
-		{Card: 3, Side: 'f', Code: cards.Sprint, Cost: 1},
+		{Card: 1, Side: 'f', Code: cards.Advance, Cost: 2, Dir: hex.AheadLeft, Hand: -1},
+		{Card: 2, Side: 'f', Code: cards.Run, Cost: 1, Dir: hex.Ahead, Hand: -1},
+		{Card: 3, Side: 'f', Code: cards.Sprint, Cost: 1, Hand: -1},
 	}
 	if len(p) != len(want) {
 		t.Fatalf("got %d actions", len(p))
@@ -63,7 +65,7 @@ func TestParsePlanRejects(t *testing.T) {
 		"1f:north", "1f:straight_ahead", "1f:Ahead",
 		"1f,2f,3f,4f,5f,6f", // six entries
 		"1f,", ",1f", "1f,,2f", "1f, 2f", " 1f", "1f ",
-		"1f:ahead:ahead",
+		"1f:ahead:ahead", "9f:1", "9f:0:0", "9f:-1:0", "9f:ahead", "1f:0", "9f:1:3", "9f:1:x", "9f:1:0:0",
 		strings.Repeat("1f,", 60),
 	} {
 		if p, err := ParsePlan(s); err == nil {
@@ -103,10 +105,16 @@ func TestValidate(t *testing.T) {
 		{"5f", 0, "not available"},
 		{"7f", 0, "not available"},
 		{"12b", 0, "not available"},
+		{"9f", 0, "choose the gun"},
+		{"9f:2:0", 0, "not in a holster"},
+		{"9f:1:1", 0, "only the gun hand"},
+		{"9f:1:2", 0, "only the gun hand"},
+		{"9f:1:0", 0, ""},
+		{"1f:ahead,9f:1:0", 0, ""},
 	}
 	for _, tt := range tests {
 		p := mustPlan(t, tt.plan)
-		err := p.Validate(Character{Delay: tt.delay, RanLastTurn: true})
+		err := p.Validate(Character{Delay: tt.delay, RanLastTurn: true, Guns: startingGuns()})
 		switch {
 		case tt.err == "" && err != nil:
 			t.Errorf("Validate(%q, delay %d) = %v, want ok", tt.plan, tt.delay, err)
@@ -132,5 +140,33 @@ func TestValidateSprintNeedsRunOnPreviousTurn(t *testing.T) {
 	// The missing-run-this-turn message comes first.
 	if err := mustPlan(t, "1f:ahead,3f").Validate(fresh); err == nil || !strings.Contains(err.Error(), "together with run") {
 		t.Errorf("sprint without run this turn: %v", err)
+	}
+}
+
+func TestDrawAndCockPlan(t *testing.T) {
+	p := mustPlan(t, "9f:1:0")
+	if p[0].Gun != 1 || p[0].Hand != HandGun || p[0].Dir != "" || p.String() != "9f:1:0" {
+		t.Errorf("parsed %+v, string %q", p[0], p.String())
+	}
+	if d := mustPlan(t, "1f:ahead")[0]; d.Gun != 0 || d.Hand != -1 {
+		t.Error("direction entries have no gun")
+	}
+	// Nothing to draw once the gun is already in hand.
+	c := Character{Guns: startingGuns()}
+	c.Guns[0].Location = GunHand
+	if err := p.Validate(c); err == nil || !strings.Contains(err.Error(), "not in a holster") {
+		t.Errorf("drawing a gun already in hand: %v", err)
+	}
+	// A second holstered gun cannot be drawn while the hand is busy.
+	c.Guns[1] = Gun{ID: c.Guns.NextID(), Type: Colt45, Location: Holstered, Shells: 6}
+	if c.Guns[1].ID != 2 || c.Guns.Find(2) != 1 || c.Guns.Find(9) != -1 {
+		t.Errorf("ids: %+v", c.Guns)
+	}
+	if err := mustPlan(t, "9f:2:0").Validate(c); err == nil || !strings.Contains(err.Error(), "already holds") {
+		t.Errorf("drawing with a full hand: %v", err)
+	}
+	// A direction card given a slot token is a parse error.
+	if _, err := ParsePlan("3b:0"); err == nil || !strings.Contains(err.Error(), "invalid direction") {
+		t.Errorf("expected a parse error: %v", err)
 	}
 }

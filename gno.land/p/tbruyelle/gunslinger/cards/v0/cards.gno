@@ -52,6 +52,8 @@ const (
 	ChoiceTargetRanged
 	ChoiceTargetMelee
 	ChoiceTargetDefend
+	// ChoiceGun picks one of the character's holstered guns (Draw & Cock).
+	ChoiceGun
 )
 
 // NeedsRel reports whether the choice is a relative direction (move or turn).
@@ -62,6 +64,9 @@ func (c Choice) IsAheadRel() bool { return c == ChoiceMoveAhead || c == ChoiceTu
 
 // IsBackRel reports whether the choice is one of the three backward directions.
 func (c Choice) IsBackRel() bool { return c == ChoiceMoveBack || c == ChoiceTurnBack }
+
+// NeedsGun reports whether the choice is a gun slot.
+func (c Choice) NeedsGun() bool { return c == ChoiceGun }
 
 // Side is one face of a card.
 type Side struct {
@@ -95,7 +100,7 @@ var Cards = [12]Card{
 	{6, Side{CockAimShoot, "Cock/Aim/Shoot", KindHand, 2, ChoiceTargetRanged}, Side{Throw, "Throw", KindHand, 2, ChoiceTargetRanged}},
 	{7, Side{Shoot, "Shoot", KindHand, 1, ChoiceTargetRanged}, Side{Strength, "Strength", KindStrength, 2, ChoiceNone}},
 	{8, Side{Load, "Load", KindHand, 3, ChoiceNone}, Side{HeadOutBack, "Head Out/Back", KindFoot, 2, ChoiceNone}},
-	{9, Side{DrawAndCock, "Draw & Cock", KindHand, 3, ChoiceNone}, Side{HeadOutBack, "Head Out/Back", KindFoot, 2, ChoiceNone}},
+	{9, Side{DrawAndCock, "Draw & Cock", KindHand, 3, ChoiceGun}, Side{HeadOutBack, "Head Out/Back", KindFoot, 2, ChoiceNone}},
 	{10, Side{Jab, "Jab", KindAttack, 2, ChoiceTargetMelee}, Side{Duck, "Duck", KindDefense, 1, ChoiceTargetDefend}},
 	{11, Side{Swing, "Swing", KindAttack, 3, ChoiceTargetMelee}, Side{Block, "Block", KindDefense, 2, ChoiceTargetDefend}},
 	{12, Side{Belt, "Belt", KindAttack, 3, ChoiceTargetMelee}, Side{Guard, "Guard", KindDefense, 2, ChoiceTargetDefend}},
@@ -115,11 +120,11 @@ func Lookup(number int, side byte) (Side, bool) {
 	return Side{}, false
 }
 
-// Enabled reports whether the action is implemented by the engine. Only the
-// foot actions are, until guns and brawling land.
+// Enabled reports whether the action is implemented by the engine: the foot
+// actions and Draw & Cock, until the rest of the gun play and brawling land.
 func Enabled(c Code) bool {
 	switch c {
-	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown:
+	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown, DrawAndCock:
 		return true
 	}
 	return false

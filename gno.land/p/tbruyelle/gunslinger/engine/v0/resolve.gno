@@ -12,6 +12,7 @@ const (
 	EvFlip   = "flip"   // Down, Action
 	EvDelay  = "delay"  // N gained, Reason, Delay = total after the segment
 	EvCancel = "cancel" // Action, Reason
+	EvDraw   = "draw"   // Gun drawn from From (holster) to To (gun hand) and cocked
 )
 
 // Delay and cancel reasons.
@@ -22,6 +23,8 @@ const (
 	ReasonOccupied = "occupied" // ending a move in an occupied hex (rule 9.24)
 	ReasonOffBoard = "offboard" // the move would leave the board
 	ReasonTime     = "time"     // not executed by the end of segment 5 (rule 7.53)
+	ReasonNoGun    = "no_gun"   // the gun to draw is no longer in a holster
+	ReasonHandFull = "hand_full" // the destination hand already holds a gun
 )
 
 // Event is one thing that happened during resolution, in order. Seg is 0
@@ -38,6 +41,8 @@ type Event struct {
 	N      int
 	Delay  int
 	Reason string
+	Gun    GunType // the gun's model, for gun events
+	GunID  int     // the gun's id, for gun events
 }
 
 // Resolve plays both plans over the five segments of a turn (rules 5.5, 6,
@@ -164,6 +169,23 @@ func execute(board *hex.Board, p int, a Action, c *Character, seg int, d Dice, e
 		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvFlip, Action: a.Code, Down: c.Down})
 		delay(d.DrawDelay()+d.DrawDelay(), ReasonLeap) // two delay cards (9.4)
 		return gained, true
+	case cards.DrawAndCock:
+		// Take the chosen gun from its holster to the gun hand and cock it.
+		slot := c.Guns.Find(a.Gun)
+		dest, ok := HandLocation(a.Hand)
+		if slot < 0 || c.Guns[slot].Location != Holstered || !ok {
+			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvCancel, Action: a.Code, Reason: ReasonNoGun})
+			return 0, false
+		}
+		if c.Guns.At(dest) >= 0 {
+			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvCancel, Action: a.Code, Reason: ReasonHandFull})
+			return 0, false
+		}
+		g := &c.Guns[slot]
+		g.Location = dest
+		g.Cocked = true
+		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: Holstered.String(), To: dest.String(), Gun: g.Type, GunID: g.ID})
+		return 0, true
 	}
 	// Not implemented yet (guns, brawling): Validate rejects these upfront.
 	*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvCancel, Action: a.Code, Reason: "unsupported"})

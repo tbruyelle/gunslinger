@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { canPlay, decodePlan, encodePlan, planCost, validatePlan, type PlanEntry } from "./plan";
+import type { GunView } from "../chain/types";
+import { canPlay, decodePlan, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "./plan";
+
+const COLT: GunView = { id: 1, type: "colt45", name: "Colt 45", location: "holstered", cocked: false, shells: 6, capacity: 6 };
 
 describe("plan encoding", () => {
   it("round-trips the realm's format", () => {
-    for (const s of ["", "1f:ahead_left", "1f:ahead_left,2f:ahead,3f", "4b", "1b:back_right,3b:ahead", "12b"]) {
+    for (const s of ["", "1f:ahead_left", "1f:ahead_left,2f:ahead,3f", "4b", "1b:back_right,3b:ahead", "12b", "9f:1:0", "1f:ahead,9f:12:2"]) {
       expect(encodePlan(decodePlan(s))).toBe(s);
     }
   });
@@ -14,7 +17,7 @@ describe("plan encoding", () => {
   });
 
   it("rejects malformed strings", () => {
-    for (const s of ["13f", "1x", "1f:north", "1f,", "1f, 2f", "0f", "1f:"]) {
+    for (const s of ["13f", "1x", "1f:north", "1f,", "1f, 2f", "0f", "1f:", "9f:1", "9f:0:0", "9f:1:3", "9f:ahead", "1f:0"]) {
       expect(() => decodePlan(s), s).toThrow();
     }
   });
@@ -60,5 +63,23 @@ describe("validatePlan", () => {
     expect(canPlay({ card: 3, side: "front" }, true)).toBe(true);
     expect(canPlay({ card: 2, side: "front" }, false)).toBe(true);
     expect(canPlay({ card: 7, side: "front" }, true)).toBe(false);
+  });
+
+  it("draw & cock needs a holstered gun and a free gun hand", () => {
+    expect(validatePlan(decodePlan("9f:1:0"), 5, true, [COLT])).toBeNull();
+    expect(validatePlan(decodePlan("9f"), 5, true, [COLT])).toBe("choose the gun to draw");
+    expect(validatePlan(decodePlan("9f:2:0"), 5, true, [COLT])).toBe("that gun is not in a holster");
+    expect(validatePlan(decodePlan("9f:1:1"), 5, true, [COLT])).toBe("only the gun hand can draw for now");
+    expect(validatePlan(decodePlan("9f:1:0"), 5, true, [{ ...COLT, location: "gun_hand" }])).toBe("that gun is not in a holster");
+    expect(validatePlan(decodePlan("9f:2:0"), 5, true, [{ ...COLT, location: "gun_hand" }, { ...COLT, id: 2 }])).toBe("that hand already holds a gun");
+    expect(validatePlan(decodePlan("9f:1:0"), 5, true, [])).toBe("that gun is not in a holster");
+    expect(canPlay({ card: 9, side: "front" }, true, [COLT])).toBe(true);
+    expect(canPlay({ card: 9, side: "front" }, true, [])).toBe(false);
+    expect(canPlay({ card: 9, side: "front" }, true, [{ ...COLT, location: "gun_hand" }])).toBe(false);
+    expect(drawableGuns([COLT, { ...COLT, id: 2, location: "gun_hand" }])).toEqual([]);
+    expect(encodePlan([{ card: 9, side: "front", gun: 1, hand: 0 }])).toBe("9f:1:0");
+    expect(encodePlan([{ card: 9, side: "front", gun: 1 }])).toBe("9f:1:0");
+    expect(decodePlan("9f:12:2")[0]).toEqual({ card: 9, side: "front", gun: 12, hand: 2 });
+    expect(encodePlan([{ card: 9, side: "front" }])).toBe("9f");
   });
 });

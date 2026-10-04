@@ -26,14 +26,29 @@ const SHEET_H = 850;
 /** Length of the open/close animation. */
 const ANIM_MS = 180;
 
+/**
+ * Lets the player pick a holstered gun by dragging it to a hand box (or
+ * clicking it, which targets the gun hand); onPick gets the gun id and the
+ * hand code (0 gun hand, 1 other hand, 2 both hands). Only the gun hand
+ * accepts drops for now.
+ */
+export interface GunPick {
+  prompt: string;
+  onPick: (gunId: number, hand: number) => void;
+}
+
+const DROP_HANDS: { box: string; hand: number }[] = [{ box: "gun_hand", hand: 0 }];
+
 let backdrop: HTMLDivElement | null = null;
 let onClose: (() => void) | null = null;
 
 /**
  * Opens the character sheet as an HTML overlay above the game canvas.
- * onClosed runs once the sheet is closed, however it was closed.
+ * onClosed runs once the sheet is closed, however it was closed. With pick,
+ * the holstered guns can be dragged to the GUN HAND box; dropping one calls
+ * onPick(slot) and closes the sheet.
  */
-export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
+export function openCharacterSheet(d: SheetData, onClosed?: () => void, pick?: GunPick): void {
   closeCharacterSheet();
   onClose = onClosed ?? null;
   const accent = ACCENTS[d.seat] ?? ACCENTS[0];
@@ -42,10 +57,10 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
     .replace("{{characterName}}", escapeHtml(d.name))
     .replace("{{tokenImage}}", tokenImage(d))
     .replace("{{statusRow}}", statusRow(d, accent))
-    .replace("{{otherHand}}", gunBox(d.guns, "other_hand"))
-    .replace("{{bothHands}}", gunBox(d.guns, "both_hands"))
-    .replace("{{gunHand}}", gunBox(d.guns, "gun_hand"))
-    .replace("{{holstered}}", gunBox(d.guns, "holstered"));
+    .replace("{{otherHand}}", gunBox(d.guns, "other_hand", pick))
+    .replace("{{bothHands}}", gunBox(d.guns, "both_hands", pick))
+    .replace("{{gunHand}}", gunBox(d.guns, "gun_hand", pick))
+    .replace("{{holstered}}", gunBox(d.guns, "holstered", pick));
 
   backdrop = document.createElement("div");
   backdrop.style.cssText =
@@ -63,7 +78,8 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void): void {
   frame.style.cssText =
     "position:relative;cursor:default;transform-origin:center center;" +
     `transition:transform ${ANIM_MS}ms cubic-bezier(.2,.8,.3,1.1),opacity ${ANIM_MS}ms ease-out;opacity:0`;
-  frame.innerHTML = html;
+  frame.innerHTML = (pick ? promptBanner(pick.prompt) : "") + html;
+  if (pick) wirePick(frame, pick);
   const close = document.createElement("button");
   close.textContent = "×";
   close.setAttribute("aria-label", "Close");
@@ -157,20 +173,79 @@ function statusRow(d: SheetData, accent: string): string {
   return `<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">${chips.join("")}</div>`;
 }
 
+/** The instruction shown above the sheet while a gun is being picked. */
+function promptBanner(text: string): string {
+  return (
+    `<div style="margin: 0 0 12px; padding: 12px 20px; border-radius: 14px; background: #8E2F1A; color: #F3E7CE; ` +
+    `font-family: 'Zilla Slab', Rockwell, serif; font-size: 22px; font-weight: 700; text-align: center">${escapeHtml(text)}</div>`
+  );
+}
+
+/** Drag and drop (and click as a fallback) from the holstered guns to the GUN HAND box. */
+function wirePick(frame: HTMLElement, pick: GunPick) {
+  const choose = (gunId: number, hand: number) => {
+    // Record the pick before closing: the close handler treats a sheet
+    // closed without a pick as a cancelled choice.
+    pick.onPick(gunId, hand);
+    closeCharacterSheet();
+  };
+  const targets: HTMLElement[] = [];
+  const highlightAll = (on: boolean) => {
+    for (const t of targets) {
+      t.style.background = on ? "#E9D6A8" : "";
+      t.style.outline = on ? "3px dashed #8E2F1A" : "";
+    }
+  };
+  for (const { box, hand } of DROP_HANDS) {
+    const target = frame.querySelector<HTMLElement>(`[data-box="${box}"]`);
+    if (!target) continue;
+    targets.push(target);
+    target.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      target.style.background = "#E9D6A8";
+      target.style.outline = "3px dashed #8E2F1A";
+    });
+    target.addEventListener("dragleave", () => highlightAll(false));
+    target.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const gunId = Number(e.dataTransfer?.getData("text/plain"));
+      if (Number.isInteger(gunId) && gunId > 0) choose(gunId, hand);
+    });
+  }
+  const highlight = highlightAll;
+  frame.querySelectorAll<HTMLElement>("[data-drag-gun]").forEach((el) => {
+    const gunId = Number(el.dataset.dragGun);
+    el.addEventListener("dragstart", (e: DragEvent) => {
+      e.dataTransfer?.setData("text/plain", String(gunId));
+      el.style.opacity = "0.5";
+    });
+    el.addEventListener("dragend", () => {
+      el.style.opacity = "";
+      highlight(false);
+    });
+    el.addEventListener("click", () => choose(gunId, DROP_HANDS[0].hand));
+  });
+}
+
 /** The guns kept at one location, as cards inside the sheet's box. */
-function gunBox(guns: GunView[], location: GunView["location"]): string {
+function gunBox(guns: GunView[], location: GunView["location"], pick?: GunPick): string {
+  const draggable = (g: GunView) => !!pick && g.location === "holstered";
   const cards = guns
     .filter((g) => g.location === location)
     .map(
       (g) =>
-        `<div style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px">` +
+        `<div${draggable(g) ? ` draggable="true" data-drag-gun="${g.id}" title="Drag me to the gun hand"` : ""} ` +
+        `style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px${
+          draggable(g) ? "; cursor: grab; box-shadow: 0 0 0 3px #8E2F1A" : ""
+        }">` +
         `<img src="/guns/${escapeHtml(g.type)}.gif" alt="" style="width: 56px; height: 56px; image-rendering: pixelated; flex: none">` +
         `<div>` +
         `<div style="font-family: Rye, Georgia, serif; font-size: 22px; letter-spacing: 1px">${escapeHtml(g.name)}</div>` +
         `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells</div>` +
         `</div></div>`,
     );
-  return `<div style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start">${cards.join("")}</div>`;
+  const hint = pick && location === "gun_hand" && cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">drop the gun here</div>` : "";
+  return `<div data-box="${location}" style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; min-height: 60px">${cards.join("")}${hint}</div>`;
 }
 
 function escapeHtml(s: string): string {
