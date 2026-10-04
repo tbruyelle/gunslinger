@@ -249,6 +249,8 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Create game options
     - only the default gun
     - any gun bought
+    - chose number of turns
+    - move timeout in the same form
 - Showdown
   - Allow create game with pot
     - join require to fill the pot with the same amount
