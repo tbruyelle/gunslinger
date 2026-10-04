@@ -2,7 +2,7 @@
 
 export type Phase = "waiting" | "planning" | "finished";
 export type PlayerStatus = "alive" | "out";
-export type EventKind = "move" | "turn" | "flip" | "delay" | "cancel" | "draw";
+export type EventKind = "move" | "turn" | "flip" | "delay" | "cancel" | "draw" | "wild_shot";
 
 export interface PlayerView {
   addr: string;
@@ -48,6 +48,10 @@ export interface TurnEvent {
   n: number;
   delay: number;
   reason: string;
+  /** Result card drawn for a delay event (1-108; 0 when no card was drawn, e.g. crawl). */
+  card: number;
+  /** The card's penalty when its DELAY line is not a number: lose_aim, wild_shot or drop. */
+  result: string;
   /** Gun type and id for gun events ("" and 0 otherwise). */
   gun: string;
   gunId: number;
@@ -65,6 +69,8 @@ export interface StartChar {
 export interface TurnResult {
   turn: number;
   seed: string;
+  /** Result cards drawn during the turn (1-108), in draw order. */
+  cards: number[];
   plans: string[];
   events: TurnEvent[];
   /** State of both seats at the start of the turn. */

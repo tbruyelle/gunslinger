@@ -3,7 +3,7 @@ import type { TurnEvent, TurnResult } from "../chain/types";
 import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
-  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", gun: "", gunId: 0, ...partial,
+  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", card: 0, result: "", gun: "", gunId: 0, ...partial,
 });
 
 const events: TurnEvent[] = [
@@ -42,6 +42,10 @@ describe("snapshotAfterSegment", () => {
     expect(describeEvent(events[3], names)).toBe("marshal turn: now facing SW");
     expect(describeEvent(events[0], names)).toBe("dude goes down");
     expect(describeEvent(events[1], names)).toBe("dude gains 2 delay (leap), now 2");
+    expect(describeEvent(ev({ p: 1, kind: "delay", n: 1, delay: 3, reason: "sprint", card: 42 }), names)).toBe("dude gains 1 delay (sprint, card 42), now 3");
+    expect(describeEvent(ev({ p: 1, kind: "delay", reason: "leap", card: 95, result: "lose_aim" }), names)).toBe("dude draws card 95 (leap): LOSE AIM");
+    expect(describeEvent(ev({ p: 1, kind: "delay", reason: "occupied", card: 107, result: "drop" }), names)).toBe("dude draws card 107 (occupied): DROP");
+    expect(describeEvent(ev({ p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }), names)).toBe("marshal's Colt 45 goes off (wild shot)");
     expect(describeEvent(events[4], names)).toBe("dude: advance is cancelled (time)");
     expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", gun: "colt45" }), names)).toBe("marshal draws and cocks the Colt 45");
   });
@@ -58,7 +62,7 @@ describe("replay stepping", () => {
   });
 
   it("uses the stored start of a turn, or the fallback", () => {
-    const t: TurnResult = { turn: 1, seed: "", plans: ["", ""], events: [], start: [{ hex: "A-F3", facing: 3, down: false, delay: 1, status: "alive" }, { hex: "A-F9", facing: 0, down: true, delay: 0, status: "alive" }] };
+    const t: TurnResult = { turn: 1, seed: "", cards: [], plans: ["", ""], events: [], start: [{ hex: "A-F3", facing: 3, down: false, delay: 1, status: "alive" }, { hex: "A-F9", facing: 0, down: true, delay: 0, status: "alive" }] };
     expect(startOfTurn(t, start)).toEqual([
       { hex: "A-F3", facing: 3, down: false, delay: 1 },
       { hex: "A-F9", facing: 0, down: true, delay: 0 },

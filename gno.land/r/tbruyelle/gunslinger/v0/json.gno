@@ -20,7 +20,7 @@ const listLimit = 50
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn",
 //	             "guns":[{"id","type","name","location","cocked","shells","capacity"}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
-//	 "lastTurn":null|{"turn","seed","plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","gun","gunId"}],
+//	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","gun","gunId"}],
 //	             "start":[{"hex","facing","down","delay","status"},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
@@ -127,7 +127,14 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 	}
 	b.WriteString(`{"turn":` + strconv.Itoa(r.Turn))
 	b.WriteString(`,"seed":` + quote(r.Seed))
-	b.WriteString(`,"plans":[`)
+	b.WriteString(`,"cards":[`)
+	for i, n := range r.Cards {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Itoa(n))
+	}
+	b.WriteString(`],"plans":[`)
 	for i, p := range r.Plans {
 		if i > 0 {
 			b.WriteByte(',')
@@ -168,6 +175,8 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 	b.WriteString(`,"n":` + strconv.Itoa(e.N))
 	b.WriteString(`,"delay":` + strconv.Itoa(e.Delay))
 	b.WriteString(`,"reason":` + quote(e.Reason))
+	b.WriteString(`,"card":` + strconv.Itoa(e.Card))
+	b.WriteString(`,"result":` + quote(e.Result))
 	b.WriteString(`,"gun":` + quote(string(e.Gun)))
 	b.WriteString(`,"gunId":` + strconv.Itoa(e.GunID))
 	b.WriteByte('}')

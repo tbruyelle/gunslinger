@@ -79,8 +79,14 @@ export function describeEvent(e: TurnEvent, names: string[]): string {
       return `${who} ${action}: now facing ${DIRS[e.facing] ?? e.facing}`;
     case "flip":
       return e.down ? `${who} goes down` : `${who} gets up`;
-    case "delay":
-      return `${who} gains ${e.n} delay (${e.reason}), now ${e.delay}`;
+    case "delay": {
+      if (e.card === 0) return `${who} gains ${e.n} delay (${e.reason}), now ${e.delay}`;
+      const card = `card ${e.card}`;
+      if (e.result === "") return `${who} gains ${e.n} delay (${e.reason}, ${card}), now ${e.delay}`;
+      return `${who} draws ${card} (${e.reason}): ${e.result.replace(/_/g, " ").toUpperCase()}`;
+    }
+    case "wild_shot":
+      return `${who}'s ${GUN_NAMES[e.gun] ?? e.gun} goes off (wild shot)`;
     case "cancel":
       return `${who}: ${action} is cancelled (${e.reason.replace(/_/g, " ")})`;
     case "draw":

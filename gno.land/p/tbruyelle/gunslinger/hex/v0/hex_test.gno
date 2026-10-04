@@ -33,7 +33,8 @@ func TestParseRel(t *testing.T) {
 			t.Errorf("%q must be exactly one of ahead/back", s)
 		}
 	}
-	for _, s := range []string{"", "north", "straight_ahead", "Ahead", "ahead "} {
+	// Same and Long are result-card values, not plan choices.
+	for _, s := range []string{"", "north", "straight_ahead", "Ahead", "ahead ", string(Same), string(Long)} {
 		if _, ok := ParseRel(s); ok {
 			t.Errorf("ParseRel(%q) accepted", s)
 		}

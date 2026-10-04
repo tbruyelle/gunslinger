@@ -54,8 +54,9 @@ func SubmitPlan(cur realm, id string, plan string) int {
 	return g.Rev
 }
 
-// resolveTurn plays both plans, stores the result and advances the game.
-// It returns the dice seed in hex.
+// resolveTurn plays both plans with the result deck shuffled from this
+// turn's seed, stores the result and advances the game. It returns the seed
+// in hex.
 func resolveTurn(g *Game) string {
 	seed := engine.Seed(realmPath, g.ID, strconv.Itoa(g.Turn), g.Plans[0], g.Plans[1],
 		strconv.FormatInt(runtime.ChainHeight(), 10), strconv.FormatInt(time.Now().UnixNano(), 10))
@@ -68,9 +69,10 @@ func resolveTurn(g *Game) string {
 		plans[i] = pl
 	}
 	start := snapshot(g.State.Chars)
-	st, evs := engine.Resolve(hex.A, g.State, plans, engine.NewDice(seed))
+	deck := engine.NewDeck(seed)
+	st, evs := engine.Resolve(hex.A, g.State, plans, deck)
 	seedHex := enchex.EncodeToString(seed[:])
-	g.Turns = append(g.Turns, &TurnResult{Turn: g.Turn, Start: start, Plans: g.Plans, Seed: seedHex, Events: evs})
+	g.Turns = append(g.Turns, &TurnResult{Turn: g.Turn, Start: start, Plans: g.Plans, Seed: seedHex, Cards: deck.Drawn(), Events: evs})
 	g.State = engine.EndTurn(st)
 	g.Plans = [engine.NumPlayers]string{}
 	g.Submitted = [engine.NumPlayers]bool{}

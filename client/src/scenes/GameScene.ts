@@ -1255,6 +1255,7 @@ export class GameScene extends Phaser.Scene {
       lines = eventsForSegment(t.events, pb.seg).map((e) => describeEvent(e, names));
       if (pb.seg === SEGMENTS) lines.push(...endOfTurnEvents(t.events).map((e) => describeEvent(e, names)));
       if (lines.length === 0) lines = ["Nothing happens."];
+      if (pb.seg === SEGMENTS && t.cards?.length) lines.push(`Result cards drawn: ${t.cards.join(", ")}`);
     }
     this.seqLog.setText(lines.join("\n"));
     const pos = { index: pb.index, seg: pb.seg };

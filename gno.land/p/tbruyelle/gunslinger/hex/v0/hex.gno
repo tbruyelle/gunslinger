@@ -33,6 +33,9 @@ func (d Dir) Opposite() Dir { return (d + 3) % 6 }
 
 // Rel is a direction relative to a character's facing, as chosen on a move
 // or turn card. The names are the ones the client and the plan string use.
+// Same and Long only appear on the HEX line of result cards (direction
+// cards, rule 14.3, relative to the target's body counter): they are not
+// movement choices, ParseRel rejects them and Offset panics on them.
 type Rel string
 
 const (
@@ -42,6 +45,8 @@ const (
 	BackLeft   Rel = "back_left"
 	Back       Rel = "back"
 	BackRight  Rel = "back_right"
+	Same       Rel = "same" // the target's own hex (14.33)
+	Long       Rel = "long" // the hex beyond the target on the line from the shooter's hex through the target's (14.32)
 )
 
 // AheadRels are the three forward directions a move_ahead/turn_ahead card offers.

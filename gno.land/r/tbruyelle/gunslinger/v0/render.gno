@@ -124,6 +124,13 @@ func renderGame(res *mux.ResponseWriter, req *mux.Request) {
 	for _, r := range g.Turns {
 		res.Write(md.H3("Turn " + strconv.Itoa(r.Turn)))
 		res.Write(md.Paragraph("Plans: " + md.InlineCode(orPass(r.Plans[0])) + " vs " + md.InlineCode(orPass(r.Plans[1]))))
+		if len(r.Cards) > 0 {
+			cards := make([]string, len(r.Cards))
+			for i, n := range r.Cards {
+				cards[i] = strconv.Itoa(n)
+			}
+			res.Write(md.Paragraph("Result cards drawn: " + strings.Join(cards, ", ")))
+		}
 		items := make([]string, 0, len(r.Events))
 		for _, e := range r.Events {
 			items = append(items, describeEvent(g, e))
@@ -205,6 +212,16 @@ func describeEvent(g *Game, e engine.Event) string {
 		}
 	case engine.EvDelay:
 		what = who + " gains " + strconv.Itoa(e.N) + " delay (" + e.Reason + "), now " + strconv.Itoa(e.Delay)
+		if e.Card > 0 {
+			card := "card " + strconv.Itoa(e.Card)
+			if e.Result == "" {
+				what = who + " gains " + strconv.Itoa(e.N) + " delay (" + e.Reason + ", " + card + "), now " + strconv.Itoa(e.Delay)
+			} else {
+				what = who + " draws " + card + " (" + e.Reason + "): " + strings.ToUpper(strings.ReplaceAll(e.Result, "_", " "))
+			}
+		}
+	case engine.EvWildShot:
+		what = who + "'s " + e.Gun.Spec().Name + " goes off (wild shot)"
 	case engine.EvCancel:
 		what = who + ": " + action + " is cancelled (" + e.Reason + ")"
 	default:

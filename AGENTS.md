@@ -60,7 +60,7 @@ go tool gno test -update-golden-tests ./gno.land/r/tbruyelle/gunslinger/v0/   # 
 gno.land/
   p/tbruyelle/gunslinger/hex/v0      directions, relative directions, Board adjacency (board_a.gno is generated)
   p/tbruyelle/gunslinger/cards/v0    the 12 action cards (24 sides), Enabled() = implemented actions
-  p/tbruyelle/gunslinger/engine/v0   pure rules engine: plan DSL + validation, Resolve, EndTurn, dice
+  p/tbruyelle/gunslinger/engine/v0   pure rules engine: plan DSL + validation, Resolve, EndTurn, result deck
   r/tbruyelle/gunslinger/v0          the realm: games, lobby, SubmitPlan, JSON views, Render, filetests/
 client/src/
   chain/      rpc.ts (abci_query/status/tx), adena.ts (wallet), realm.ts (typed calls), poller.ts, types.ts
@@ -81,7 +81,8 @@ Plans[2], Submitted[2], LastTurn *TurnResult, Winner, EndReason, Rev,
 CreatedAt, UpdatedAt}` stored in an `avl.Tree` by zero-padded `seqid`;
 `byPlayer` (address → ids) and `openGames` indexes. `Rev` is bumped on every
 change and is what clients poll. Every resolved turn is kept in `Turns`
-(`TurnResult{Turn, Start, Plans, Seed, Events}`, at most MaxTurns).
+(`TurnResult{Turn, Start, Plans, Seed, Cards, Events}`, at most MaxTurns;
+`Cards` is the trace of the result cards drawn that turn, in order).
 
 ### Crossing functions (called with MsgCall, args are strings)
 | Function | Notes |
@@ -137,10 +138,25 @@ next one. Moving while down costs 2 delay (crawl); Sprint goes straight ahead
 and draws a delay card; Leap/Drop draws two; ending a move in an occupied hex
 makes both characters draw one (rule 9.24). Off-board moves are cancelled but
 still consume their time. Unexecuted actions are cancelled after segment 5.
-End of turn removes half the delay, rounded up. Dice are a seeded PCG
-(`engine.Seed` over realm path, id, turn, both plans, height, block time); the
-seed is stored in `TurnResult` so the turn can be replayed. Delay cards draw
-1–3 until the result deck is transcribed.
+End of turn removes half the delay, rounded up.
+
+**Result deck** (`engine/v0/deck.gno`): the 108 result cards are transcribed
+as data (`engine.Cards`: DELAY, WOUND and HEX lines; TAC is unused and the
+FIRE hit tables come with combat). Each turn the deck is shuffled once from a
+seed (`engine.Seed` over realm path, id, turn, both plans, height, block time
+→ `engine.NewDeck`, a seeded PCG `rand.Shuffle`) and cards are dealt in that
+order; the seed and the trace of the drawn cards (`TurnResult.Cards`) are
+stored so the turn can be replayed. "Drawing a delay card" (rule 14.21) deals
+the next card and reads its DELAY line: a number is delay points; LOSE AIM
+has no effect yet; WILD SHOT fires every cocked gun (uncocked, one shell
+less, `wild_shot` event); DROP turns an upright character DOWN (`flip` event
+without action) and draws three more cards (reason `drop`). Cards 101–108
+are MALFUNCTION cards: that block replaces the FIRE table and only matters
+when shooting, their DELAY and WOUND lines are ordinary. Every card dealt is
+one `delay` event carrying `Card` (number) and `Result` (penalty name, "" for
+points); the crawl penalty is a fixed +2 with `Card` 0. Tests use
+`engine.Fixed(37)` (always DELAY 1), `engine.Sequence` or a hand-made
+`Drawer`.
 
 ### Gno idioms in use (gno 0.9)
 `func F(cur realm, ...)`, caller = `cur.Previous().Address()`, other realm
@@ -278,13 +294,11 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Guns icons
     - added cock icon
     - show remaining bullets
-  - Delay
-    - A "delay card" is a stub draw: a uniform number from 1 to 3.
-    - use real card and track which cards number were drawn
   - Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
     simultaneous selection and dice seeded from revealed salts.
   - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
-    transcribe the 108 result cards and IMPACT tables.
+    transcribe the FIRE hit tables and IMPACT tables (the result cards'
+    DELAY/WOUND/HEX lines are in `engine.Cards`).
   - With more than one gun, Draw & Cock into the other hand (hand code 1,
     second gun): lift the "only the gun hand" checks in `engine.Plan.Validate`
     and `client/src/game/plan.ts`, and add `other_hand` to the sheet's

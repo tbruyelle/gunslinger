@@ -7,11 +7,16 @@ import (
 	"gno.land/p/tbruyelle/gunslinger/hex/v0"
 )
 
-// resolve plays the two plan strings on st with the BGA reference stub dice
-// (every delay card is worth 1).
+// resolve plays the two plan strings on st with a stub deck that always
+// deals card 37 (DELAY 1), like the BGA reference engine's stub.
 func resolve(t *testing.T, st State, p0, p1 string) (State, []Event) {
 	t.Helper()
-	return Resolve(hex.A, st, [NumPlayers]Plan{mustPlan(t, p0), mustPlan(t, p1)}, Fixed(1))
+	return resolveWith(t, st, p0, p1, Fixed(37))
+}
+
+func resolveWith(t *testing.T, st State, p0, p1 string, d Drawer) (State, []Event) {
+	t.Helper()
+	return Resolve(hex.A, st, [NumPlayers]Plan{mustPlan(t, p0), mustPlan(t, p1)}, d)
 }
 
 func ofKind(evs []Event, player int, kind string) []Event {
@@ -83,8 +88,9 @@ func TestSegmentFiveCancels(t *testing.T) {
 		t.Errorf("advance should crawl to A-F4 at seg 5: %v", moves)
 	}
 	delays := ofKind(evs, 0, EvDelay)
-	if len(delays) != 2 || delays[0].Reason != ReasonLeap || delays[0].N != 2 || delays[0].Delay != 2 ||
-		delays[1].Reason != ReasonCrawl || delays[1].N != 2 || delays[1].Delay != 4 {
+	if len(delays) != 3 || delays[0].Reason != ReasonLeap || delays[0].N != 1 || delays[0].Delay != 2 || delays[0].Card != 37 ||
+		delays[1].Reason != ReasonLeap || delays[1].N != 1 || delays[1].Delay != 2 || delays[1].Card != 37 ||
+		delays[2].Reason != ReasonCrawl || delays[2].N != 2 || delays[2].Delay != 4 || delays[2].Card != 0 {
 		t.Errorf("delays = %v", delays)
 	}
 	cancels := ofKind(evs, 0, EvCancel)
@@ -158,7 +164,7 @@ func TestSprintGoesStraightAndDrawsDelay(t *testing.T) {
 		}
 	}
 	delays := ofKind(evs, 0, EvDelay)
-	if len(delays) != 1 || delays[0].Seg != 4 || delays[0].Reason != ReasonSprint || delays[0].N != 1 {
+	if len(delays) != 1 || delays[0].Seg != 4 || delays[0].Reason != ReasonSprint || delays[0].N != 1 || delays[0].Card != 37 || delays[0].Result != "" {
 		t.Errorf("delays = %v", delays)
 	}
 	if st.Chars[0].Hex != h3 || st.Chars[0].Facing != hex.S || st.Chars[0].Delay != 1 {
@@ -306,5 +312,89 @@ func TestDrawAndCock(t *testing.T) {
 	_, evs = resolve(t, st, "9f:1:0", "")
 	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
 		t.Errorf("cancels = %v", c)
+	}
+}
+
+func TestDelayCardPenalties(t *testing.T) {
+	// LOSE AIM (card 88) and a 0 (card 1) on the leap: no delay gained.
+	st := NewState()
+	seq := Sequence{88, 1}
+	st, evs := resolveWith(t, st, "4b", "", &seq)
+	d := ofKind(evs, 0, EvDelay)
+	if len(d) != 2 || d[0].Card != 88 || d[0].Result != "lose_aim" || d[0].N != 0 || d[1].Card != 1 || d[1].N != 0 || d[1].Result != "" {
+		t.Errorf("delays = %v", d)
+	}
+	if st.Chars[0].Delay != 0 || !st.Chars[0].Down {
+		t.Errorf("char 0 = %+v", st.Chars[0])
+	}
+
+	// A MALFUNCTION card (104, DELAY 1) is an ordinary delay card: its
+	// MALFUNCTION block only matters when shooting.
+	st = NewState()
+	st.Chars[0].RanLastTurn = true
+	seq = Sequence{104}
+	st, evs = resolveWith(t, st, "1f:ahead,2f:ahead,3f", "", &seq)
+	d = ofKind(evs, 0, EvDelay)
+	if len(d) != 1 || d[0].Card != 104 || d[0].Result != "" || d[0].N != 1 || d[0].Reason != ReasonSprint || d[0].Delay != 1 {
+		t.Errorf("delays = %v", d)
+	}
+	if st.Chars[0].Delay != 1 {
+		t.Errorf("char 0 delay = %d", st.Chars[0].Delay)
+	}
+
+	// WILD SHOT (card 100) fires the cocked gun: uncocked, one shell less.
+	st = NewState()
+	st.Chars[0].RanLastTurn = true
+	st.Chars[0].Guns[0].Location = GunHand
+	st.Chars[0].Guns[0].Cocked = true
+	seq = Sequence{100}
+	st, evs = resolveWith(t, st, "1f:ahead,2f:ahead,3f", "", &seq)
+	d = ofKind(evs, 0, EvDelay)
+	if len(d) != 1 || d[0].Card != 100 || d[0].Result != "wild_shot" || d[0].N != 0 {
+		t.Errorf("delays = %v", d)
+	}
+	ws := ofKind(evs, 0, EvWildShot)
+	if len(ws) != 1 || ws[0].Seg != 4 || ws[0].Gun != Colt45 || ws[0].GunID != 1 || ws[0].From != "gun_hand" {
+		t.Errorf("wild shots = %v", ws)
+	}
+	if g := st.Chars[0].Guns[0]; g.Cocked || g.Shells != 5 || st.Chars[0].Delay != 0 {
+		t.Errorf("gun = %+v, delay %d", g, st.Chars[0].Delay)
+	}
+	// Without a cocked gun a WILD SHOT is harmless.
+	st = NewState()
+	st.Chars[0].RanLastTurn = true
+	seq = Sequence{100}
+	st, evs = resolveWith(t, st, "1f:ahead,2f:ahead,3f", "", &seq)
+	if ws := ofKind(evs, 0, EvWildShot); len(ws) != 0 || st.Chars[0].Guns[0].Shells != 6 {
+		t.Errorf("wild shots = %v, gun = %+v", ws, st.Chars[0].Guns[0])
+	}
+}
+
+func TestDropPenalty(t *testing.T) {
+	// DROP on the DELAY line (card 107): an upright character turns DOWN and
+	// draws three more delay cards (rule 14.11).
+	st := NewState()
+	st.Chars[0].RanLastTurn = true
+	seq := Sequence{107, 37} // then card 37 (DELAY 1) forever
+	st, evs := resolveWith(t, st, "1f:ahead,2f:ahead,3f", "", &seq)
+	d := ofKind(evs, 0, EvDelay)
+	if len(d) != 4 || d[0].Result != "drop" || d[0].N != 0 || d[0].Reason != ReasonSprint || d[0].Card != 107 ||
+		d[1].Reason != ReasonDrop || d[1].N != 1 || d[1].Card != 37 || d[2].Reason != ReasonDrop || d[3].Reason != ReasonDrop || d[3].Delay != 3 {
+		t.Errorf("delays = %v", d)
+	}
+	flips := ofKind(evs, 0, EvFlip)
+	if len(flips) != 1 || !flips[0].Down || flips[0].Action != "" || flips[0].Seg != 4 {
+		t.Errorf("flips = %v", flips)
+	}
+	if !st.Chars[0].Down || st.Chars[0].Delay != 3 {
+		t.Errorf("char 0 = %+v", st.Chars[0])
+	}
+
+	// Already DOWN: a DROP has no effect and draws nothing more.
+	c := Character{Hex: "A-F3", Down: true}
+	evs = nil
+	seq = Sequence{108}
+	if gained := drawDelay(0, &c, 2, ReasonOccupied, &seq, &evs); gained != 0 || len(evs) != 1 || evs[0].Result != "drop" || evs[0].Card != 108 || !c.Down {
+		t.Errorf("gained %d, events %v, char %+v", gained, evs, c)
 	}
 }

@@ -60,12 +60,14 @@ type Player struct {
 
 // TurnResult is the outcome of one resolved turn, kept so the client can
 // replay it: the state the turn started from, the plans, and what happened.
-// Seed lets anyone re-run the resolution.
+// Seed lets anyone re-run the resolution; Cards is the trace of the result
+// cards drawn from the deck it shuffles, in order.
 type TurnResult struct {
 	Turn   int
 	Start  [engine.NumPlayers]engine.Character
 	Plans  [engine.NumPlayers]string
 	Seed   string
+	Cards  []int
 	Events []engine.Event
 }
 
