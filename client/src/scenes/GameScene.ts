@@ -54,18 +54,43 @@ const BTN_STYLE = { fontSize: "16px", color: GOLD_STR, backgroundColor: "#2a1500
 /** Highest delay marker available (DEL 1 to DEL 8). */
 const MAX_DELAY_MARKER = 8;
 
+/**
+ * Tokens sharing a hex are fanned out along a diagonal, as fractions of the
+ * token diameter: a small shift at rest, so the one below peeks out, and a
+ * full one while the pointer is over the stack, so each token is wholly
+ * visible and clickable.
+ */
+const STACK_REST = 0.12;
+const STACK_SPREAD = 0.42;
+const STACK_MS = 180;
+
 /** Groups the display objects of one character token. */
 class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
   /** The "DEL n" marker in the bottom-right corner, when the character carries delay. */
   private badge: Phaser.GameObjects.Image | null = null;
   private badgeOffset = 0;
+  /** In-flight position tweens, retargeted by moveTo without touching the rotation. */
+  private posTweens: Phaser.Tweens.Tween[] = [];
 
+  /**
+   * Each token owns a band of 4 depths (ring, sprite, DOWN overlay, DEL
+   * badge), later seats above earlier ones, so stacked tokens layer as units
+   * and a hidden token's badge never shows over the token covering it.
+   */
   constructor(
     readonly charKey: string,
     readonly sprite: Phaser.GameObjects.Image,
     readonly highlight: Phaser.GameObjects.Arc,
-  ) {}
+    private readonly depth: number,
+  ) {
+    highlight.setDepth(depth);
+    sprite.setDepth(depth + 1);
+  }
+
+  static depthFor(seat: number): number {
+    return 1 + seat * 4;
+  }
 
   private get parts(): Phaser.GameObjects.GameObject[] {
     const list: Phaser.GameObjects.GameObject[] = [this.sprite, this.highlight];
@@ -76,13 +101,15 @@ class CharacterToken {
 
   killTweens(tweens: Phaser.Tweens.TweenManager) {
     for (const p of this.parts) tweens.killTweensOf(p);
+    this.posTweens = [];
   }
 
   moveTo(tweens: Phaser.Tweens.TweenManager, sx: number, sy: number, duration: number) {
-    for (const p of this.parts) {
+    for (const tw of this.posTweens) tw.stop();
+    this.posTweens = this.parts.map((p) => {
       const off = p === this.badge ? this.badgeOffset : 0;
-      tweens.add({ targets: p, x: sx + off, y: sy + off, duration, ease: "Cubic.easeInOut" });
-    }
+      return tweens.add({ targets: p, x: sx + off, y: sy + off, duration, ease: "Cubic.easeInOut" });
+    });
   }
 
   setPosition(sx: number, sy: number) {
@@ -108,7 +135,7 @@ class CharacterToken {
         .image(this.sprite.x + this.badgeOffset, this.sprite.y + this.badgeOffset, key)
         .setOrigin(0.5)
         .setMask(mask)
-        .setDepth(2);
+        .setDepth(this.depth + 3);
     } else if (this.badge.texture.key !== key) {
       this.badge.setTexture(key);
     }
@@ -135,7 +162,8 @@ class CharacterToken {
         .image(this.sprite.x, this.sprite.y, "state_down")
         .setScale(this.sprite.scaleX)
         .setOrigin(0.5)
-        .setMask(mask);
+        .setMask(mask)
+        .setDepth(this.depth + 2);
     }
   }
 
@@ -197,6 +225,8 @@ export class GameScene extends Phaser.Scene {
   // Display objects
   private boardImage: Phaser.GameObjects.Image | null = null;
   private tokens: (CharacterToken | null)[] = [];
+  /** The hex whose stacked tokens are fanned out under the pointer, if any. */
+  private spreadHex: string | null = null;
   private arrMask!: Phaser.Display.Masks.GeometryMask;
   private arrMaskGfx!: Phaser.GameObjects.Graphics;
   private turnText!: Phaser.GameObjects.Text;
@@ -243,6 +273,7 @@ export class GameScene extends Phaser.Scene {
     this.panX = 0;
     this.panY = 0;
     this.tokens = [];
+    this.spreadHex = null;
   }
 
   // ── Dimensions ────────────────────────────────────────────────────────────
@@ -489,7 +520,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const c = chars[i];
-      const { sx, sy } = this.hexToScreen(c.hex);
+      const { sx, sy } = this.tokenScreenPos(chars, i);
       const hl = this.add
         .circle(sx, sy, (95 * tokenScale) / 2 + 4, GOLD, 0)
         .setStrokeStyle(3, GOLD, 0)
@@ -507,7 +538,7 @@ export class GameScene extends Phaser.Scene {
       });
       img.on("pointerover", () => this.tokens[i]?.setHighlight(0xffe2a0, 1, 4));
       img.on("pointerout", () => this.applyTokenHighlight(i));
-      const token = new CharacterToken(p.char, img, hl);
+      const token = new CharacterToken(p.char, img, hl, CharacterToken.depthFor(i));
       token.setDown(this, c.down, this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
       this.tokens.push(token);
@@ -520,7 +551,7 @@ export class GameScene extends Phaser.Scene {
     this.tokens.forEach((t, i) => {
       if (!t || !chars[i]) return;
       const c = chars[i];
-      const { sx, sy } = this.hexToScreen(c.hex);
+      const { sx, sy } = this.tokenScreenPos(chars, i);
       const angle = dirIndexToAngle(c.facing, t.charKey);
       t.killTweens(this.tweens);
       // Status and delay first, so new markers travel with the token.
@@ -534,6 +565,61 @@ export class GameScene extends Phaser.Scene {
         t.sprite.setAngle(angle);
       }
       this.applyTokenHighlight(i);
+    });
+  }
+
+  // ── Stacked tokens (several characters in one hex) ────────────────────────
+
+  private tokenDiameter(): number {
+    return 95 * this.displayTransform().scale * TOKEN_SCALE_FACTOR;
+  }
+
+  /** The seats drawn in the same hex as seat i (including i), in seat order. */
+  private stackMates(chars: CharView[], i: number): number[] {
+    const players = this.view?.players ?? [];
+    const out: number[] = [];
+    chars.forEach((c, j) => {
+      if (c && players[j]?.char && c.hex === chars[i].hex) out.push(j);
+    });
+    return out;
+  }
+
+  /** Where seat i's token goes: its hex centre, shifted along the diagonal when it shares the hex. */
+  private tokenScreenPos(chars: CharView[], i: number): { sx: number; sy: number } {
+    const c = chars[i];
+    const { sx, sy } = this.hexToScreen(c.hex);
+    const mates = this.stackMates(chars, i);
+    if (mates.length < 2) return { sx, sy };
+    const frac = this.spreadHex === c.hex ? STACK_SPREAD : STACK_REST;
+    const shift = this.tokenDiameter() * frac * ((2 * mates.indexOf(i)) / (mates.length - 1) - 1);
+    return { sx: sx + shift, sy: sy + shift };
+  }
+
+  /** Fans out the stack under the pointer, within the disc the spread tokens cover. */
+  private updateStackHover(pointer: Phaser.Input.Pointer) {
+    if (this.isDragging || pointer.y <= HUD_H || pointer.y >= this.panelY) {
+      this.setSpreadHex(null);
+      return;
+    }
+    const chars = this.displayChars();
+    const radius = this.tokenDiameter() * (0.5 + STACK_SPREAD);
+    let hit: string | null = null;
+    for (let i = 0; i < chars.length && hit === null; i++) {
+      if (!chars[i] || this.stackMates(chars, i).length < 2) continue;
+      const { sx, sy } = this.hexToScreen(chars[i].hex);
+      if (Phaser.Math.Distance.Between(pointer.x, pointer.y, sx, sy) <= radius) hit = chars[i].hex;
+    }
+    this.setSpreadHex(hit);
+  }
+
+  private setSpreadHex(hex: string | null) {
+    if (hex === this.spreadHex) return;
+    this.spreadHex = hex;
+    const chars = this.displayChars();
+    this.tokens.forEach((t, i) => {
+      if (!t || !chars[i] || this.stackMates(chars, i).length < 2) return;
+      const { sx, sy } = this.tokenScreenPos(chars, i);
+      t.moveTo(this.tweens, sx, sy, STACK_MS);
     });
   }
 
@@ -1317,6 +1403,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       // Leaving the card panel re-arms the hover preview after a click.
       if (pointer.y < this.panelY) this.previewSuppressed = false;
+      this.updateStackHover(pointer);
       if (this.zoom > MIN_ZOOM && pointer.isDown && pointer.y > HUD_H && pointer.y < this.panelY) {
         const dx = pointer.x - this.dragStartX;
         const dy = pointer.y - this.dragStartY;
@@ -1340,6 +1427,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerup", () => {
       this.isDragging = false;
     });
+    this.input.on("gameout", () => this.setSpreadHex(null));
   }
 }
 

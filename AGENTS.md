@@ -202,7 +202,10 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   turn's stored starting state, then the state re-syncs. **Replay** opens
   the whole history (`json/history/{id}`) with turn navigation and
   play/pause. Only the last selected card can be deselected (choices are
-  relative to the state before it). Clicking a token opens the **character
+  relative to the state before it). Tokens sharing a hex are fanned out
+  along a diagonal (`STACK_REST`), and spread fully while the pointer is
+  over the stack (`updateStackHover`, animated) so each one can be clicked.
+  Clicking a token opens the **character
   sheet** (`ui/characterSheet.ts`): an HTML overlay built from the design
   template `ui/characterSheet.html` (1100×850, fonts Rye / Zilla Slab from
   Google Fonts), filled with the name, token and a live status row; hands,
@@ -290,7 +293,6 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Obstacles
     - implement walls 
     - obstacles delay
-    - characters collision (make it visible and add delay)
   - Guns icons
     - added cock icon
     - show remaining bullets
