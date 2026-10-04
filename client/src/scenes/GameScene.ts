@@ -503,6 +503,8 @@ export class GameScene extends Phaser.Scene {
         if (this.isDragging || pointer.rightButtonReleased()) return;
         this.openSheet(i);
       });
+      img.on("pointerover", () => this.tokens[i]?.setHighlight(0xffe2a0, 1, 4));
+      img.on("pointerout", () => this.applyTokenHighlight(i));
       const token = new CharacterToken(p.char, img, hl);
       token.setDown(this, c.down, this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
@@ -529,9 +531,16 @@ export class GameScene extends Phaser.Scene {
         t.setPosition(sx, sy);
         t.sprite.setAngle(angle);
       }
-      if (i === this.myIndex) t.setHighlight(0xffffff, this.mode === "select" ? 0.9 : 0.4);
-      else t.setHighlight(GOLD, 0);
+      this.applyTokenHighlight(i);
     });
+  }
+
+  /** The resting highlight of a token: a white ring on my character, none on the others. */
+  private applyTokenHighlight(i: number) {
+    const t = this.tokens[i];
+    if (!t) return;
+    if (i === this.myIndex) t.setHighlight(0xffffff, this.mode === "select" ? 0.9 : 0.4);
+    else t.setHighlight(GOLD, 0);
   }
 
   private refreshView() {
