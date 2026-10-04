@@ -296,11 +296,15 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Add token placement during create/join phase
   - Cards
     - make border transparent
-    - add drop weapon action cards
+    - add drop weapon action cards (show waepon on the ground)
     - allow move aim
+  - Character sheets
+    - add ground section on the character sheet to draw weaopon on the ground
+    - allow moving to other hands and both hands
   - Obstacles
     - implement walls 
     - obstacles delay
+    - check 3 players in the same hex
   - Guns icons
     - added cock icon
     - show remaining bullets
