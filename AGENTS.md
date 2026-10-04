@@ -181,7 +181,11 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   turn's stored starting state, then the state re-syncs. **Replay** opens
   the whole history (`json/history/{id}`) with turn navigation and
   play/pause. Only the last selected card can be deselected (choices are
-  relative to the state before it).
+  relative to the state before it). Clicking a token opens the **character
+  sheet** (`ui/characterSheet.ts`): an HTML overlay built from the design
+  template `ui/characterSheet.html` (1100×850, fonts Rye / Zilla Slab from
+  Google Fonts), filled with the name, token and a live status row; hands,
+  holster, wounds and endurance stay empty until combat lands.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.

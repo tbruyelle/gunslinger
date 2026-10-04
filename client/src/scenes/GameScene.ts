@@ -19,6 +19,7 @@ import {
 } from "../game/playback";
 import { MAX_ACTION_POINTS, canPlay, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
 import { replayPlan, type CharView } from "../game/replay";
+import { closeCharacterSheet, openCharacterSheet } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
 import { charName } from "./LobbyScene";
 
@@ -302,6 +303,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.events.once("shutdown", () => {
+      closeCharacterSheet();
       this.scale.off("resize", onResize);
       this.poller?.stop();
       this.poller = null;
@@ -495,7 +497,12 @@ export class GameScene extends Phaser.Scene {
         .setScale(tokenScale)
         .setAngle(dirIndexToAngle(c.facing, p.char))
         .setOrigin(0.5)
-        .setMask(this.arrMask);
+        .setMask(this.arrMask)
+        .setInteractive({ useHandCursor: true });
+      img.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+        if (this.isDragging || pointer.rightButtonReleased()) return;
+        this.openSheet(i);
+      });
       const token = new CharacterToken(p.char, img, hl);
       token.setDown(this, c.down, this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
@@ -771,6 +778,34 @@ export class GameScene extends Phaser.Scene {
       const dir = this.pendingChoices.get(e.card);
       return dir ? { ...e, dir } : { card: e.card, side: e.side };
     });
+  }
+
+  /** Shows the character sheet of a seat, with what the board currently displays for it. */
+  private openSheet(seat: number) {
+    const view = this.view;
+    const p = view?.players[seat];
+    const c = this.displayChars()[seat];
+    if (!view || !p || !c) return;
+    // The overlay owns the pointer while it is open: no card or token reacts underneath.
+    this.input.enabled = false;
+    openCharacterSheet(
+      {
+      name: charName(p.char),
+      charKey: p.char,
+      seat,
+      hex: c.hex,
+      facing: c.facing,
+      down: c.down,
+      delay: c.delay,
+      status: p.status,
+      submitted: p.submitted,
+      phase: view.phase,
+      isMe: seat === this.myIndex,
+      },
+      () => {
+        if (this.scene.isActive()) this.input.enabled = true;
+      },
+    );
   }
 
   /** Whether my character played a Run on the previous turn (needed to Sprint). */
