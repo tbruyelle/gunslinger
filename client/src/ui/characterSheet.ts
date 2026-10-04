@@ -1,4 +1,4 @@
-import { dirIndexToAngle } from "../rules";
+import { CHAR_ARROW_DIR } from "../rules";
 import template from "./characterSheet.html?raw";
 
 /** What the sheet shows for one character. */
@@ -97,9 +97,17 @@ export function isCharacterSheetOpen(): boolean {
   return backdrop !== null;
 }
 
+/** Rotation that stands the figure upright: the art is drawn 30° off, leaning toward the arrow's side. */
+const SHEET_UPRIGHT_DEG = 30;
+
+/**
+ * The token turned to stand upright, an orientation the board never uses
+ * (board facings are the six hex directions, 60° apart). Tokens whose arrow
+ * points NE turn clockwise, those pointing NW counter-clockwise.
+ */
 function tokenImage(d: SheetData): string {
-  const angle = dirIndexToAngle(d.facing, d.charKey);
-  return `<img src="/char_${escapeHtml(d.charKey)}.png" alt="" style="width: 84px; height: 84px; border-radius: 50%; border: 3px solid #2A1C14; background: #FBF4E4; transform: rotate(${angle}deg); flex: none">`;
+  const deg = CHAR_ARROW_DIR[d.charKey] === 5 ? -SHEET_UPRIGHT_DEG : SHEET_UPRIGHT_DEG;
+  return `<img src="/char_${escapeHtml(d.charKey)}.png" alt="" style="width: 84px; height: 84px; border-radius: 50%; border: 3px solid #2A1C14; background: #FBF4E4; transform: rotate(${deg}deg); flex: none">`;
 }
 
 function statusRow(d: SheetData, accent: string): string {
