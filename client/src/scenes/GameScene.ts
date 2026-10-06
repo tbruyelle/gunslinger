@@ -1447,9 +1447,18 @@ export class GameScene extends Phaser.Scene {
   /** A red dotted line whose dashes march from one end to the other, redrawn every frame. */
   private showAimLine(from: { x: number; y: number }, to: { x: number; y: number }) {
     this.aimLineEnds = { from, to };
-    // Above the board, below every token (their depth bands start at 1).
-    if (!this.aimLine) this.aimLine = this.add.graphics().setMask(this.arrMask).setDepth(0.5);
+    if (!this.aimLine) this.aimLine = this.add.graphics().setMask(this.arrMask);
+    this.aimLine.setDepth(this.lineDepth(from, to));
     this.drawAimLine(this.time.now);
+  }
+
+  /**
+   * Lines between characters go under the tokens (their depth bands start
+   * at 1), except when the ends are so close that the tokens would hide
+   * the whole line: adjacent or shared hexes get it drawn on top.
+   */
+  private lineDepth(from: { x: number; y: number }, to: { x: number; y: number }): number {
+    return Math.hypot(to.x - from.x, to.y - from.y) < this.tokenDiameter() * 1.4 ? 20 : 0.5;
   }
 
   private hideAimLine() {
@@ -1739,7 +1748,7 @@ export class GameScene extends Phaser.Scene {
       const angle = Math.random() * Math.PI * 2;
       const spread = Math.random() * this.tokenDiameter() * 0.4;
       const to = { sx: centre.sx + Math.cos(angle) * spread, sy: centre.sy + Math.sin(angle) * spread };
-      const g = this.add.graphics().setMask(this.arrMask).setDepth(0.5);
+      const g = this.add.graphics().setMask(this.arrMask).setDepth(this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }));
       const bullet = { t: 0 };
       const draw = () => {
         const x = from.sx + (to.sx - from.sx) * bullet.t;
