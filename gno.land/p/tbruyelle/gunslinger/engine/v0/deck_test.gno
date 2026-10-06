@@ -104,3 +104,58 @@ func TestTestDrawers(t *testing.T) {
 		t.Errorf("Sequence dealt %v", got)
 	}
 }
+
+func TestFireCharts(t *testing.T) {
+	for _, c := range Cards {
+		if c.N <= 100 {
+			if c.Fire == nil || c.Malf != nil || len(c.Fire.Rows) == 0 || c.Fire.Lesser() == Miss {
+				t.Errorf("card %d: not a FIRE card: %+v", c.N, c)
+			}
+		} else if c.Fire != nil || c.Malf == nil {
+			t.Errorf("card %d: not a MALFUNCTION card", c.N)
+		}
+	}
+	// Card 1: ranges 0, 1-5, 6-12+; aim 2-5 BE/-/-, 6-8 BE/SIDE/-, 9+ BE/BE/SIDE.
+	c := Card(1)
+	for _, w := range []struct {
+		aim, rng int
+		hit      HitLoc
+	}{{2, 0, Bullseye}, {1, 0, Miss}, {5, 3, Miss}, {6, 3, SideHit}, {8, 5, SideHit}, {8, 6, Miss}, {9, 6, SideHit}, {12, 20, SideHit}, {9, 1, Bullseye}} {
+		if got := c.Fire.Lookup(w.aim, w.rng); got != w.hit {
+			t.Errorf("card 1 aim %d range %d = %s, want %s", w.aim, w.rng, got, w.hit)
+		}
+	}
+	if c.Status != "H" || c.Fire.Lesser() != SideHit {
+		t.Errorf("card 1 status %q lesser %s", c.Status, c.Fire.Lesser())
+	}
+	// Card 15: aim 8-9 only; 10 misses. Card 27: three rows, Run status.
+	if Card(15).Fire.Lookup(10, 3) != Miss || Card(15).Fire.Lookup(9, 3) != SideHit {
+		t.Error("card 15")
+	}
+	if Card(27).Fire.Lookup(1, 2) != BodyHit || Card(27).Fire.Lookup(5, 5) != Bullseye || Card(27).Status != "R" {
+		t.Error("card 27")
+	}
+	if Card(100).Status != "RDH" || Card(96).Status != "MDH" || Card(45).Status != "DH" {
+		t.Errorf("statuses: %q %q %q", Card(100).Status, Card(96).Status, Card(45).Status)
+	}
+	// Malfunction blocks.
+	if m := Card(101).Malf; m.Handloaded || !m.CapAndBall || m.Second != GunJams {
+		t.Errorf("card 101 = %+v", m)
+	}
+	if m := Card(105).Malf; !m.Handloaded || !m.Storebought || m.Second != GunJams {
+		t.Errorf("card 105 = %+v", m)
+	}
+	if m := Card(108).Malf; !m.Handloaded || m.Storebought || m.Second != GunExplodes {
+		t.Errorf("card 108 = %+v", m)
+	}
+	// Impact line B.
+	if p := Impact('B', VitalHit); len(p) != 1 || p[0].Kind != Kill {
+		t.Errorf("vital = %v", p)
+	}
+	if p := Impact('B', LegHit); len(p) != 4 || p[3].Kind != LegWound || p[3].N != 4 {
+		t.Errorf("leg = %v", p)
+	}
+	if Impact('C', VitalHit) != nil {
+		t.Error("line C is not transcribed")
+	}
+}

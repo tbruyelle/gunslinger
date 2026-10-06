@@ -12,6 +12,7 @@ type Board struct {
 	name string
 	ids  []string
 	nbr  [][6]int
+	qr   [][2]int // axial coordinates (q, r) of ids[i], see geom.gno
 }
 
 // Name returns the board letter, e.g. "A".

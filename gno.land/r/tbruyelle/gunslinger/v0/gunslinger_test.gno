@@ -1,6 +1,7 @@
 package gunslinger
 
 import (
+	"gno.land/p/tbruyelle/gunslinger/engine/v0"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestCreateAndJoin(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(js, `"phase":"waiting"`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","submitted":false`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":null}`), js)
-	uassert.True(t, strings.Contains(js, `"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]`), js)
+	uassert.True(t, strings.Contains(js, `"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6,"jammed":false,"exploded":false}]`), js)
 
 	uassert.AbortsWithMessage(t, cur, "gunslinger: you cannot join your own game", func() {
 		JoinGame(cross(cur), id, "dude")
@@ -109,7 +110,7 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 		SubmitPlan(cross(cur), id, "1x")
 	})
 	uassert.AbortsWithMessage(t, cur, "gunslinger: that action is not available yet", func() {
-		SubmitPlan(cross(cur), id, "7f")
+		SubmitPlan(cross(cur), id, "8f")
 	})
 
 	r := SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead")
@@ -157,12 +158,12 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"turn":2`), js)
 	uassert.True(t, strings.Contains(js, `"lastTurn":{"turn":1,"seed":"`+lt.Seed+`","cards":[],"plans":["1f:ahead,2f:ahead","5b"],"events":[`), js)
-	uassert.True(t, strings.Contains(js, `"start":[{"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]},{"hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive","guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]}]}}`), js)
+	uassert.True(t, strings.Contains(js, `"start":[{"hex":"A-F3","facing":3,"down":false,"delay":0,"status":"alive","aim":0,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6,"jammed":false,"exploded":false}]},{"hex":"A-F9","facing":0,"down":false,"delay":0,"status":"alive","aim":0,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6,"jammed":false,"exploded":false}]}]}}`), js)
 
 	// Alice ran on turn 1, so she may sprint on turn 2; Bob did not.
 	uassert.True(t, g.State.Chars[0].RanLastTurn)
 	uassert.False(t, g.State.Chars[1].RanLastTurn)
-	uassert.True(t, strings.Contains(js, `"playedRun":false,"ranLastTurn":true,"guns":[`), js)
+	uassert.True(t, strings.Contains(js, `"playedRun":false,"ranLastTurn":true,"aim":0,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[`), js)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	uassert.AbortsWithMessage(t, cur, "gunslinger: sprint can only be played after a run on the previous turn", func() {
 		SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead,3f")
@@ -178,10 +179,10 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.True(t, strings.HasPrefix(h, `{"id":"`+id+`","turn":3,"phase":"planning","players":[`), h)
 	uassert.True(t, strings.Contains(h, `"turns":[{"turn":1,`), h)
 	uassert.True(t, strings.Contains(h, `},{"turn":2,`), h)
-	uassert.True(t, strings.Contains(h, `"start":[{"hex":"A-F5","facing":3,"down":false,"delay":0,"status":"alive","guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]},{"hex":"A-F9","facing":0,"down":true,"delay":0,"status":"alive","guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6}]}]}`), h)
+	uassert.True(t, strings.Contains(h, `"start":[{"hex":"A-F5","facing":3,"down":false,"delay":0,"status":"alive","aim":0,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6,"jammed":false,"exploded":false}]},{"hex":"A-F9","facing":0,"down":true,"delay":0,"status":"alive","aim":0,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"holstered","cocked":false,"shells":6,"capacity":6,"jammed":false,"exploded":false}]}]}`), h)
 	uassert.Equal(t, h, Render("json/history/"+id))
-	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":"","card":0,"result":"","gun":"","gunId":0}`), js)
-	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":"","card":0,"result":"","gun":"","gunId":0}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":2,"p":0,"kind":"move","action":"advance","from":"A-F3","to":"A-F4","facing":3,"down":false,"n":0,"delay":0,"reason":"","card":0,"result":"","endurance":0,"target":0,"hit":"","range":0,"gun":"","gunId":0}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":3,"p":1,"kind":"flip","action":"get_up_down","from":"","to":"","facing":0,"down":true,"n":0,"delay":0,"reason":"","card":0,"result":"","endurance":0,"target":0,"hit":"","range":0,"gun":"","gunId":0}`), js)
 	uassert.True(t, strings.Contains(js, `"hex":"A-F9","facing":0,"down":true`), js)
 }
 
@@ -345,10 +346,62 @@ func TestDrawAndCock(cur realm, t *testing.T) {
 	uassert.True(t, gun.Cocked)
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"location":"gun_hand","cocked":true,"shells":6`), js)
-	uassert.True(t, strings.Contains(js, `{"seg":3,"p":0,"kind":"draw","action":"draw_and_cock","from":"holstered","to":"gun_hand","facing":0,"down":false,"n":0,"delay":0,"reason":"","card":0,"result":"","gun":"colt45","gunId":1}`), js)
+	uassert.True(t, strings.Contains(js, `{"seg":3,"p":0,"kind":"draw","action":"draw_and_cock","from":"holstered","to":"gun_hand","facing":0,"down":false,"n":0,"delay":0,"reason":"","card":0,"result":"","endurance":0,"target":0,"hit":"","range":0,"gun":"colt45","gunId":1}`), js)
 	// Drawing again: nothing left in the holster.
 	testing.SetRealm(testing.NewUserRealm(alice))
 	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is not in a holster", func() {
 		SubmitPlan(cross(cur), id, "9f:1:0")
 	})
+}
+
+func TestShootout(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(alice))
+	id := CreateGame(cross(cur), "marshal", 10, 0)
+	testing.SetRealm(testing.NewUserRealm(bob))
+	JoinGame(cross(cur), id, "dude")
+	g := getGame(id)
+
+	// Turn 1: both draw and cock. Turn 2: alice aims twice (4 AIM points).
+	testing.SetRealm(testing.NewUserRealm(alice))
+	SubmitPlan(cross(cur), id, "9f:1:0")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	SubmitPlan(cross(cur), id, "9f:1:0")
+	testing.SetRealm(testing.NewUserRealm(alice))
+	SubmitPlan(cross(cur), id, "5f:aim:A-F9,6f:aim:A-F9")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	SubmitPlan(cross(cur), id, "")
+	uassert.Equal(t, 4, g.State.Chars[0].Aim)
+	uassert.True(t, g.State.Chars[0].Guns[0].Cocked)
+	js := GameJSON(id)
+	uassert.True(t, strings.Contains(js, `"ranLastTurn":false,"aim":4,"aimHex":"","endurance":20,"serious":0,"gunArm":0,"otherArm":0,"leg":0,"guns":[{"id":1,"type":"colt45","name":"Colt 45","location":"gun_hand","cocked":true,"shells":6,"capacity":6,"jammed":false,"exploded":false}]`), js)
+	uassert.True(t, strings.Contains(js, `"ground":[]`), js)
+
+	// Turn 3: alice shoots (aim time 1 + 4 = 5, range 6); bob does nothing with his gun.
+	testing.SetRealm(testing.NewUserRealm(alice))
+	SubmitPlan(cross(cur), id, "7f:shoot")
+	testing.SetRealm(testing.NewUserRealm(bob))
+	SubmitPlan(cross(cur), id, "7f")
+	lt := g.lastTurn()
+	var shot *engine.Event
+	for i := range lt.Events {
+		if lt.Events[i].Kind == engine.EvShot {
+			shot = &lt.Events[i]
+		}
+	}
+	if shot == nil {
+		t.Fatalf("no shot event: %v", lt.Events)
+	}
+	uassert.Equal(t, 0, shot.Player)
+	uassert.Equal(t, 1, shot.Target)
+	uassert.Equal(t, 6, shot.Range)
+	uassert.Equal(t, 1, shot.Seg)
+	if shot.Reason != engine.ReasonMisfire {
+		uassert.Equal(t, 5, shot.N)
+	}
+	uassert.Equal(t, 0, g.State.Chars[0].Aim)
+	uassert.False(t, g.State.Chars[0].Guns[0].Cocked)
+	uassert.True(t, g.State.Chars[0].Guns[0].Shells <= 5)
+	uassert.True(t, len(lt.Cards) >= 1)
+	uassert.True(t, strings.Contains(GameJSON(id), `"kind":"shot"`))
+	uassert.True(t, strings.Contains(Render("game/"+id), "shoots dude (card "))
 }

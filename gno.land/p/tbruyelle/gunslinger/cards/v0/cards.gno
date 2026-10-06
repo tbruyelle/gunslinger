@@ -121,14 +121,20 @@ func Lookup(number int, side byte) (Side, bool) {
 }
 
 // Enabled reports whether the action is implemented by the engine: the foot
-// actions and Draw & Cock, until the rest of the gun play and brawling land.
+// actions, Draw & Cock, Cock/Aim/Shoot and Shoot; loading, throwing and
+// brawling come later.
 func Enabled(c Code) bool {
 	switch c {
-	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown, DrawAndCock:
+	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown, DrawAndCock, CockAimShoot, Shoot:
 		return true
 	}
 	return false
 }
+
+// IsShooting reports whether the action is played with a gun in hand: it
+// takes a shoot option (cock, uncock, aim, shoot, nothing) and names the
+// target (rules 11.3, 11.31).
+func IsShooting(c Code) bool { return c == CockAimShoot || c == Shoot }
 
 // IsMove reports whether the action moves the character to another hex.
 func IsMove(c Code) bool {

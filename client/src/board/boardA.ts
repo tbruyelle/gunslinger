@@ -4,7 +4,13 @@ import data from "./board_A.json";
 export interface HexPos {
   x: number;
   y: number;
+  /** Axial coordinates (flat-top grid, q east, r down a column). */
+  q: number;
+  r: number;
 }
+
+/** Axial step of each absolute direction (N, NE, SE, S, SW, NW). */
+const DIR_STEP: [number, number][] = [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 1], [-1, 0]];
 
 interface BoardData {
   key: string;
@@ -64,6 +70,30 @@ export class BoardMap {
 
   relNeighbors(id: string, facing: number, rels: RelativeDirection[]): { rel: RelativeDirection; hex: string | null }[] {
     return rels.map((rel) => ({ rel, hex: this.relNeighbor(id, facing, rel) }));
+  }
+
+  /**
+   * Whether target lies in the aim zone of a character at from facing f
+   * (rule 8.32): its own hex and the 120° cone between its ahead-left and
+   * ahead-right rows, as the realm computes it.
+   */
+  inAimZone(from: string, facing: number, target: string): boolean {
+    const a = this.hexes[from];
+    const b = this.hexes[target];
+    if (!a || !b) return false;
+    const dq = b.q - a.q;
+    const dr = b.r - a.r;
+    const [uq, ur] = DIR_STEP[(facing + 5) % 6];
+    const [wq, wr] = DIR_STEP[(facing + 1) % 6];
+    const det = uq * wr - ur * wq;
+    const x = (dq * wr - dr * wq) / det;
+    const y = (uq * dr - ur * dq) / det;
+    return x >= 0 && y >= 0;
+  }
+
+  /** Every hex of the aim zone of a character at from facing f. */
+  aimZone(from: string, facing: number): string[] {
+    return this.ids().filter((id) => this.inAimZone(from, facing, id));
   }
 
   /** The nearest hex to a point in board pixels. */

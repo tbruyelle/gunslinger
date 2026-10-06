@@ -528,6 +528,8 @@ function summaryLine(g: GameSummary, me: string): string {
       return `${who(1 - g.winner)} timed out`;
     case "abandoned":
       return "abandoned";
+    case "all_down":
+      return "both out of the fight, draw";
     default:
       return g.winner >= 0 ? `won by ${who(g.winner)}` : `finished after ${g.turn} turns, draw`;
   }

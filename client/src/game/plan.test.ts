@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { GunView } from "../chain/types";
+import { BOARD_A } from "../board/boardA";
 import { canPlay, decodePlan, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "./plan";
 
-const COLT: GunView = { id: 1, type: "colt45", name: "Colt 45", location: "holstered", cocked: false, shells: 6, capacity: 6 };
+const COLT: GunView = { id: 1, type: "colt45", name: "Colt 45", location: "holstered", cocked: false, shells: 6, capacity: 6, jammed: false, exploded: false };
 
 describe("plan encoding", () => {
   it("round-trips the realm's format", () => {
-    for (const s of ["", "1f:ahead_left", "1f:ahead_left,2f:ahead,3f", "4b", "1b:back_right,3b:ahead", "12b", "9f:1:0", "1f:ahead,9f:12:2"]) {
+    for (const s of ["", "1f:ahead_left", "1f:ahead_left,2f:ahead,3f", "4b", "1b:back_right,3b:ahead", "12b", "9f:1:0", "1f:ahead,9f:12:2", "5f:cock", "6f:aim:A-F6,7f:shoot", "7f", "9f:1:0,7f:shoot"]) {
       expect(encodePlan(decodePlan(s))).toBe(s);
     }
   });
@@ -17,7 +18,7 @@ describe("plan encoding", () => {
   });
 
   it("rejects malformed strings", () => {
-    for (const s of ["13f", "1x", "1f:north", "1f,", "1f, 2f", "0f", "1f:", "9f:1", "9f:0:0", "9f:1:3", "9f:ahead", "1f:0"]) {
+    for (const s of ["13f", "1x", "1f:north", "1f,", "1f, 2f", "0f", "1f:", "9f:1", "9f:0:0", "9f:1:3", "9f:ahead", "1f:0", "5f", "5f:nothing", "5f:ahead", "7f:aim", "7f:cock", "1f:shoot", "5f:aim", "5f:aim:", "5f:aim:a-f6", "5f:cock:A-F6"]) {
       expect(() => decodePlan(s), s).toThrow();
     }
   });
@@ -46,7 +47,12 @@ describe("validatePlan", () => {
     ["1b:ahead", 5, "choose a backward direction"],
     ["2b:ahead_right", 5, "choose a backward direction"],
     ["3f:ahead", 5, "that action takes no direction"],
-    ["5f", 5, "that action is not available yet"],
+    ["8f", 5, "that action is not available yet"],
+    ["5f:cock", 5, null],
+    ["5f:aim:A-F6,6f:aim:A-F7", 5, null],
+    ["7f", 5, null],
+    ["7f:shoot", 5, null],
+    ["6b", 5, "that action is not available yet"],
     ["12b", 5, "that action is not available yet"],
   ];
   for (const [plan, budget, want] of cases) {
@@ -62,7 +68,19 @@ describe("validatePlan", () => {
     expect(canPlay({ card: 3, side: "front" }, false)).toBe(false);
     expect(canPlay({ card: 3, side: "front" }, true)).toBe(true);
     expect(canPlay({ card: 2, side: "front" }, false)).toBe(true);
-    expect(canPlay({ card: 7, side: "front" }, true)).toBe(false);
+    expect(canPlay({ card: 8, side: "front" }, true)).toBe(false);
+    expect(canPlay({ card: 7, side: "front" }, true)).toBe(true);
+  });
+
+  it("aims at a hex", () => {
+    expect(decodePlan("5f:aim:A-F6")[0]).toEqual({ card: 5, side: "front", opt: "aim", hex: "A-F6" });
+    expect(encodePlan([{ card: 5, side: "front", opt: "aim", hex: "A-F6" }])).toBe("5f:aim:A-F6");
+    expect(validatePlan([{ card: 5, side: "front", opt: "aim" }], 5, true)).toBe("choose the hex to aim at");
+    expect(BOARD_A.inAimZone("A-F6", 3, "A-F7")).toBe(true);
+    expect(BOARD_A.inAimZone("A-F6", 3, "A-F5")).toBe(false);
+    expect(BOARD_A.inAimZone("A-F6", 3, "A-F6")).toBe(true);
+    expect(BOARD_A.aimZone("A-F9", 0)).toContain("A-F3");
+    expect(BOARD_A.aimZone("A-F9", 0)).not.toContain("A-F12");
   });
 
   it("draw & cock needs a holstered gun and a free gun hand", () => {

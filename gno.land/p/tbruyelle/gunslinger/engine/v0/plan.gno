@@ -26,15 +26,75 @@ type Action struct {
 	Dir  hex.Rel // committed relative direction, "" when the side takes none
 	Gun  int     // id of the gun for a gun choice (Draw & Cock), 0 when the side takes none
 	Hand int     // destination hand code for a gun choice (HandGun...), -1 when the side takes none
+	Opt  string  // shoot option for Cock/Aim/Shoot and Shoot (OptCock...), "" when the side takes none
+	Hex  string  // the hex aimed at, for an aim option
+}
+
+// Shoot options: what a Cock/Aim/Shoot does (11.3), or a Shoot (shoot or
+// nothing). Aiming names a hex ("5f:aim:A-F6"), any hex of the aim zone; a
+// shot is always at the opponent.
+const (
+	OptCock    = "cock"
+	OptUncock  = "uncock"
+	OptAim     = "aim"
+	OptShoot   = "shoot"
+	OptNothing = "nothing"
+)
+
+// IsShot reports whether the action fires the gun.
+func (a Action) IsShot() bool { return cards.IsShooting(a.Code) && a.Opt == OptShoot }
+
+// AimTime is the aim time printed on a shooting action for a one- or
+// two-handed gun (13.52).
+func (a Action) AimTime(oneHanded bool) int {
+	switch a.Code {
+	case cards.CockAimShoot:
+		if oneHanded {
+			return 2
+		}
+		return 1
+	case cards.Shoot:
+		if oneHanded {
+			return 1
+		}
+		return 0
+	}
+	return 0
+}
+
+// validHex is a loose check of a hex id in a plan string ("A-F6"); the board
+// decides whether it exists.
+func validHex(h string) bool {
+	if len(h) < 3 || len(h) > 8 {
+		return false
+	}
+	for i := 0; i < len(h); i++ {
+		c := h[i]
+		if !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func validOpt(code cards.Code, opt string) bool {
+	switch code {
+	case cards.CockAimShoot:
+		return opt == OptCock || opt == OptUncock || opt == OptAim || opt == OptShoot
+	case cards.Shoot:
+		return opt == OptShoot || opt == OptNothing
+	}
+	return false
 }
 
 // Plan is the ordered stack of actions a player committed for the turn.
 //
 // Its string form, used as the transaction argument, is a comma-separated
 // list of entries "<card><f|b>[:<choice>]", the choice being a relative
-// direction for move and turn cards ("1f:ahead_left") or, for Draw & Cock,
-// a gun id and the hand it goes to ("9f:1:0": gun 1 to the gun hand; hand
-// codes: 0 gun hand, 1 other hand, 2 both hands), e.g.
+// direction for move and turn cards ("1f:ahead_left"), for Draw & Cock a
+// gun id and the hand it goes to ("9f:1:0": gun 1 to the gun hand; hand
+// codes: 0 gun hand, 1 other hand, 2 both hands), or for Cock/Aim/Shoot and
+// Shoot the option ("5f:aim", "7f:shoot"; a bare "7f" does nothing), e.g.
 // "1f:ahead_left,2f:ahead,3f". An empty string is a pass.
 type Plan []Action
 
@@ -87,6 +147,26 @@ func parseEntry(e string) (Action, error) {
 	}
 	a := Action{Card: num, Side: side, Code: def.Code, Cost: def.Cost, Hand: -1}
 	switch {
+	case cards.IsShooting(def.Code):
+		if choice == "" && def.Code == cards.Shoot {
+			choice = OptNothing
+		}
+		opt, arg := choice, ""
+		if i := strings.IndexByte(choice, ':'); i >= 0 {
+			opt, arg = choice[:i], choice[i+1:]
+		}
+		if !validOpt(def.Code, opt) {
+			return Action{}, errors.New("invalid option " + strconv.Quote(opt) + " for " + def.Name)
+		}
+		if opt == OptAim {
+			if !validHex(arg) {
+				return Action{}, errors.New("aim needs the hex to aim at, e.g. " + strconv.Quote(e+":aim:A-F6"))
+			}
+			a.Hex = arg
+		} else if arg != "" {
+			return Action{}, errors.New("option " + strconv.Quote(opt) + " takes no argument")
+		}
+		a.Opt = opt
 	case choice == "":
 	case def.Choice.NeedsGun():
 		parts := strings.Split(choice, ":")
@@ -127,6 +207,13 @@ func (p Plan) String() string {
 			b.WriteString(strconv.Itoa(a.Gun))
 			b.WriteByte(':')
 			b.WriteString(strconv.Itoa(a.Hand))
+		} else if a.Opt != "" && !(a.Code == cards.Shoot && a.Opt == OptNothing) {
+			b.WriteByte(':')
+			b.WriteString(a.Opt)
+			if a.Opt == OptAim {
+				b.WriteByte(':')
+				b.WriteString(a.Hex)
+			}
 		} else if a.Dir != "" {
 			b.WriteByte(':')
 			b.WriteString(string(a.Dir))
@@ -181,6 +268,13 @@ func (p Plan) Validate(c Character) error {
 		}
 		used[a.Card] = true
 		switch {
+		case cards.IsShooting(def.Code):
+			if !validOpt(def.Code, a.Opt) {
+				return errors.New("choose what to do with the gun")
+			}
+			if a.Opt == OptAim && a.Hex == "" {
+				return errors.New("choose the hex to aim at")
+			}
 		case def.Choice.IsAheadRel():
 			if !a.Dir.IsAhead() {
 				return errors.New("choose a forward direction")

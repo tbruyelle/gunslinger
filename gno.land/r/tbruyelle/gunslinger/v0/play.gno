@@ -71,16 +71,25 @@ func resolveTurn(g *Game) string {
 	start := snapshot(g.State.Chars)
 	deck := engine.NewDeck(seed)
 	st, evs := engine.Resolve(hex.A, g.State, plans, deck)
+	st, endEvs := engine.EndTurn(st)
+	evs = append(evs, endEvs...)
+	if g.Turn >= g.MaxTurns && engine.AliveCount(st) > 1 { // the end-of-showdown SERIOUS wound check (14.5)
+		st, endEvs = engine.EndShowdown(st, deck)
+		evs = append(evs, endEvs...)
+	}
 	seedHex := enchex.EncodeToString(seed[:])
 	g.Turns = append(g.Turns, &TurnResult{Turn: g.Turn, Start: start, Plans: g.Plans, Seed: seedHex, Cards: deck.Drawn(), Events: evs})
-	g.State = engine.EndTurn(st)
+	g.State = st
 	g.Plans = [engine.NumPlayers]string{}
 	g.Submitted = [engine.NumPlayers]bool{}
-	if engine.AliveCount(g.State) <= 1 {
+	switch {
+	case engine.AliveCount(g.State) == 0:
+		g.finish("all_down", -1)
+	case engine.AliveCount(g.State) == 1:
 		g.finish("last_standing", lastAlive(g))
-	} else if g.Turn >= g.MaxTurns {
+	case g.Turn >= g.MaxTurns:
 		g.finish("max_turns", -1)
-	} else {
+	default:
 		g.Turn++
 	}
 	return seedHex
@@ -101,9 +110,18 @@ func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]en
 			PlayedFoot:  c.PlayedFoot,
 			PlayedRun:   c.PlayedRun,
 			RanLastTurn: c.RanLastTurn,
+			Dropped:     c.Dropped,
+			Aim:         c.Aim,
+			AimHex:      c.AimHex,
+			Endurance:   c.Endurance,
+			Exhausted:   c.Exhausted,
+			Serious:     c.Serious,
+			GunArm:      c.GunArm,
+			OtherArm:    c.OtherArm,
+			Leg:         c.Leg,
 		}
 		for j, g := range c.Guns {
-			out[i].Guns[j] = engine.Gun{ID: g.ID, Type: g.Type, Location: g.Location, Cocked: g.Cocked, Shells: g.Shells}
+			out[i].Guns[j] = engine.Gun{ID: g.ID, Type: g.Type, Location: g.Location, Cocked: g.Cocked, Shells: g.Shells, Jammed: g.Jammed, Exploded: g.Exploded}
 		}
 	}
 	return out

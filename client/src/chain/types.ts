@@ -1,8 +1,13 @@
 /** Mirrors of the realm's JSON views (see gno.land/r/tbruyelle/gunslinger/v0/json.gno). */
 
 export type Phase = "waiting" | "planning" | "finished";
-export type PlayerStatus = "alive" | "out";
-export type EventKind = "move" | "turn" | "flip" | "delay" | "cancel" | "draw" | "wild_shot";
+export type PlayerStatus = "alive" | "out" | "killed" | "passed_out";
+export type EventKind =
+  | "move" | "turn" | "flip" | "delay" | "cancel" | "draw" | "wild_shot"
+  | "cock" | "uncock" | "aim" | "lose_aim" | "nothing" | "shot" | "malfunction" | "wound" | "direction" | "drop_gun" | "pass_out" | "serious_check";
+
+/** Seg of the events recorded after segment 5 (cancels, passing out, the serious-wound check); turn-start events have seg 0. */
+export const END_OF_TURN_SEG = 6;
 
 export interface PlayerView {
   addr: string;
@@ -18,6 +23,25 @@ export interface PlayerView {
   playedRun: boolean;
   /** A Run was played on the previous turn: required to Sprint (rule 9.23). */
   ranLastTurn: boolean;
+  /** AIM points (0-8) and the hex the markers sit on, "" when they are on the opponent and follow it. */
+  aim: number;
+  aimHex: string;
+  /** Endurance boxes left (20 at the start); wounds and fatigue cross them off. */
+  endurance: number;
+  /** Permanent wounds: fatigue cards per turn, aim penalties per hand, fatigue cards per hex moved. */
+  serious: number;
+  gunArm: number;
+  otherArm: number;
+  leg: number;
+  guns: GunView[];
+}
+
+/** Wound and aim fields shared by the live view and the turn-start snapshots. */
+export type WoundFields = Pick<PlayerView, "aim" | "aimHex" | "endurance" | "serious" | "gunArm" | "otherArm" | "leg">;
+
+/** A weapon lying in a hex. */
+export interface GroundGunView {
+  hex: string;
   guns: GunView[];
 }
 
@@ -32,6 +56,8 @@ export interface GunView {
   cocked: boolean;
   shells: number;
   capacity: number;
+  jammed: boolean;
+  exploded: boolean;
 }
 
 export interface TurnEvent {
@@ -50,15 +76,23 @@ export interface TurnEvent {
   reason: string;
   /** Result card drawn for a delay event (1-108; 0 when no card was drawn, e.g. crawl). */
   card: number;
-  /** The card's penalty when its DELAY line is not a number: lose_aim, wild_shot or drop. */
+  /** The card's penalty when its DELAY line is not a number (lose_aim, wild_shot, drop), a malfunction result, or a wound's penalty kind. */
   result: string;
+  /** Endurance boxes crossed off by a wound or fatigue card. */
+  endurance: number;
+  /** Seat shot at, for shots. */
+  target: number;
+  /** Final hit location of a shot ("-" for a miss). */
+  hit: string;
+  /** Range of a shot in hexes. */
+  range: number;
   /** Gun type and id for gun events ("" and 0 otherwise). */
   gun: string;
   gunId: number;
 }
 
 /** A character's state when a turn began. */
-export interface StartChar {
+export interface StartChar extends WoundFields {
   hex: string;
   facing: number;
   down: boolean;
@@ -97,6 +131,8 @@ export interface GameView {
   timeout: number;
   board: string;
   players: PlayerView[];
+  /** Weapons lying on the board. */
+  ground: GroundGunView[];
   /** Seat index of the winner, -1 for none. */
   winner: number;
   endReason: string;

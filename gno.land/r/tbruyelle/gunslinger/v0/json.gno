@@ -18,10 +18,13 @@ const listLimit = 50
 //
 //	{"id","rev","phase","turn","maxTurns","timeout" (seconds),"board",
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn",
-//	             "guns":[{"id","type","name","location","cocked","shells","capacity"}]}],
+//	             "aim","aimHex" (the hex the AIM markers sit on, "" when on the opponent),"endurance","serious","gunArm","otherArm","leg",
+//	             "guns":[{"id","type","name","location","cocked","shells","capacity","jammed","exploded"}]}],
+//	 "ground":[{"hex","guns":[{..}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
-//	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","gun","gunId"}],
-//	             "start":[{"hex","facing","down","delay","status","guns":[..]},..]}}
+//	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],
+//	             "events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","endurance","target","hit","range","gun","gunId"}],
+//	             "start":[{"hex","facing","down","delay","status","aim","aimHex","endurance","serious","gunArm","otherArm","leg","guns":[..]},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
 // The plans of the turn in progress are not exposed, only the submitted flags.
@@ -42,7 +45,9 @@ func GameJSON(id string) string {
 		}
 		writePlayer(&b, g, i)
 	}
-	b.WriteString(`],"winner":` + strconv.Itoa(g.Winner))
+	b.WriteByte(']')
+	writeGround(&b, g.State.Ground)
+	b.WriteString(`,"winner":` + strconv.Itoa(g.Winner))
 	b.WriteString(`,"endReason":` + quote(g.EndReason))
 	b.WriteString(`,"createdAt":` + strconv.FormatInt(g.CreatedAt.Unix(), 10))
 	b.WriteString(`,"updatedAt":` + strconv.FormatInt(g.UpdatedAt.Unix(), 10))
@@ -97,8 +102,34 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 	b.WriteString(`,"playedFoot":` + strconv.FormatBool(c.PlayedFoot))
 	b.WriteString(`,"playedRun":` + strconv.FormatBool(c.PlayedRun))
 	b.WriteString(`,"ranLastTurn":` + strconv.FormatBool(c.RanLastTurn))
+	writeWounds(b, c)
 	writeGuns(b, c.Guns)
 	b.WriteByte('}')
+}
+
+// writeWounds writes the aim and wound members of a character.
+func writeWounds(b *strings.Builder, c engine.Character) {
+	b.WriteString(`,"aim":` + strconv.Itoa(c.Aim))
+	b.WriteString(`,"aimHex":` + quote(c.AimHex))
+	b.WriteString(`,"endurance":` + strconv.Itoa(c.Endurance))
+	b.WriteString(`,"serious":` + strconv.Itoa(c.Serious))
+	b.WriteString(`,"gunArm":` + strconv.Itoa(c.GunArm))
+	b.WriteString(`,"otherArm":` + strconv.Itoa(c.OtherArm))
+	b.WriteString(`,"leg":` + strconv.Itoa(c.Leg))
+}
+
+// writeGround writes the ,"ground":[...] member: the weapons lying in hexes.
+func writeGround(b *strings.Builder, ground []engine.GroundGun) {
+	b.WriteString(`,"ground":[`)
+	for i, gg := range ground {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(`{"hex":` + quote(gg.Hex))
+		writeGuns(b, engine.Guns{gg.Gun})
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
 }
 
 // writeGuns writes the ,"guns":[...] member of a character.
@@ -121,6 +152,8 @@ func writeGuns(b *strings.Builder, guns engine.Guns) {
 		b.WriteString(`,"cocked":` + strconv.FormatBool(g.Cocked))
 		b.WriteString(`,"shells":` + strconv.Itoa(g.Shells))
 		b.WriteString(`,"capacity":` + strconv.Itoa(spec.Capacity))
+		b.WriteString(`,"jammed":` + strconv.FormatBool(g.Jammed))
+		b.WriteString(`,"exploded":` + strconv.FormatBool(g.Exploded))
 		b.WriteByte('}')
 	}
 	b.WriteByte(']')
@@ -164,6 +197,7 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 		b.WriteString(`,"down":` + strconv.FormatBool(c.Down))
 		b.WriteString(`,"delay":` + strconv.Itoa(c.Delay))
 		b.WriteString(`,"status":` + quote(c.Status.String()))
+		writeWounds(b, c)
 		writeGuns(b, c.Guns)
 		b.WriteByte('}')
 	}
@@ -184,6 +218,10 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 	b.WriteString(`,"reason":` + quote(e.Reason))
 	b.WriteString(`,"card":` + strconv.Itoa(e.Card))
 	b.WriteString(`,"result":` + quote(e.Result))
+	b.WriteString(`,"endurance":` + strconv.Itoa(e.Endurance))
+	b.WriteString(`,"target":` + strconv.Itoa(e.Target))
+	b.WriteString(`,"hit":` + quote(e.Hit))
+	b.WriteString(`,"range":` + strconv.Itoa(e.Range))
 	b.WriteString(`,"gun":` + quote(string(e.Gun)))
 	b.WriteString(`,"gunId":` + strconv.Itoa(e.GunID))
 	b.WriteByte('}')

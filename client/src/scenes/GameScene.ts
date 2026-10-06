@@ -6,7 +6,7 @@ import { getChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
 import { userMessage } from "../chain/errors";
 import { GamePoller } from "../chain/poller";
-import { seatOf, shortAddr, type GameView, type TurnResult } from "../chain/types";
+import { seatOf, shortAddr, type GameView, type TurnResult, type PlayerStatus, type TurnEvent } from "../chain/types";
 import {
   describeEvent,
   endOfTurnEvents,
@@ -18,7 +18,8 @@ import {
   type ReplayPos,
 } from "../game/playback";
 import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
-import { gunInHand, replayPlan, type CharView } from "../game/replay";
+import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
+import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
 import { charName } from "./LobbyScene";
@@ -60,6 +61,17 @@ const MAX_DELAY_MARKER = 8;
  * full one while the pointer is over the stack, so each token is wholly
  * visible and clickable.
  */
+/** The AIM markers available (assets/aimN.gif, from the VASSAL module): aim comes by 2 points, up to 8. */
+const AIM_MARKERS = [2, 4, 6, 8];
+/** The marker texture for n AIM points: the closest one at or above n. */
+function aimMarkerKey(n: number): string {
+  return `aim_${AIM_MARKERS.find((m) => m >= n) ?? 8}`;
+}
+/** Size of an AIM marker as a fraction of the token diameter. */
+const AIM_SIZE = 0.42;
+/** Colour of the aim line and the shot tracer. */
+const AIM_LINE_COLOR = 0xff2020;
+
 const STACK_REST = 0.12;
 const STACK_SPREAD = 0.42;
 const STACK_MS = 180;
@@ -83,8 +95,14 @@ class CharacterToken {
   private badgeOffset = 0;
   /** The icon of the gun held in a hand, at the token corner above the arrow. */
   private gun: Phaser.GameObjects.Image | null = null;
+  /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
+  private aim: Phaser.GameObjects.Image | null = null;
+
   /** In-flight position tweens, retargeted by moveTo without touching the rotation. */
   private posTweens: Phaser.Tweens.Tween[] = [];
+  /** Hover handlers for the gun icon and the AIM marker, set by the scene. */
+  onGunHover: ((over: boolean) => void) | null = null;
+  onAimHover: ((over: boolean) => void) | null = null;
 
   /**
    * Each token owns a band of 5 depths (ring, sprite, DOWN overlay, gun, DEL
@@ -110,6 +128,7 @@ class CharacterToken {
     if (this.overlay) list.push(this.overlay);
     if (this.badge) list.push(this.badge);
     if (this.gun) list.push(this.gun);
+    if (this.aim) list.push(this.aim);
     return list;
   }
 
@@ -154,6 +173,48 @@ class CharacterToken {
       const r = this.sprite.displayWidth * GUN_RADIUS;
       this.gun.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
     }
+    if (this.aim) {
+      const a = Phaser.Math.DegToRad(this.aimAngle());
+      const r = this.sprite.displayWidth * GUN_RADIUS;
+      this.aim.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+  }
+
+  /**
+   * Screen angle of the gun corner's mirror image across the vertical axis
+   * of the upright figure: the other top corner, 135° from the arrow
+   * toward the figure's head.
+   */
+  private aimAngle(): number {
+    return this.arrowAngle() + (CHAR_ARROW_DIR[this.charKey] === 5 ? 135 : -135);
+  }
+
+  /** Shows the AIM marker of the points the opponent holds on this character (none for 0). */
+  setTargetAim(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask) {
+    const key = aimMarkerKey(n);
+    if (n <= 0 || !scene.textures.exists(key)) {
+      this.aim?.destroy();
+      this.aim = null;
+      return;
+    }
+    const size = this.sprite.displayWidth * AIM_SIZE;
+    if (!this.aim) {
+      this.aim = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 4).setInteractive();
+      this.aim.on("pointerover", () => this.onAimHover?.(true));
+      this.aim.on("pointerout", () => this.onAimHover?.(false));
+    } else if (this.aim.texture.key !== key) {
+      this.aim.setTexture(key);
+    }
+    this.aim.setDisplaySize(size, size);
+    this.follow();
+  }
+
+  /** Greys out a character that is out of the fight. */
+  setStatus(status: PlayerStatus) {
+    const out = status !== "alive";
+    this.sprite.setAlpha(out ? 0.55 : 1);
+    if (out) this.sprite.setTint(0x808080);
+    else this.sprite.clearTint();
   }
 
   /** Screen angle (degrees, clockwise from east) the token's baked-in arrow points at. */
@@ -203,7 +264,9 @@ class CharacterToken {
     }
     const size = this.sprite.displayWidth * GUN_SIZE;
     if (!this.gun) {
-      this.gun = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 3);
+      this.gun = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 3).setInteractive();
+      this.gun.on("pointerover", () => this.onGunHover?.(true));
+      this.gun.on("pointerout", () => this.onGunHover?.(false));
     } else if (this.gun.texture.key !== key) {
       this.gun.setTexture(key);
     }
@@ -257,6 +320,18 @@ export class GameScene extends Phaser.Scene {
   private pendingChoices: Map<number, RelativeDirection> = new Map();
   /** Gun id and destination hand chosen for cards that draw a gun (Draw & Cock). */
   private pendingGuns: Map<number, { gun: number; hand: number }> = new Map();
+  /** Shoot option picked for Cock/Aim/Shoot and Shoot cards. */
+  private pendingOpts: Map<number, ShootOption> = new Map();
+  /** The option buttons shown while a gun action waits for its option. */
+  private optMenu: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
+  /** The hex picked for each aim; the pick overlays while one is pending. */
+  private pendingAims: Map<number, string> = new Map();
+  private aimMode: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
+  /** The AIM markers on the board, one per seat holding an aim. */
+  private aimMarkers: Phaser.GameObjects.GameObject[] = [];
+  /** The animated dotted line shown while hovering an AIM marker or an aiming gun, with its ends. */
+  private aimLine: Phaser.GameObjects.Graphics | null = null;
+  private aimLineEnds: { from: { x: number; y: number }; to: { x: number; y: number } } | null = null;
   private preview: CharView | null = null;
   private choiceMode: {
     card: CardNumber;
@@ -270,7 +345,7 @@ export class GameScene extends Phaser.Scene {
   // Replay of resolved turns: a turn that just resolved (live) or the history.
   private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
-  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }> } | null = null;
+  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, string> } | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -307,6 +382,19 @@ export class GameScene extends Phaser.Scene {
   private seqTitle!: Phaser.GameObjects.Text;
   private seqDots: Phaser.GameObjects.Text[] = [];
   private seqLog!: Phaser.GameObjects.Text;
+  /** The resolution log scrolls inside its area when it overflows (wheel over it). */
+  private seqLogArea = { top: 0, bottom: 0 };
+  private seqScroll = 0;
+  private seqScrollbar: { track: Phaser.GameObjects.Rectangle; thumb: Phaser.GameObjects.Rectangle } | null = null;
+  /** The resolution log opened in a wide popup (click on the log). */
+  private logPopup: {
+    objects: Phaser.GameObjects.GameObject[];
+    text: Phaser.GameObjects.Text;
+    area: { top: number; bottom: number };
+    scroll: number;
+    track: Phaser.GameObjects.Rectangle;
+    thumb: Phaser.GameObjects.Rectangle;
+  } | null = null;
   private prevSeqBtn!: Phaser.GameObjects.Text;
   private nextSeqBtn!: Phaser.GameObjects.Text;
   private prevTurnBtn!: Phaser.GameObjects.Text;
@@ -368,6 +456,9 @@ export class GameScene extends Phaser.Scene {
     }
     for (const t of GUN_TYPES) {
       if (!this.textures.exists(`gun_${t}`)) this.load.image(`gun_${t}`, `guns/${t}.gif`);
+    }
+    for (const n of AIM_MARKERS) {
+      if (!this.textures.exists(`aim_${n}`)) this.load.image(`aim_${n}`, `aim${n}.gif`);
     }
   }
 
@@ -460,7 +551,11 @@ export class GameScene extends Phaser.Scene {
     const view = this.view;
     if (!view) return;
     const turnChanged = view.turn !== this.renderedTurn;
-    this.committed = view.players.map((p) => ({ hex: p.hex, facing: p.facing, down: p.down, delay: p.delay, guns: p.guns.map((g) => ({ ...g })) }));
+    this.committed = view.players.map((p) => ({
+      hex: p.hex, facing: p.facing, down: p.down, delay: p.delay, status: p.status,
+      aim: p.aim, aimHex: p.aimHex, endurance: p.endurance, serious: p.serious, gunArm: p.gunArm, otherArm: p.otherArm, leg: p.leg,
+      guns: p.guns.map((g) => ({ ...g })),
+    }));
     this.renderedTurn = view.turn;
     this.shownResultTurn = view.lastTurn?.turn ?? 0;
 
@@ -571,6 +666,7 @@ export class GameScene extends Phaser.Scene {
         t.setDown(this, false, this.arrMask);
         t.setDelay(this, 0, this.arrMask);
         t.setGun(this, null, this.arrMask);
+        t.setTargetAim(this, 0, this.arrMask);
       }
     }
     this.tokens = [];
@@ -604,9 +700,21 @@ export class GameScene extends Phaser.Scene {
       img.on("pointerover", () => this.tokens[i]?.setHighlight(0xffe2a0, 1, 4));
       img.on("pointerout", () => this.applyTokenHighlight(i));
       const token = new CharacterToken(p.char, img, hl, CharacterToken.depthFor(i));
+      // The AIM marker on this token belongs to the opponent: the line runs from the aimer to here.
+      token.onAimHover = (over) => (over ? this.showAimLine(this.tokenCentre(1 - i), this.tokenCentre(i)) : this.hideAimLine());
+      // The gun of an aiming character: the line runs from the aimer to its target.
+      token.onGunHover = (over) => {
+        const chars = this.displayChars();
+        const c = chars[i];
+        if (!over || !c || c.aim <= 0) return this.hideAimLine();
+        const target = this.aimOnToken(chars, i) ? this.tokenCentre(1 - i) : this.hexCentre(c.aimHex);
+        this.showAimLine(this.tokenCentre(i), target);
+      };
       token.setDown(this, c.down, this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
       token.setGun(this, gunInHand(c.guns), this.arrMask);
+      token.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
+      token.setStatus(c.status);
       this.tokens.push(token);
     });
   }
@@ -614,6 +722,8 @@ export class GameScene extends Phaser.Scene {
   /** Moves the tokens to the current display state, animated or not. */
   private refreshTokens(animate: boolean) {
     const chars = this.displayChars();
+    this.hideAimLine();
+    this.refreshAimMarkers(chars);
     this.tokens.forEach((t, i) => {
       if (!t || !chars[i]) return;
       const c = chars[i];
@@ -624,6 +734,8 @@ export class GameScene extends Phaser.Scene {
       t.setDown(this, c.down, this.arrMask);
       t.setDelay(this, c.delay, this.arrMask);
       t.setGun(this, gunInHand(c.guns), this.arrMask);
+      t.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
+      t.setStatus(c.status);
       if (animate) {
         t.moveTo(this.tweens, sx, sy, 450);
         t.rotateTo(this.tweens, angle, 300);
@@ -704,6 +816,8 @@ export class GameScene extends Phaser.Scene {
     this.refreshTokens(false);
     this.clearChoiceOverlays();
     if (this.choiceMode) this.showChoiceOverlays();
+    if (this.optMenu) this.openOptMenu(this.optMenu.card, this.optMenu.side); // follows the token on zoom and pan
+    if (this.aimMode) this.enterAimMode(this.aimMode.card, this.aimMode.side);
   }
 
   // ── HUD ───────────────────────────────────────────────────────────────────
@@ -947,6 +1061,10 @@ export class GameScene extends Phaser.Scene {
         entry.gun = pick.gun;
         entry.hand = pick.hand;
       }
+      const opt = this.pendingOpts.get(e.card);
+      if (opt) entry.opt = opt;
+      const hex = this.pendingAims.get(e.card);
+      if (hex) entry.hex = hex;
       return entry;
     });
   }
@@ -973,11 +1091,18 @@ export class GameScene extends Phaser.Scene {
       facing: c.facing,
       down: c.down,
       delay: c.delay,
-      status: p.status,
+      status: c.status,
       submitted: p.submitted,
       phase: view.phase,
       isMe: seat === this.myIndex,
-      guns: p.guns ?? [],
+      guns: c.guns,
+      aim: c.aim,
+      aimHex: c.aimHex,
+      endurance: c.endurance,
+      serious: c.serious,
+      gunArm: c.gunArm,
+      otherArm: c.otherArm,
+      leg: c.leg,
       },
       () => {
         if (this.scene.isActive()) this.input.enabled = true;
@@ -1002,14 +1127,20 @@ export class GameScene extends Phaser.Scene {
     this.selectionOrder = [];
     this.pendingChoices.clear();
     this.pendingGuns.clear();
+    this.pendingOpts.clear();
+    this.pendingAims.clear();
     this.preview = null;
     this.choiceMode = null;
     this.clearChoiceOverlays();
+    this.closeOptMenu();
+    this.closeAimMode();
   }
 
   private toggleCard(card: CardNumber, side: CardSide) {
     // While a choice is pending, only that card can be touched (to deselect it).
     if (this.choiceMode && !(card === this.choiceMode.card && side === this.choiceMode.side)) return;
+    if (this.optMenu && !(card === this.optMenu.card && side === this.optMenu.side)) return;
+    if (this.aimMode && !(card === this.aimMode.card && side === this.aimMode.side)) return;
     const def = getActionDef({ card, side });
     const wasSelected = this.isSelected(card, side);
     const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
@@ -1026,9 +1157,12 @@ export class GameScene extends Phaser.Scene {
       this.selectionOrder.pop();
       this.pendingChoices.delete(card);
       this.pendingGuns.delete(card);
+      this.pendingOpts.delete(card);
+      this.pendingAims.delete(card);
     } else {
       this.selectionOrder.push({ card, side });
-      if (def.choiceType === "gun") this.enterGunChoice(card, side);
+      if (isShooting({ card, side })) this.openOptMenu(card, side);
+      else if (def.choiceType === "gun") this.enterGunChoice(card, side);
       else if (def.choiceType !== "none") this.enterChoiceMode(card, side, def.choiceType);
     }
     this.updatePreview();
@@ -1047,6 +1181,10 @@ export class GameScene extends Phaser.Scene {
       this.selectedDisplay.setText("Signing your plan in Adena…").setColor(GOLD_STR);
     } else if (this.choiceMode) {
       this.selectedDisplay.setText(`${name}: ${choicePrompt(this.choiceMode.choiceType)}`).setColor("#ff9944");
+    } else if (this.optMenu) {
+      this.selectedDisplay.setText(`${name}: choose what to do with the gun`).setColor("#ff9944");
+    } else if (this.aimMode) {
+      this.selectedDisplay.setText(`${name}: click the hex to aim at`).setColor("#ff9944");
     } else if (plan.length === 0) {
       const carry = me && me.delay > 0 ? ` (${me.delay} carried delay)` : "";
       this.selectedDisplay.setText(`${name}: select action cards, or send an empty plan to pass (0/${budget} points${carry})`).setColor("#888");
@@ -1078,9 +1216,14 @@ export class GameScene extends Phaser.Scene {
       const def = getActionDef({ card, side });
       const selected = this.isSelected(card, side);
       const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
-      const needsChoice = def.choiceType !== "none" && !this.pendingChoices.has(card) && !this.pendingGuns.has(card);
+      const needsChoice =
+        def.choiceType !== "none" &&
+        !this.pendingChoices.has(card) &&
+        !this.pendingGuns.has(card) &&
+        !(this.pendingOpts.has(card) && (this.pendingOpts.get(card) !== "aim" || this.pendingAims.has(card)));
       const wouldExceed = !selected && cost + def.cost > budget;
-      const blockedByChoice = !!this.choiceMode && !(card === this.choiceMode.card && side === this.choiceMode.side);
+      const pendingCard = this.choiceMode ?? this.optMenu ?? this.aimMode;
+      const blockedByChoice = !!pendingCard && !(card === pendingCard.card && side === pendingCard.side);
       const isLast = selected && !!last && last.card === card && last.side === side;
       hl.setFillStyle(0x000000, 0);
       if (selected && needsChoice) {
@@ -1199,6 +1342,203 @@ export class GameScene extends Phaser.Scene {
   private exitChoiceMode() {
     this.choiceMode = null;
     this.clearChoiceOverlays();
+    this.closeOptMenu();
+    this.closeAimMode();
+  }
+
+  /** Highlights every hex of my aim zone; clicking one is where the AIM markers go. */
+  private enterAimMode(card: CardNumber, side: CardSide) {
+    this.closeAimMode();
+    const chars = this.displayChars();
+    const me = this.myIndex >= 0 ? chars[this.myIndex] : null;
+    if (!me) return;
+    const { scale } = this.displayTransform();
+    const r = Math.max(12, HEX_HIGHLIGHT_R * scale * 3);
+    const objects: Phaser.GameObjects.GameObject[] = [];
+    for (const hex of BOARD_A.aimZone(me.hex, me.facing)) {
+      const { sx, sy } = this.hexToScreen(hex);
+      const circle = this.add
+        .circle(sx, sy, r, 0xb01010, 0.3)
+        .setStrokeStyle(2, 0xff6040, 0.9)
+        .setMask(this.arrMask)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(500);
+      circle.on("pointerover", () => {
+        circle.setFillStyle(0xb01010, 0.6);
+        this.showAimLine(this.tokenCentre(this.myIndex), { x: sx, y: sy }); // where the aim would go
+      });
+      circle.on("pointerout", () => {
+        circle.setFillStyle(0xb01010, 0.3);
+        this.hideAimLine();
+      });
+      circle.on("pointerup", () => this.resolveAim(hex));
+      objects.push(circle);
+    }
+    this.aimMode = { card, side, objects };
+  }
+
+  private closeAimMode() {
+    if (!this.aimMode) return;
+    for (const o of this.aimMode.objects) o.destroy();
+    this.aimMode = null;
+  }
+
+  private resolveAim(hex: string) {
+    if (!this.aimMode) return;
+    this.pendingAims.set(this.aimMode.card, hex);
+    this.closeAimMode();
+    this.updatePreview();
+    this.refreshSelectionDisplay();
+    this.refreshCardHighlights();
+  }
+
+  /** Draws the AIM markers on aimed hexes; markers following the opponent ride on its token (setTargetAim). */
+  private refreshAimMarkers(chars: CharView[]) {
+    for (const o of this.aimMarkers) o.destroy();
+    this.aimMarkers = [];
+    const size = this.tokenDiameter() * AIM_SIZE;
+    for (const c of chars) {
+      if (!c || c.aim <= 0 || this.aimOnToken(chars, chars.indexOf(c)) || !this.textures.exists(aimMarkerKey(c.aim))) continue;
+      const { sx, sy } = this.hexToScreen(c.aimHex);
+      const marker = this.add.image(sx, sy, aimMarkerKey(c.aim)).setOrigin(0.5).setDisplaySize(size, size).setMask(this.arrMask).setDepth(30).setInteractive();
+      const seat = chars.indexOf(c);
+      marker.on("pointerover", () => this.showAimLine(this.tokenCentre(seat), { x: sx, y: sy }));
+      marker.on("pointerout", () => this.hideAimLine());
+      this.aimMarkers.push(marker);
+    }
+  }
+
+  private tokenCentre(seat: number): { x: number; y: number } {
+    const { sx, sy } = this.tokenScreenPos(this.displayChars(), seat);
+    return { x: sx, y: sy };
+  }
+
+  private hexCentre(hex: string): { x: number; y: number } {
+    const { sx, sy } = this.hexToScreen(hex);
+    return { x: sx, y: sy };
+  }
+
+  /** A red dotted line whose dashes march from one end to the other, redrawn every frame. */
+  private showAimLine(from: { x: number; y: number }, to: { x: number; y: number }) {
+    this.aimLineEnds = { from, to };
+    // Above the board, below every token (their depth bands start at 1).
+    if (!this.aimLine) this.aimLine = this.add.graphics().setMask(this.arrMask).setDepth(0.5);
+    this.drawAimLine(this.time.now);
+  }
+
+  private hideAimLine() {
+    this.aimLineEnds = null;
+    this.aimLine?.clear();
+  }
+
+  private drawAimLine(time: number) {
+    const g = this.aimLine;
+    const ends = this.aimLineEnds;
+    if (!g || !ends) return;
+    g.clear();
+    const dx = ends.to.x - ends.from.x;
+    const dy = ends.to.y - ends.from.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    const ux = dx / len;
+    const uy = dy / len;
+    const dash = 10;
+    const period = dash + 8;
+    g.lineStyle(3, AIM_LINE_COLOR, 1);
+    g.beginPath();
+    for (let p = ((time / 20) % period) - period; p < len; p += period) {
+      const a = Math.max(p, 0);
+      const b = Math.min(p + dash, len);
+      if (b <= a) continue;
+      g.moveTo(ends.from.x + ux * a, ends.from.y + uy * a);
+      g.lineTo(ends.from.x + ux * b, ends.from.y + uy * b);
+    }
+    g.strokePath();
+  }
+
+  update(time: number) {
+    if (this.aimLineEnds) this.drawAimLine(time);
+  }
+
+  /**
+   * Whether seat i's AIM markers ride on the opponent's token: they follow
+   * it (no hex), or the hex aimed at is the one the opponent stands in (as
+   * the realm will resolve a planned aim).
+   */
+  private aimOnToken(chars: CharView[], i: number): boolean {
+    const c = chars[i];
+    const opp = chars[1 - i];
+    return !!c && c.aim > 0 && (!c.aimHex || (!!opp && c.aimHex === opp.hex));
+  }
+
+  /** The AIM points the opponent of seat i holds on seat i's token (markers that ride on it). */
+  private incomingAim(chars: CharView[], i: number): number {
+    return this.aimOnToken(chars, 1 - i) ? chars[1 - i].aim : 0;
+  }
+
+  /**
+   * Buttons for the option of a gun action (cock, uncock, aim, shoot; or
+   * shoot, nothing), laid out in a ring around my character's token.
+   */
+  private openOptMenu(card: CardNumber, side: CardSide) {
+    this.closeOptMenu();
+    // Cocking a cocked gun, or uncocking an uncocked one, is pointless: hide it.
+    // The gun's state is the one the plan leaves before this card.
+    const chars = this.displayChars();
+    const me = this.myIndex >= 0 ? chars[this.myIndex] : null;
+    const gun = me ? firingGun(me.guns) : undefined;
+    const opts = (SHOOT_OPTIONS[getActionDef({ card, side }).name] ?? []).filter((o) => !gun || (o === "cock" ? !gun.cocked : o === "uncock" ? gun.cocked : true));
+    const labels: Record<ShootOption, string> = { cock: "Cock", uncock: "Uncock", aim: "Aim (+2)", shoot: "Shoot", nothing: "Do nothing" };
+    const objects: Phaser.GameObjects.GameObject[] = [];
+    // A column to the right of the token, centred on it, top to bottom.
+    const center = me ? this.tokenScreenPos(chars, this.myIndex) : { sx: this.cw / 2, sy: HUD_H + this.arrH / 2 };
+    const x = center.sx + this.tokenDiameter() * 0.8;
+    const gap = 6;
+    const texts = opts.map((o) =>
+      this.add
+        .text(x, 0, labels[o], { fontSize: "18px", fontStyle: "bold", color: "#F3E7CE", padding: { x: 14, y: 8 } })
+        .setOrigin(0, 0.5)
+        .setMask(this.arrMask)
+        .setDepth(602),
+    );
+    const width = Math.max(...texts.map((t) => t.width));
+    const total = texts.reduce((h, t) => h + t.height, 0) + gap * (texts.length - 1);
+    let y = center.sy - total / 2;
+    opts.forEach((o, i) => {
+      const text = texts[i];
+      y += text.height / 2;
+      text.setY(y);
+      const box = this.add
+        .rectangle(x, y, width, text.height, 0x8e2f1a, 1)
+        .setOrigin(0, 0.5)
+        .setStrokeStyle(3, GOLD, 1)
+        .setMask(this.arrMask)
+        .setDepth(601)
+        .setInteractive({ useHandCursor: true });
+      y += text.height / 2 + gap;
+      box.on("pointerover", () => box.setFillStyle(0xb8442a, 1));
+      box.on("pointerout", () => box.setFillStyle(0x8e2f1a, 1));
+      box.on("pointerup", () => this.resolveOpt(o));
+      objects.push(box, text);
+    });
+    this.optMenu = { card, side, objects };
+  }
+
+  private closeOptMenu() {
+    if (!this.optMenu) return;
+    for (const o of this.optMenu.objects) o.destroy();
+    this.optMenu = null;
+  }
+
+  private resolveOpt(opt: ShootOption) {
+    if (!this.optMenu) return;
+    const { card, side } = this.optMenu;
+    this.pendingOpts.set(card, opt);
+    this.closeOptMenu();
+    if (opt === "aim") this.enterAimMode(card, side);
+    this.updatePreview();
+    this.refreshSelectionDisplay();
+    this.refreshCardHighlights();
   }
 
   /** Recomputes where the plan leaves my character and animates the token there. */
@@ -1211,7 +1551,7 @@ export class GameScene extends Phaser.Scene {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   private async sendPlan() {
-    if (this.mode !== "select" || this.choiceMode || !this.view) return;
+    if (this.mode !== "select" || this.choiceMode || this.optMenu || this.aimMode || !this.view) return;
     const plan = this.currentPlan();
     const problem = validatePlan(plan, this.budget(), this.ranLastTurn(), this.myGuns());
     if (problem) {
@@ -1290,10 +1630,22 @@ export class GameScene extends Phaser.Scene {
       });
       this.seqDots.push(dot);
     }
+    const row1 = y + PANEL_H - 96;
+    const row2 = y + PANEL_H - 46;
+    // The log lives between the dots and the buttons, clipped and scrollable.
+    this.seqLogArea = { top: y + 92, bottom: row1 - 22 };
+    const logH = this.seqLogArea.bottom - this.seqLogArea.top;
     this.seqLog = this.add
-      .text(w / 2, y + 100, "", { fontSize: "14px", color: "#e8d5b0", align: "center", wordWrap: { width: w - 80 } })
-      .setOrigin(0.5, 0);
-    this.sequenceContainer.add([this.seqTitle, ...this.seqDots, this.seqLog]);
+      .text(w / 2, this.seqLogArea.top, "", { fontSize: "14px", color: "#e8d5b0", align: "center", wordWrap: { width: w - 100 } })
+      .setOrigin(0.5, 0)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerup", () => this.openLogPopup())
+      .setMask(this.make.graphics({ x: 0, y: 0 }, false).fillRect(0, this.seqLogArea.top, w, logH).createGeometryMask());
+    this.seqScrollbar = {
+      track: this.add.rectangle(w - 30, this.seqLogArea.top, 6, logH, 0x3a2510, 1).setOrigin(0.5, 0).setVisible(false),
+      thumb: this.add.rectangle(w - 30, this.seqLogArea.top, 6, 20, GOLD, 0.8).setOrigin(0.5, 0).setVisible(false),
+    };
+    this.sequenceContainer.add([this.seqTitle, ...this.seqDots, this.seqLog, this.seqScrollbar.track, this.seqScrollbar.thumb]);
 
     const btn = (x: number, by: number, label: string, onClick: () => void) => {
       const t = this.add.text(x, by, label, BTN_STYLE).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -1301,8 +1653,6 @@ export class GameScene extends Phaser.Scene {
       this.sequenceContainer.add(t);
       return t;
     };
-    const row1 = y + PANEL_H - 96;
-    const row2 = y + PANEL_H - 46;
     this.prevTurnBtn = btn(w / 2 - 150, row1, "◀ Turn", () => this.jumpTurn(-1));
     this.playBtn = btn(w / 2, row1, "Play", () => this.toggleAuto());
     this.nextTurnBtn = btn(w / 2 + 150, row1, "Turn ▶", () => this.jumpTurn(1));
@@ -1336,7 +1686,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       if (this.mode === "select" && this.selectionOrder.length > 0) {
-        this.stashedPlan = { turn: this.view.turn, order: [...this.selectionOrder], choices: new Map(this.pendingChoices), guns: new Map(this.pendingGuns) };
+        this.stashedPlan = { turn: this.view.turn, order: [...this.selectionOrder], choices: new Map(this.pendingChoices), guns: new Map(this.pendingGuns), opts: new Map(this.pendingOpts), aims: new Map(this.pendingAims) };
       }
       this.startPlayback(history.turns, false);
     } catch (e) {
@@ -1350,6 +1700,48 @@ export class GameScene extends Phaser.Scene {
     this.playback.seg = pos.seg;
     this.refreshTokens(true);
     this.refreshSequencePanel();
+    this.flashShots(eventsForSegment(this.playback.turns[pos.index].events, pos.seg));
+  }
+
+  /**
+   * A bullet flying from the shooter to the target for each shot of the
+   * segment: a red tracer grows from the shooter with a bright head, then
+   * fades out. Drawn under the tokens like the aim line.
+   */
+  private flashShots(events: TurnEvent[]) {
+    const chars = this.displayChars();
+    for (const e of events) {
+      if (e.kind !== "shot" || !chars[e.p] || !chars[e.target]) continue;
+      const from = this.tokenScreenPos(chars, e.p);
+      // The bullet lands somewhere on the target's token, not dead centre.
+      const centre = this.tokenScreenPos(chars, e.target);
+      const angle = Math.random() * Math.PI * 2;
+      const spread = Math.random() * this.tokenDiameter() * 0.4;
+      const to = { sx: centre.sx + Math.cos(angle) * spread, sy: centre.sy + Math.sin(angle) * spread };
+      const g = this.add.graphics().setMask(this.arrMask).setDepth(0.5);
+      const bullet = { t: 0 };
+      const draw = () => {
+        const x = from.sx + (to.sx - from.sx) * bullet.t;
+        const y = from.sy + (to.sy - from.sy) * bullet.t;
+        g.clear();
+        g.lineStyle(3, AIM_LINE_COLOR, 1);
+        g.beginPath();
+        g.moveTo(from.sx, from.sy);
+        g.lineTo(x, y);
+        g.strokePath();
+        g.fillStyle(0xffd860, 1);
+        g.fillCircle(x, y, 5);
+      };
+      const flight = Math.min(400, 60 + Math.hypot(to.sx - from.sx, to.sy - from.sy) / 4);
+      this.tweens.add({
+        targets: bullet,
+        t: 1,
+        duration: flight,
+        ease: "Linear",
+        onUpdate: draw,
+        onComplete: () => this.tweens.add({ targets: g, alpha: 0, duration: 600, delay: 150, ease: "Cubic.easeIn", onComplete: () => g.destroy() }),
+      });
+    }
   }
 
   private stepPlayback(delta: 1 | -1) {
@@ -1394,24 +1786,102 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Scrolls the resolution log by dy pixels, clamped to its overflow, and lays out the scrollbar. */
+  private scrollLog(dy: number) {
+    const { top, bottom } = this.seqLogArea;
+    const areaH = bottom - top;
+    const overflow = Math.max(0, this.seqLog.height - areaH);
+    this.seqScroll = Phaser.Math.Clamp(this.seqScroll + dy, 0, overflow);
+    this.seqLog.setY(top - this.seqScroll);
+    if (!this.seqScrollbar) return;
+    const show = overflow > 0;
+    this.seqScrollbar.track.setVisible(show);
+    this.seqScrollbar.thumb.setVisible(show);
+    if (show) {
+      const thumbH = Math.max(16, (areaH * areaH) / this.seqLog.height);
+      this.seqScrollbar.thumb.setSize(6, thumbH).setY(top + (areaH - thumbH) * (this.seqScroll / overflow));
+    }
+  }
+
+  /** The lines of the resolution log for the segment shown: the plans and turn-start events at segment 0, else the segment's events. */
+  private logLines(): string[] {
+    const pb = this.playback;
+    if (!pb) return [];
+    const t = pb.turns[pb.index];
+    const names = this.view?.players.map((p) => charName(p.char)) ?? [];
+    if (pb.seg === 0) {
+      const lines = ["Plans: " + t.plans.map((p, i) => `${names[i]}: ${p || "pass"}`).join("  ·  ")];
+      lines.push(...eventsForSegment(t.events, 0).map((e) => describeEvent(e, names)));
+      return lines;
+    }
+    let lines = eventsForSegment(t.events, pb.seg).map((e) => describeEvent(e, names));
+    if (pb.seg === SEGMENTS) lines.push(...endOfTurnEvents(t.events).map((e) => describeEvent(e, names)));
+    if (lines.length === 0) lines = ["Nothing happens."];
+    if (pb.seg === SEGMENTS && t.cards?.length) lines.push(`Result cards drawn: ${t.cards.join(", ")}`);
+    return lines;
+  }
+
+  /**
+   * The resolution log in a wide popup over the board, scrollable with the
+   * wheel; closed by its × button, a click outside or Escape.
+   */
+  private openLogPopup() {
+    this.closeLogPopup();
+    const pw = Math.min(this.cw - 80, 900);
+    const ph = Math.min(this.ch - 120, 560);
+    const px = (this.cw - pw) / 2;
+    const py = (this.ch - ph) / 2;
+    const backdrop = this.add.rectangle(0, 0, this.cw, this.ch, 0x000000, 0.6).setOrigin(0).setDepth(900).setInteractive();
+    backdrop.on("pointerup", () => this.closeLogPopup());
+    const panel = this.add.rectangle(px, py, pw, ph, 0x1a0f07, 1).setOrigin(0).setStrokeStyle(3, GOLD, 1).setDepth(901).setInteractive();
+    const title = this.add.text(px + pw / 2, py + 26, this.seqTitle.text, { fontSize: "22px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5).setDepth(902);
+    const close = this.add.text(px + pw - 22, py + 22, "✕", { fontSize: "22px", color: GOLD_STR }).setOrigin(0.5).setDepth(902).setInteractive({ useHandCursor: true });
+    close.on("pointerup", () => this.closeLogPopup());
+    const area = { top: py + 56, bottom: py + ph - 24 };
+    const text = this.add
+      .text(px + 28, area.top, this.logLines().join("\n"), { fontSize: "17px", color: "#e8d5b0", lineSpacing: 6, wordWrap: { width: pw - 80 } })
+      .setOrigin(0, 0)
+      .setDepth(902)
+      .setMask(this.make.graphics({ x: 0, y: 0 }, false).fillRect(px, area.top, pw, area.bottom - area.top).createGeometryMask());
+    const track = this.add.rectangle(px + pw - 20, area.top, 6, area.bottom - area.top, 0x3a2510, 1).setOrigin(0.5, 0).setDepth(902);
+    const thumb = this.add.rectangle(px + pw - 20, area.top, 6, 20, GOLD, 0.8).setOrigin(0.5, 0).setDepth(903);
+    this.logPopup = { objects: [backdrop, panel, title, close, text, track, thumb], text, area, scroll: 0, track, thumb };
+    this.scrollPopup(0);
+  }
+
+  private closeLogPopup() {
+    if (!this.logPopup) return;
+    for (const o of this.logPopup.objects) o.destroy();
+    this.logPopup = null;
+  }
+
+  private scrollPopup(dy: number) {
+    const pop = this.logPopup;
+    if (!pop) return;
+    const areaH = pop.area.bottom - pop.area.top;
+    const overflow = Math.max(0, pop.text.height - areaH);
+    pop.scroll = Phaser.Math.Clamp(pop.scroll + dy, 0, overflow);
+    pop.text.setY(pop.area.top - pop.scroll);
+    const show = overflow > 0;
+    pop.track.setVisible(show);
+    pop.thumb.setVisible(show);
+    if (show) {
+      const thumbH = Math.max(16, (areaH * areaH) / pop.text.height);
+      pop.thumb.setSize(6, thumbH).setY(pop.area.top + (areaH - thumbH) * (pop.scroll / overflow));
+    }
+  }
+
   private refreshSequencePanel() {
     const pb = this.playback;
     if (!pb || !this.seqTitle) return;
     const t = pb.turns[pb.index];
-    const names = this.view?.players.map((p) => charName(p.char)) ?? [];
     const which = pb.turns.length > 1 ? `Turn ${t.turn} of ${pb.turns[pb.turns.length - 1].turn}` : `Turn ${t.turn}`;
     this.seqTitle.setText(pb.seg === 0 ? `${which}: start` : `${which}: segment ${pb.seg} of ${SEGMENTS}`);
     this.seqDots.forEach((dot, i) => dot.setText(i < pb.seg ? "●" : "○").setAlpha(i + 1 === pb.seg ? 1 : 0.7));
-    let lines: string[];
-    if (pb.seg === 0) {
-      lines = ["Plans: " + t.plans.map((p, i) => `${names[i]}: ${p || "pass"}`).join("  ·  ")];
-    } else {
-      lines = eventsForSegment(t.events, pb.seg).map((e) => describeEvent(e, names));
-      if (pb.seg === SEGMENTS) lines.push(...endOfTurnEvents(t.events).map((e) => describeEvent(e, names)));
-      if (lines.length === 0) lines = ["Nothing happens."];
-      if (pb.seg === SEGMENTS && t.cards?.length) lines.push(`Result cards drawn: ${t.cards.join(", ")}`);
-    }
-    this.seqLog.setText(lines.join("\n"));
+    this.seqLog.setText(this.logLines().join("\n"));
+    this.seqScroll = 0;
+    this.scrollLog(0);
+    if (this.logPopup) this.openLogPopup(); // keep an open popup on the segment shown
     const pos = { index: pb.index, seg: pb.seg };
     this.prevSeqBtn.setAlpha(stepBack(pos) ? 1 : 0.3);
     this.nextSeqBtn.setAlpha(stepForward(pos, pb.turns.length) ? 1 : 0.3);
@@ -1426,6 +1896,7 @@ export class GameScene extends Phaser.Scene {
     const pb = this.playback;
     if (!pb) return;
     this.stopAuto();
+    this.closeLogPopup();
     if (pb.live) this.shownResultTurn = pb.turns[pb.turns.length - 1].turn;
     this.playback = null;
     const view = this.view;
@@ -1442,6 +1913,8 @@ export class GameScene extends Phaser.Scene {
       this.selectionOrder = stash.order;
       this.pendingChoices = stash.choices;
       this.pendingGuns = stash.guns;
+      this.pendingOpts = stash.opts;
+      this.pendingAims = stash.aims;
       this.updatePreview();
       this.refreshSelectionDisplay();
       this.refreshCardHighlights();
@@ -1452,6 +1925,14 @@ export class GameScene extends Phaser.Scene {
 
   private setupInput() {
     this.input.on("wheel", (pointer: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
+      if (this.logPopup) {
+        this.scrollPopup(dy > 0 ? 48 : -48);
+        return;
+      }
+      if (this.mode === "playback" && pointer.y >= this.seqLogArea.top && pointer.y <= this.seqLogArea.bottom) {
+        this.scrollLog(dy > 0 ? 40 : -40);
+        return;
+      }
       if (pointer.y <= HUD_H || pointer.y >= this.panelY) return;
       const dir = dy > 0 ? -1 : 1;
       const oldZoom = this.zoom;
@@ -1496,6 +1977,7 @@ export class GameScene extends Phaser.Scene {
       this.isDragging = false;
     });
     this.input.on("gameout", () => this.setSpreadHex(null));
+    this.input.keyboard?.on("keydown-ESC", () => this.closeLogPopup());
   }
 }
 

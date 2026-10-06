@@ -11,6 +11,23 @@ export interface PlanEntry {
   gun?: number;
   /** Destination hand for Draw & Cock: 0 gun hand, 1 other hand, 2 both hands. */
   hand?: number;
+  /** What a Cock/Aim/Shoot does, or a Shoot (shoot or nothing). */
+  opt?: ShootOption;
+  /** The hex aimed at, for the aim option. */
+  hex?: string;
+}
+
+export type ShootOption = "cock" | "uncock" | "aim" | "shoot" | "nothing";
+
+/** The options each gun action offers, in display order. */
+export const SHOOT_OPTIONS: Record<string, ShootOption[]> = {
+  "Cock/Aim/Shoot": ["cock", "uncock", "aim", "shoot"],
+  Shoot: ["shoot", "nothing"],
+};
+
+/** Whether the side is a gun action taking a shoot option. */
+export function isShooting(entry: { card: CardNumber; side: CardSide }): boolean {
+  return getActionDef(entry).name in SHOOT_OPTIONS;
 }
 
 export const HAND_GUN = 0;
@@ -19,10 +36,12 @@ export const HAND_BOTH = 2;
 export const HAND_LOCATION: Record<number, GunView["location"]> = { 0: "gun_hand", 1: "other_hand", 2: "both_hands" };
 
 export const MAX_ACTION_POINTS = 5;
+/** The most AIM points a character holds on a target (rule 12.3). */
+export const MAX_AIM = 8;
 export const MAX_PLAN_ENTRIES = 5;
 
 /** Actions the realm implements so far: the foot actions and Draw & Cock. */
-export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down", "Draw & Cock"]);
+export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down", "Draw & Cock", "Cock/Aim/Shoot", "Shoot"]);
 
 /** The holstered guns a Draw & Cock may take, given the character's guns. */
 export function drawableGuns(guns: GunView[]): GunView[] {
@@ -56,6 +75,10 @@ export function encodePlan(plan: PlanEntry[]): string {
     .map((e) => {
       const def = getActionDef(e);
       const base = `${e.card}${e.side === "front" ? "f" : "b"}`;
+      if (def.name in SHOOT_OPTIONS) {
+        if (!e.opt || (def.name === "Shoot" && e.opt === "nothing")) return base;
+        return e.opt === "aim" ? `${base}:aim:${e.hex ?? ""}` : `${base}:${e.opt}`;
+      }
       if (def.choiceType === "gun") return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
       const needsDir = def.choiceType === "move_ahead" || def.choiceType === "move_back" || def.choiceType === "turn_ahead" || def.choiceType === "turn_back";
       return needsDir && e.dir ? `${base}:${e.dir}` : base;
@@ -66,11 +89,25 @@ export function encodePlan(plan: PlanEntry[]): string {
 export function decodePlan(s: string): PlanEntry[] {
   if (s === "") return [];
   return s.split(",").map((token) => {
-    const m = /^(\d{1,2})([fb])(?::([a-z_0-9:]+))?$/.exec(token);
+    const m = /^(\d{1,2})([fb])(?::([a-zA-Z_0-9:-]+))?$/.exec(token);
     if (!m) throw new Error(`invalid plan entry "${token}"`);
     const card = Number(m[1]);
     if (card < 1 || card > 12) throw new Error(`invalid card ${card}`);
     const entry: PlanEntry = { card: card as CardNumber, side: m[2] === "f" ? "front" : "back" };
+    const name = getActionDef(entry).name;
+    if (name in SHOOT_OPTIONS) {
+      const choice = m[3] ?? (name === "Shoot" ? "nothing" : "");
+      const i = choice.indexOf(":");
+      const opt = i >= 0 ? choice.slice(0, i) : choice;
+      const arg = i >= 0 ? choice.slice(i + 1) : "";
+      if (!(SHOOT_OPTIONS[name] as string[]).includes(opt)) throw new Error(`invalid option "${opt}" for ${name}`);
+      if (opt === "aim") {
+        if (!/^[A-Z0-9-]{3,8}$/.test(arg)) throw new Error(`aim needs the hex to aim at, e.g. "${token.split(":")[0]}:aim:A-F6"`);
+        entry.hex = arg;
+      } else if (arg) throw new Error(`option "${opt}" takes no argument`);
+      entry.opt = opt as ShootOption;
+      return entry;
+    }
     if (m[3] !== undefined) {
       if (getActionDef(entry).choiceType === "gun") {
         const g = /^([1-9][0-9]*):([0-2])$/.exec(m[3]);
@@ -106,6 +143,11 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
     if (used.has(e.card)) return "you cannot use both sides of a card";
     used.add(e.card);
     names.add(def.name);
+    if (def.name in SHOOT_OPTIONS) {
+      if (!e.opt || !SHOOT_OPTIONS[def.name].includes(e.opt)) return "choose what to do with the gun";
+      if (e.opt === "aim" && !e.hex) return "choose the hex to aim at";
+      continue;
+    }
     switch (def.choiceType) {
       case "move_ahead":
       case "turn_ahead":

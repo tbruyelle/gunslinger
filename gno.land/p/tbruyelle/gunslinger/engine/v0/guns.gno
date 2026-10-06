@@ -10,18 +10,20 @@ const (
 	Colt45 GunType = "colt45"
 )
 
-// GunSpec is the static data of a gun model (rules section 11).
+// GunSpec is the static data of a gun model (rules section 10 and the
+// WEAPON LISTS).
 type GunSpec struct {
 	Name      string
 	Capacity  int
 	OneHanded bool
+	Impact    byte // its line of the IMPACT TABLE (see Impact)
 }
 
 // Spec returns the model's static data.
 func (t GunType) Spec() GunSpec {
 	switch t {
 	case Colt45:
-		return GunSpec{Name: "Colt 45", Capacity: 6, OneHanded: true}
+		return GunSpec{Name: "Colt 45", Capacity: 6, OneHanded: true, Impact: 'B'}
 	}
 	return GunSpec{}
 }
@@ -79,6 +81,21 @@ type Gun struct {
 	Location GunLocation
 	Cocked   bool
 	Shells   int
+	Jammed   bool // every shell crossed off; fires again once fully reloaded (13.31)
+	Exploded bool // cannot fire for the rest of the game (13.31)
+}
+
+// CanFireFrom reports whether the gun is in a box it can shoot from (13.1):
+// a one-handed gun in the gun hand or both hands, a two-handed one in both
+// hands.
+func (g Gun) CanFireFrom() bool {
+	if g.Type == NoGun {
+		return false
+	}
+	if g.Type.Spec().OneHanded {
+		return g.Location == GunHand || g.Location == BothHands
+	}
+	return g.Location == BothHands
 }
 
 // MaxGuns is how many guns a character can carry (hands and holsters).
@@ -112,6 +129,17 @@ func (g Guns) NextID() int {
 func (g Guns) At(loc GunLocation) int {
 	for i, gun := range g {
 		if gun.Type != NoGun && gun.Location == loc {
+			return i
+		}
+	}
+	return -1
+}
+
+// Firing returns the slot of the gun held in a box it can shoot from
+// (rule 11.3), or -1.
+func (g Guns) Firing() int {
+	for i, gun := range g {
+		if gun.CanFireFrom() {
 			return i
 		}
 	}

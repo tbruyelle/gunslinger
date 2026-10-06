@@ -16,6 +16,16 @@ export interface SheetData {
   phase: string;
   isMe: boolean;
   guns: GunView[];
+  /** AIM points and the hex the markers sit on ("" when they follow the opponent). */
+  aim: number;
+  aimHex: string;
+  /** Endurance boxes left (20 at the start). */
+  endurance: number;
+  /** Permanent wounds. */
+  serious: number;
+  gunArm: number;
+  otherArm: number;
+  leg: number;
 }
 
 const DIRS = ["N", "NE", "SE", "S", "SW", "NW"];
@@ -60,7 +70,11 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void, pick?: G
     .replace("{{otherHand}}", gunBox(d.guns, "other_hand", pick))
     .replace("{{bothHands}}", gunBox(d.guns, "both_hands", pick))
     .replace("{{gunHand}}", gunBox(d.guns, "gun_hand", pick))
-    .replace("{{holstered}}", gunBox(d.guns, "holstered", pick));
+    .replace("{{holstered}}", gunBox(d.guns, "holstered", pick))
+    .replace("{{serious}}", wound(d.serious, "fatigue card per turn"))
+    .replace("{{gunArm}}", wound(d.gunArm, "aim time with the gun hand", "−"))
+    .replace("{{otherArm}}", wound(d.otherArm, "aim time with the other hand", "−"))
+    .replace("{{leg}}", wound(d.leg, "fatigue card per hex moved"));
 
   backdrop = document.createElement("div");
   backdrop.style.cssText =
@@ -79,6 +93,7 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void, pick?: G
     "position:relative;cursor:default;transform-origin:center center;" +
     `transition:transform ${ANIM_MS}ms cubic-bezier(.2,.8,.3,1.1),opacity ${ANIM_MS}ms ease-out;opacity:0`;
   frame.innerHTML = (pick ? promptBanner(pick.prompt) : "") + html;
+  markEndurance(frame, d.endurance);
   if (pick) wirePick(frame, pick);
   const close = document.createElement("button");
   close.textContent = "×";
@@ -166,11 +181,30 @@ function statusRow(d: SheetData, accent: string): string {
     chip("FACING", DIRS[d.facing] ?? String(d.facing)),
     chip("DELAY", String(d.delay), d.delay > 0),
     d.down ? chip("BODY", "DOWN", true) : chip("BODY", "UPRIGHT"),
-    chip("STATUS", escapeHtml(d.status.toUpperCase())),
+    chip("STATUS", escapeHtml(d.status.replace(/_/g, " ").toUpperCase()), d.status !== "alive"),
+    chip("AIM", d.aim > 0 ? `${d.aim}${d.aimHex ? ` on ${escapeHtml(d.aimHex)}` : " on target"}` : "0", d.aim > 0),
+    chip("END", String(d.endurance), d.endurance < 10),
     chip("PLAN", plan),
   ];
   if (d.isMe) chips.push(`<div style="margin-left: auto; font-family: Rye, Georgia, serif; font-size: 22px; color: ${accent}; letter-spacing: 1px">YOUR CHARACTER</div>`);
   return `<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">${chips.join("")}</div>`;
+}
+
+/** A permanent wound value, with its meaning; empty when none. */
+function wound(n: number, meaning: string, sign = ""): string {
+  if (n <= 0) return "";
+  return `<span style="font-size: 26px; color: #8E2F1A">${sign}${n}</span><span style="margin-left: 12px; font-weight: 400; font-size: 15px; letter-spacing: 0">${escapeHtml(meaning)}${n > 1 && sign === "" ? "s" : ""}</span>`;
+}
+
+/** Crosses off the endurance boxes above the ones left. */
+function markEndurance(frame: HTMLElement, endurance: number) {
+  frame.querySelectorAll<HTMLElement>("[data-end]").forEach((box) => {
+    const n = Number(box.dataset.end);
+    if (n > endurance) {
+      box.style.background = "repeating-linear-gradient(45deg, #2A1C14 0 3px, transparent 3px 9px)";
+      box.style.color = "#8E2F1A";
+    }
+  });
 }
 
 /** The instruction shown above the sheet while a gun is being picked. */

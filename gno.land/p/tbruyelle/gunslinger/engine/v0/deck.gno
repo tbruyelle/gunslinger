@@ -43,15 +43,21 @@ func (r Result) String() string {
 // ResultCard is one of the 108 result cards (rule 2.4): N is its number on
 // the card. Delay and Wound are the DELAY and WOUND lines and Hex the HEX
 // line (direction cards, 14.3: a relative direction, hex.Same or hex.Long).
-// The TAC line (optional rule 9) is not used by this game. The upper part of
-// a card, the FIRE hit table or, on cards 101 to 108, the MALFUNCTION block
-// (rule 13.3), only matters when shooting and comes with combat.
+// The upper block is either a FIRE hit chart with its Target Status letters
+// (cards 1-100, see fire.gno) or a MALFUNCTION block (cards 101-108). The
+// TAC line (optional rule 9) is not used by this game.
 type ResultCard struct {
-	N     int
-	Delay Result
-	Wound Result
-	Hex   hex.Rel
+	N      int
+	Delay  Result
+	Wound  Result
+	Hex    hex.Rel
+	Fire   *Chart       // the hit chart of a FIRE card, nil on a MALFUNCTION
+	Status string       // Target Status letters of a FIRE card (StatusMove...)
+	Malf   *Malfunction // the block of a MALFUNCTION card, nil on a FIRE card
 }
+
+// IsFire reports whether the card is a FIRE card (13.2).
+func (c ResultCard) IsFire() bool { return c.Malf == nil }
 
 // DeckSize is the number of result cards.
 const DeckSize = 108
@@ -85,7 +91,14 @@ func buildCards() (cards [DeckSize]ResultCard) {
 	n := 0
 	for _, r := range runs {
 		for i := r.from; i <= r.to; i++ {
-			cards[i-1] = ResultCard{N: i, Delay: r.delay, Wound: r.wound, Hex: r.hex}
+			c := ResultCard{N: i, Delay: r.delay, Wound: r.wound, Hex: r.hex}
+			if i <= len(fireCards) {
+				c.Fire = parseChart(fireCards[i-1].chart)
+				c.Status = fireCards[i-1].status
+			} else {
+				c.Malf = &malfunctions[i-1-len(fireCards)]
+			}
+			cards[i-1] = c
 			n++
 		}
 	}

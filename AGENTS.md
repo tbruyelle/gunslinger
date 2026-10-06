@@ -11,10 +11,12 @@ The game runs **on the gno.land chain**: a Gno realm holds every game and
 resolves the turns; a Phaser web app is the interface and signs its
 transactions with the **Adena** wallet. There is no game server.
 
-Current milestone: **board A only, exactly 2 players, one character each, foot
-actions only** (advance, back up, run, spin around, sprint, turn, leap/drop,
-get up/down). Plans are submitted in clear (no commit-reveal yet); guns,
-brawling, multi-board layouts and victory points come later.
+Current milestone: **board A only, exactly 2 players, one character each**,
+the foot actions (advance, back up, run, spin around, sprint, turn,
+leap/drop, get up/down) and the Colt 45 gun play (Draw & Cock,
+Cock/Aim/Shoot, Shoot) with the full hit, wound and penalty rules. Plans are
+submitted in clear (no commit-reveal yet); loading, throwing, brawling,
+multi-board layouts and victory points come later.
 
 ## Tech Stack
 
@@ -58,9 +60,9 @@ go tool gno test -update-golden-tests ./gno.land/r/tbruyelle/gunslinger/v0/   # 
 
 ```
 gno.land/
-  p/tbruyelle/gunslinger/hex/v0      directions, relative directions, Board adjacency (board_a.gno is generated)
+  p/tbruyelle/gunslinger/hex/v0      directions, relative directions, Board adjacency + axial coords, range, aim zone (board_a.gno is generated)
   p/tbruyelle/gunslinger/cards/v0    the 12 action cards (24 sides), Enabled() = implemented actions
-  p/tbruyelle/gunslinger/engine/v0   pure rules engine: plan DSL + validation, Resolve, EndTurn, result deck
+  p/tbruyelle/gunslinger/engine/v0   pure rules engine: plan DSL + validation, Resolve, EndTurn, result deck (deck.gno, fire.gno), impact table
   r/tbruyelle/gunslinger/v0          the realm: games, lobby, SubmitPlan, JSON views, Render, filetests/
 client/src/
   chain/      rpc.ts (abci_query/status/tx), adena.ts (wallet), realm.ts (typed calls), poller.ts, types.ts
@@ -102,7 +104,7 @@ the RPC, clients poll).
 ### Reads
 `Render("json/game/{id}")`, `Render("json/games/{addr}")` and
 `Render("json/history/{id}")` (every resolved turn with its starting state,
-plans, seed and events, for replays) return raw JSON through `vm/qrender`
+plans, seed, drawn cards and events, for replays) return raw JSON through `vm/qrender`
 (`vm/qeval` would Go-quote the string). `Render("")`, `game/{id}`, `help` are
 gnoweb pages. `GameJSON`, `GamesJSON`, `HistoryJSON`, `GameRev` are plain
 getters for tests and gnokey.
@@ -110,16 +112,21 @@ getters for tests and gnokey.
 ### Plan string
 `entry("," entry)*`, `entry := <card 1-12><f|b>[:<choice>]`; the choice is a
 direction for move/turn cards (`ahead_left ahead ahead_right back_left back
-back_right`) or, for Draw & Cock, `<gun id>:<hand>` (`9f:1:0`: gun 1 to the
+back_right`), for Draw & Cock `<gun id>:<hand>` (`9f:1:0`: gun 1 to the
 gun hand; hands: 0 gun hand, 1 other hand, 2 both hands; every gun has a
-stable id within the game, the starting Colt is 1); at most 5 entries, empty
-= pass. Example `1f:ahead_left,2f:ahead,3f`. Rules (engine `Plan.Validate`):
-one side per card, dir required for move/turn cards and in the right set, no
-choice otherwise, Draw & Cock needs that gun to be holstered, the gun hand
-as destination (the other hands come later) and that hand free, total cost ≤
-5 − carried delay, Run needs Advance, Sprint needs Run
-in the same plan **and** a Run played on the previous turn (`RanLastTurn`,
-carried over by `EndTurn`; rule 9.23).
+stable id within the game, the starting Colt is 1), or for the gun actions
+the option: Cock/Aim/Shoot `5f:cock|uncock|shoot` or `5f:aim:<hex>` (the
+hex aimed at, any hex of the aim zone), Shoot `7f:shoot` or a bare `7f`
+(does nothing, keeps the aim). A shot is always at the opponent.
+At most 5 entries, empty = pass. Example `1f:ahead_left,2f:ahead,3f`. Rules
+(engine `Plan.Validate`): one side per card, dir required for move/turn
+cards and in the right set, no choice otherwise, Draw & Cock needs that gun
+to be holstered, the gun hand as destination (the other hands come later)
+and that hand free, gun actions need a valid option (whether a gun is in
+hand is checked when the action executes, so Draw & Cock + Shoot works in
+one turn), total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs
+Run in the same plan **and** a Run played on the previous turn
+(`RanLastTurn`, carried over by `EndTurn`; rule 9.23).
 
 ### Directions
 Absolute 0=N 1=NE 2=SE 3=S 4=SW 5=NW (flat-top hexes, vertical columns).
@@ -131,14 +138,56 @@ use the convention above. Tokens are drawn rotated by
 `dirIndexToAngle(facing, charKey)` (their arrow is baked into the PNG, see
 `CHAR_ARROW_DIR`).
 
-### Resolution (engine.Resolve, port of bga ResolveTurn.php)
+### Resolution (engine.Resolve)
 For each segment 1–5 and each alive player, the next action executes once when
-`usedTime + cost + delay ≤ segment`. Delay gained in a segment applies from the
-next one. Moving while down costs 2 delay (crawl); Sprint goes straight ahead
-and draws a delay card; Leap/Drop draws two; ending a move in an occupied hex
-makes both characters draw one (rule 9.24). Off-board moves are cancelled but
-still consume their time. Unexecuted actions are cancelled after segment 5.
-End of turn removes half the delay, rounded up.
+`usedTime + cost + delay ≤ segment`, **shots first** (7.52), seat 0 before
+seat 1. Delay gained in a segment applies from the next one. Moving while
+down costs 2 delay (crawl); Sprint goes straight ahead and draws a delay
+card; Leap/Drop draws two; ending a move in an occupied hex makes both
+characters draw one (rule 9.24). Off-board moves are cancelled but still
+consume their time. Unexecuted actions are cancelled after segment 5. End of
+turn (`EndTurn`, returns events) removes half the delay, rounded up, and a
+character with more delay than endurance at the end of two turns in a row
+(checked after the halving) passes out. Events have `Seg` 0 for turn-start
+events (SERIOUS fatigue, aim lost on the first reveal) and `EndOfTurn` (6)
+for those after segment 5 (cancels, passing out, the serious-wound check).
+
+**Guns and shooting** (rules 11–14, Colt 45 only). Draw & Cock moves a
+holstered gun to the gun hand, cocked. Cock/Aim/Shoot cocks, uncocks, aims
+or shoots; Shoot shoots or does nothing. **Aiming** puts 2 AIM points (max
+8) on the hex named, which must be in the aim zone; when the opponent stands
+there the markers follow it (`Character.AimHex` is "" then, else the hex). The gun must be in a box it fires from
+(one-handed: gun hand or both hands) or the action is cancelled; a shot also
+needs it cocked and loaded. **Aim** is lost when revealing any action but a
+Turn or a gun action that does not cock (12.44), when a new target (the hex
+aimed at, or the opponent shot at) is more than one hex from the markers
+(12.5; within one hex the markers move), when the markers' hex leaves the
+aim zone at the end of a segment (12.41), after a shot (12.43) and on
+penalties. **Aim zone** (8.32) = own hex plus the 120° cone between the
+ahead-left and ahead-right rows (`hex.Board.InAimZone`, axial coordinates
+generated into `board_a.gno`); range = shortest path (`Board.Distance`); no
+obstacles or line of sight yet. **A shot** draws a result card: a MALFUNCTION
+whose Handloaded line says no effect is replaced; a misfire cancels the shot
+and a second MALFUNCTION jams (shells 0) or blows up the gun. A FIRE card's
+hit chart is read at aim time (card aim time + AIM points − GUN ARM / OTHER
+ARM wounds) and range; off the chart, or the target out of the aim zone, is a
+miss. Target Status (13.6): Move (foot action played or dropped this turn)
+and Run turn a bullseye into the card's lesser hit and any other hit into a
+miss; Down turns any hit but a bullseye into a miss. A bullseye becomes a
+VITAL hit (the shooter's best choice). The shooter then uncocks, spends a
+shell and loses the aim. **Hits** map through the IMPACT TABLE (`impact.gno`,
+line B from the VASSAL module's table; the rules PDF has none) and apply at
+the end of the segment: KILL; STUN n (n wound cards, read on the WOUND line:
+endurance boxes and delay, or a 14.11 penalty); STAGGER (two direction
+cards: move to the hex named by the first, relative to the target's facing
+or "Long" along the shooter's line, face per the second, then DROP; an
+off-board hex keeps the character in place); SERIOUS n (n fatigue cards at
+every turn start; at the end of the showdown a card's DELAY number plus the
+points kills at 4, `EndShowdown`); GUN HAND / OTHER HAND (the weapon drops in
+the hex, `State.Ground`, firing harmlessly if cocked); GUN ARM n / OTHER ARM
+n (aim time); LEG n (n fatigue cards per hex moved upright); LIGHT n (n
+fatigue cards). Endurance starts at 20 (`StartEndurance`). Fanfiring, aim transfer on a Shoot doing nothing, and picking guns up from
+the ground are not played.
 
 **Result deck** (`engine/v0/deck.gno`): the 108 result cards are transcribed
 as data (`engine.Cards`: DELAY, WOUND and HEX lines; TAC is unused and the
@@ -220,7 +269,17 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   the first gun action: picking it opens the sheet in pick mode, where the
   holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
   carries the gun id and hand (`9f:1:0`) and the resolution moves and cocks the gun
-  (`draw` event). Other gun actions stay disabled.
+  (`draw` event). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: cock,
+  uncock, aim, shoot / shoot, do nothing; `pendingOpts`; cock and uncock
+  hide when pointless). Aim then highlights the aim zone (`BoardMap.aimZone`,
+  same axial maths as the realm) and the clicked hex goes into the plan
+  (`pendingAims`, `5f:aim:A-F6`). The preview (`replayPlan`) follows the
+  aim, cocking and shells; AIM markers are drawn on the aimed hex, or on the opponent's token when
+  they follow it (`refreshAimMarkers`); tokens grey out for a killed or
+  passed-out character; the sheet
+  shows AIM, endurance (boxes above the ones left are crossed off) and the
+  permanent wounds. During playback a tracer is drawn for each shot
+  (`flashShots`), red on a hit. Loading, throwing and brawling stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
@@ -263,8 +322,8 @@ once combat lands); effects apply at segment end. Full rules:
 
 `assets/` (TTS mod dump, served by Vite): boards 1600×2232 (`board_A.png` …),
 character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png` (630×880),
-`hex_grid.json` (hex centres, scaled 2×), gun icons `guns/<type>.gif` (from the
-VASSAL module). `assets/local/` (VASSAL): status
+`hex_grid.json` (hex centres, scaled 2×), gun icons `guns/<type>.gif` and AIM
+markers `aim{2,4,6,8}.gif` (from the VASSAL module). `assets/local/` (VASSAL): status
 overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 (not needed, everything is present).
 
@@ -288,7 +347,8 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Advanced tutorial
 - Lobby
   - Check game list order (sort by most recent)
-  - Top players list
+    - highlight almost timeouted game (display remaining time)
+  - Top players list leaderboard
   - Create game options
     - Allow create game with pot
       - join require to fill the pot with the same amount
@@ -300,6 +360,9 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - move timeout in the same form
 - Showdown
   - Add token placement during create/join phase
+  - Resolution log
+    - improve consistency
+    - improve visiblity/readability
   - Cards
     - make border transparent
     - add drop weapon action cards (show waepon on the ground)
@@ -307,6 +370,20 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Character sheets
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
+  - Aim/Shoots
+    - add smoke
+    - missed
+        - add missed!
+        - dont stop the red line to the target token
+    - hit
+        - add LOCATION hit!
+        - blood on the ground behind the shoot
+        - rumble the target icon
+    - check what hjappens in a character goes to a hex that contains a aim
+      marker
+    - check what happens if a aimed character move
+    - aim lines does not appear after shooter submit and during replay last
+      turn
   - Obstacles
     - implement walls 
     - obstacles delay
@@ -316,9 +393,11 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - show remaining bullets
   - Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
     simultaneous selection and dice seeded from revealed salts.
-  - Guns and brawling: enable more `cards.Enabled`, shots first per segment,
-    transcribe the FIRE hit tables and IMPACT tables (the result cards'
-    DELAY/WOUND/HEX lines are in `engine.Cards`).
+  - More guns and brawling: enable Load, Throw and the brawling cards;
+    other IMPACT TABLE lines (only the Colt's line B is in `impact.gno`);
+    fanfire; aim at hexes and aim transfer; pick guns up from the ground
+    (`State.Ground` is exposed as `ground` in the JSON); line of sight and
+    obstacles for ranges and aim zones; victory points.
   - With more than one gun, Draw & Cock into the other hand (hand code 1,
     second gun): lift the "only the gun hand" checks in `engine.Plan.Validate`
     and `client/src/game/plan.ts`, and add `other_hand` to the sheet's

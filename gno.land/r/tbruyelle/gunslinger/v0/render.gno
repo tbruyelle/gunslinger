@@ -190,8 +190,11 @@ func sideLabel(s cards.Side) string {
 
 func describeEvent(g *Game, e engine.Event) string {
 	who := sanitize.InlineText(g.Players[e.Player].Char)
-	seg := "end of turn"
-	if e.Seg > 0 {
+	seg := "turn start"
+	switch {
+	case e.Seg > engine.Segments:
+		seg = "end of turn"
+	case e.Seg > 0:
 		seg = "seg " + strconv.Itoa(e.Seg)
 	}
 	action := strings.ReplaceAll(string(e.Action), "_", " ")
@@ -216,12 +219,57 @@ func describeEvent(g *Game, e engine.Event) string {
 			card := "card " + strconv.Itoa(e.Card)
 			if e.Result == "" {
 				what = who + " gains " + strconv.Itoa(e.N) + " delay (" + e.Reason + ", " + card + "), now " + strconv.Itoa(e.Delay)
+				if e.Endurance > 0 {
+					what += ", loses " + strconv.Itoa(e.Endurance) + " endurance"
+				}
 			} else {
 				what = who + " draws " + card + " (" + e.Reason + "): " + strings.ToUpper(strings.ReplaceAll(e.Result, "_", " "))
 			}
 		}
 	case engine.EvWildShot:
 		what = who + "'s " + e.Gun.Spec().Name + " goes off (wild shot)"
+	case engine.EvCock:
+		what = who + " cocks the " + e.Gun.Spec().Name
+	case engine.EvUncock:
+		what = who + " uncocks the " + e.Gun.Spec().Name
+	case engine.EvAim:
+		what = who + " aims at " + e.To
+		if e.Target >= 0 {
+			what += " (" + seatLabel(g, e.Target) + ")"
+		}
+		what += ": " + strconv.Itoa(e.N) + " AIM points"
+	case engine.EvLoseAim:
+		what = who + " loses the aim (" + strings.ReplaceAll(e.Reason, "_", " ") + ")"
+	case engine.EvNothing:
+		what = who + " does nothing (" + action + ")"
+	case engine.EvShot:
+		what = who + " shoots " + seatLabel(g, e.Target) + " (card " + strconv.Itoa(e.Card) + ", aim time " + strconv.Itoa(e.N) + ", range " + strconv.Itoa(e.Range) + "): "
+		switch {
+		case e.Reason == engine.ReasonMisfire:
+			what += "misfire"
+		case e.Hit == string(engine.Miss):
+			what += "miss"
+			if e.Reason != "" {
+				what += " (" + strings.ReplaceAll(e.Reason, "_", " ") + ")"
+			}
+		default:
+			what += e.Hit + " hit"
+		}
+	case engine.EvMalfunction:
+		what = who + " draws card " + strconv.Itoa(e.Card) + ": MALFUNCTION, " + strings.ReplaceAll(e.Result, "_", " ")
+	case engine.EvWound:
+		what = who + " suffers " + strings.ToUpper(strings.ReplaceAll(e.Result, "_", " "))
+		if e.N > 0 {
+			what += " " + strconv.Itoa(e.N)
+		}
+	case engine.EvDirection:
+		what = who + " draws card " + strconv.Itoa(e.Card) + " as a direction: " + strings.ReplaceAll(e.To, "_", " ")
+	case engine.EvDropGun:
+		what = who + " drops the " + e.Gun.Spec().Name + " in " + e.To
+	case engine.EvPassOut:
+		what = who + " passes out"
+	case engine.EvSeriousCheck:
+		what = who + " draws card " + strconv.Itoa(e.Card) + " for the SERIOUS wounds: " + strconv.Itoa(e.N) + " points"
 	case engine.EvCancel:
 		what = who + ": " + action + " is cancelled (" + e.Reason + ")"
 	default:
