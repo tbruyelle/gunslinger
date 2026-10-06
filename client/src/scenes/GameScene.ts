@@ -235,7 +235,7 @@ class CharacterToken {
   /** Greys out a character that is out of the fight. */
   setStatus(status: PlayerStatus) {
     const out = status !== "alive";
-    this.sprite.setAlpha(out ? 0.55 : 1);
+    this.sprite.setAlpha(out ? 0.75 : 1);
     if (out) this.sprite.setTint(0x808080);
     else this.sprite.clearTint();
   }

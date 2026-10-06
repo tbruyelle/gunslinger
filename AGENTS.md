@@ -372,6 +372,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - chose number of turns
     - move timeout in the same form
 - Showdown
+  - show endurance on top of character if not full
   - Add token placement during create/join phase
   - See submitted plan?
   - Resolution log
@@ -391,12 +392,11 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - show chance of hit near Shoot option
     - aim dotted line not visible if range=0
     - add smoke
-    - missed
-        - add missed!
     - hit
-        - add <LOCATION> hit!
-        - blood on the ground behind the shoot
+        - keep blood on the ground?
         - wizzle the target icon
+        - if dead add token animation
+        - if dead drop equipment on the ground using animation
     - check what happens in a character goes to a hex that contains a aim
       marker
     - check what happens if a aimed character move
@@ -425,6 +425,9 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
   - Sounds
     - Add western music
     - Movements/Turn
-    - Shots + Hits
+    - Shots
+      - Hits
+      - Missed with bullet moving
+    
 - Event systems
   - allow temparory events like "rob the bank" with rewards from realm funds
