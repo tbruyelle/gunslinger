@@ -86,7 +86,7 @@ const STACK_SPREAD = 0.42;
 const STACK_MS = 180;
 
 /** The option buttons offered for each gun action (uncocking stays possible in the plan string, not in the menu). */
-const MENU_OPTIONS: Record<string, ShootOption[]> = { "Cock/Aim/Shoot": ["cock", "aim", "shoot"], Shoot: ["shoot", "nothing"] };
+const MENU_OPTIONS: Record<string, ShootOption[]> = { "Cock/Aim/Shoot": ["cock", "aim", "shoot"], Shoot: ["shoot"] };
 
 /** Gun models with an icon in assets/guns/<type>.gif. */
 const GUN_TYPES = ["colt45"];
@@ -1531,8 +1531,8 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Buttons for the option of a gun action, in a column to the right of my
-   * token: Cock / Aim / Shoot for Cock/Aim/Shoot, Shoot / Do nothing for
-   * Shoot. With the gun uncocked (as the plan leaves it before this card)
+   * token: Cock / Aim / Shoot for Cock/Aim/Shoot; the Shoot card has a
+   * single option and goes straight to its target. With the gun uncocked (as the plan leaves it before this card)
    * only Cock is enabled; cocked, Cock is disabled and the others enabled.
    */
   private openOptMenu(card: CardNumber, side: CardSide) {
@@ -1542,6 +1542,12 @@ export class GameScene extends Phaser.Scene {
     const gun = me ? firingGun(me.guns) : undefined;
     const name = getActionDef({ card, side }).name;
     const opts = MENU_OPTIONS[name] ?? [];
+    if (opts.length === 1) {
+      // A single option (Shoot): straight to the target pick, no menu.
+      this.optMenu = { card, side, objects: [] };
+      this.resolveOpt(opts[0]);
+      return;
+    }
     const enabled = (o: ShootOption) => !gun || (o === "cock" ? !gun.cocked : o === "nothing" ? true : gun.cocked);
     const labels: Record<ShootOption, string> = { cock: "Cock", uncock: "Uncock", aim: "Aim", shoot: "Shoot", nothing: "Do nothing" };
     const objects: Phaser.GameObjects.GameObject[] = [];

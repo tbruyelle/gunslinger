@@ -278,9 +278,10 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
   carries the gun id and hand (`9f:1:0`) and the resolution moves and cocks the gun
   (`draw` event). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: Cock,
-  Aim, Shoot / Shoot, Do nothing; `pendingOpts`; with the gun uncocked only
-  Cock is enabled, cocked only Aim and Shoot; uncocking is only reachable
-  through the plan string). Aim then highlights the aim zone (`BoardMap.aimZone`,
+  Aim, Shoot; `pendingOpts`; with the gun uncocked only Cock is enabled,
+  cocked only Aim and Shoot; the Shoot card goes straight to its target;
+  uncocking and a Shoot doing nothing are only reachable through the plan
+  string). Aim then highlights the aim zone (`BoardMap.aimZone`,
   same axial maths as the realm) and the clicked hex goes into the plan
   (`pendingAims`, `5f:aim:A-F6`). The preview (`replayPlan`) follows the
   aim, cocking and shells; AIM markers are drawn on the aimed hex, or on the opponent's token when
