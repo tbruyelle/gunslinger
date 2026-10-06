@@ -431,10 +431,10 @@ func TestCockAimShootOptions(t *testing.T) {
 	if k := ofKind(evs, 0, EvCock); len(k) != 1 || !st.Chars[0].Guns[0].Cocked {
 		t.Errorf("cock = %v, gun %+v", k, st.Chars[0].Guns[0])
 	}
-	// Aiming at the Kid's hex: 2 points per action, capped at 8, kept across
+	// Aiming at the Kid: 2 points per action, capped at 8, kept across
 	// Cock/Aim/Shoot reveals; the markers sit on the Kid (Target 1, AimHex "").
 	st = armed(0)
-	st, evs = resolve(t, st, "5f:aim:A-F9,6f:aim:A-F9", "")
+	st, evs = resolve(t, st, "5f:aim:@1,6f:aim:@1", "")
 	a := ofKind(evs, 0, EvAim)
 	if len(a) != 2 || a[0].Seg != 2 || a[0].N != 2 || a[1].Seg != 4 || a[1].N != 4 || a[0].Target != 1 || a[0].To != "A-F9" || st.Chars[0].Aim != 4 || st.Chars[0].AimHex != "" {
 		t.Errorf("aims = %v, aim %d on %q", a, st.Chars[0].Aim, st.Chars[0].AimHex)
@@ -443,7 +443,7 @@ func TestCockAimShootOptions(t *testing.T) {
 		t.Errorf("aim lost: %v", la)
 	}
 	st.Chars[0].Aim = 7
-	st, _ = resolve(t, st, "5f:aim:A-F9", "")
+	st, _ = resolve(t, st, "5f:aim:@1", "")
 	if st.Chars[0].Aim != MaxAim {
 		t.Errorf("aim = %d, want capped at %d", st.Chars[0].Aim, MaxAim)
 	}
@@ -453,11 +453,15 @@ func TestCockAimShootOptions(t *testing.T) {
 	if a := ofKind(evs, 0, EvAim); len(a) != 1 || a[0].Target != -1 || a[0].To != "A-F6" || st.Chars[0].AimHex != "A-F6" || st.Chars[0].Aim != 2 {
 		t.Errorf("aims = %v, char %+v", a, st.Chars[0])
 	}
-	// Aiming at a hex in the blind zone, or off the board, is cancelled.
+	// Aiming at a hex or a character in the blind zone, off the board, or at oneself, is cancelled.
 	st = armed(0)
 	st.Chars[0].Facing = hex.N // F9 is south
 	_, evs = resolve(t, st, "5f:aim:A-F9,6f:aim:A-Z9", "")
 	if c := ofKind(evs, 0, EvCancel); len(c) != 2 || c[0].Reason != ReasonOutOfZone || c[1].Reason != ReasonNoHex {
+		t.Errorf("cancels = %v", c)
+	}
+	_, evs = resolve(t, st, "5f:aim:@1,6f:aim:@0", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 2 || c[0].Reason != ReasonOutOfZone || c[1].Reason != ReasonNoTarget {
 		t.Errorf("cancels = %v", c)
 	}
 }
@@ -474,6 +478,14 @@ func TestAimTransfer(t *testing.T) {
 	}
 	if la := ofKind(evs, 0, EvLoseAim); len(la) != 1 || la[0].Reason != ReasonShot {
 		t.Errorf("lose aim = %v", la)
+	}
+	// Markers on the Kid's own hex: the shot counts them just as an aim at the Kid.
+	st = armed(0)
+	st.Chars[0].Aim, st.Chars[0].AimHex = 4, "A-F9"
+	seq = Sequence{1}
+	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].N != 5 || st.Chars[0].AimHex != "" {
+		t.Errorf("shot = %v, marshal %+v", sh, st.Chars[0])
 	}
 	// Markers on F6, three hexes from the Kid: the aim is lost when the shot is revealed.
 	st = armed(0)
@@ -496,7 +508,7 @@ func TestAimTransfer(t *testing.T) {
 	}
 	st = armed(0)
 	st.Chars[0].Aim, st.Chars[0].AimHex = 2, "A-F6"
-	st, evs = resolve(t, st, "5f:aim:A-F9", "")
+	st, evs = resolve(t, st, "5f:aim:@1", "") // the Kid at F9, three hexes from the markers
 	if st.Chars[0].Aim != 2 || st.Chars[0].AimHex != "" || len(ofKind(evs, 0, EvLoseAim)) != 1 {
 		t.Errorf("char = %+v, %v", st.Chars[0], evs)
 	}
@@ -847,5 +859,31 @@ func TestEndShowdownSeriousCheck(t *testing.T) {
 	seq = Sequence{88} // LOSE AIM
 	if st, _ = EndShowdown(st, &seq); st.Chars[0].Status != Alive {
 		t.Error("LOSE AIM should count as 0")
+	}
+}
+
+func TestAimAtCharacterOrHex(t *testing.T) {
+	// An aim at the Kid follows it wherever it is when the aim executes
+	// (segment 2): it ran from F9 to F8, still in the zone.
+	st := armed(0)
+	st, evs := resolve(t, st, "5f:aim:@1", "2f:ahead,1f:ahead")
+	a := ofKind(evs, 0, EvAim)
+	if len(a) != 1 || a[0].Seg != 2 || a[0].Target != 1 || a[0].To != "A-F8" || st.Chars[0].AimHex != "" || st.Chars[0].Aim != 2 {
+		t.Errorf("aims = %v, marshal %+v", a, st.Chars[0])
+	}
+	// The Kid at G6 (SE of F5, in the zone) runs to G5, out of the zone
+	// before the aim executes: the aim at it is cancelled.
+	st = armed(0)
+	st.Chars[0].Hex, st.Chars[0].Facing = "A-F5", hex.S
+	st.Chars[1].Hex, st.Chars[1].Facing = "A-G6", hex.N
+	_, evs = resolve(t, st, "5f:aim:@1", "2f:ahead,1f:ahead")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonOutOfZone {
+		t.Errorf("cancels = %v", c)
+	}
+	// An aim at a hex stays on the hex even when the Kid walks into it.
+	st = armed(0)
+	st, evs = resolve(t, st, "5f:aim:A-F8", "2f:ahead")
+	if a = ofKind(evs, 0, EvAim); len(a) != 1 || a[0].Target != -1 || a[0].To != "A-F8" || st.Chars[0].AimHex != "A-F8" || st.Chars[1].Hex != "A-F8" {
+		t.Errorf("aims = %v, marshal %+v, kid at %s", a, st.Chars[0], st.Chars[1].Hex)
 	}
 }

@@ -367,7 +367,7 @@ func TestShootout(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	SubmitPlan(cross(cur), id, "9f:1:0")
 	testing.SetRealm(testing.NewUserRealm(alice))
-	SubmitPlan(cross(cur), id, "5f:aim:A-F9,6f:aim:A-F9")
+	SubmitPlan(cross(cur), id, "5f:aim:@1,6f:aim:@1")
 	testing.SetRealm(testing.NewUserRealm(bob))
 	SubmitPlan(cross(cur), id, "")
 	uassert.Equal(t, 4, g.State.Chars[0].Aim)

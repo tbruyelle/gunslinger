@@ -37,8 +37,11 @@ describe("replayPlan", () => {
     const aimed = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:A-F6,6f:aim:A-F7"), BOARD_A);
     expect(aimed.aim).toBe(4);
     expect(aimed.aimHex).toBe("A-F7");
-    // An aim whose hex is not picked yet shows nothing.
+    // An aim whose target is not picked yet shows nothing; an aim at a character puts the markers on it.
     expect(replayPlan({ ...start, guns: [armed] }, [{ card: 5, side: "front", opt: "aim" }], BOARD_A).aim).toBe(0);
+    const atKid = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:@1"), BOARD_A);
+    expect(atKid.aim).toBe(2);
+    expect(atKid.aimHex).toBe("");
     const shot = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:A-F6,7f:shoot"), BOARD_A);
     expect(shot.aim).toBe(0);
     expect(shot.aimHex).toBe("");

@@ -26,13 +26,14 @@ type Action struct {
 	Dir  hex.Rel // committed relative direction, "" when the side takes none
 	Gun  int     // id of the gun for a gun choice (Draw & Cock), 0 when the side takes none
 	Hand int     // destination hand code for a gun choice (HandGun...), -1 when the side takes none
-	Opt  string  // shoot option for Cock/Aim/Shoot and Shoot (OptCock...), "" when the side takes none
-	Hex  string  // the hex aimed at, for an aim option
+	Opt    string  // shoot option for Cock/Aim/Shoot and Shoot (OptCock...), "" when the side takes none
+	Hex    string  // the hex aimed at, for an aim at a hex
+	Target int     // the seat aimed at, for an aim at a character; -1 otherwise
 }
 
 // Shoot options: what a Cock/Aim/Shoot does (11.3), or a Shoot (shoot or
-// nothing). Aiming names a hex ("5f:aim:A-F6"), any hex of the aim zone; a
-// shot is always at the opponent.
+// nothing). Aiming names its target: a hex of the aim zone ("5f:aim:A-F6")
+// or a character by seat ("5f:aim:@1"); a shot is always at the opponent.
 const (
 	OptCock    = "cock"
 	OptUncock  = "uncock"
@@ -145,7 +146,7 @@ func parseEntry(e string) (Action, error) {
 	if !ok {
 		return Action{}, errors.New("invalid action card " + strconv.Quote(e))
 	}
-	a := Action{Card: num, Side: side, Code: def.Code, Cost: def.Cost, Hand: -1}
+	a := Action{Card: num, Side: side, Code: def.Code, Cost: def.Cost, Hand: -1, Target: -1}
 	switch {
 	case cards.IsShooting(def.Code):
 		if choice == "" && def.Code == cards.Shoot {
@@ -159,10 +160,18 @@ func parseEntry(e string) (Action, error) {
 			return Action{}, errors.New("invalid option " + strconv.Quote(opt) + " for " + def.Name)
 		}
 		if opt == OptAim {
-			if !validHex(arg) {
-				return Action{}, errors.New("aim needs the hex to aim at, e.g. " + strconv.Quote(e+":aim:A-F6"))
+			switch {
+			case strings.HasPrefix(arg, "@"):
+				seat, err := strconv.Atoi(arg[1:])
+				if err != nil || seat < 0 || seat >= NumPlayers {
+					return Action{}, errors.New("invalid character " + strconv.Quote(arg) + " to aim at")
+				}
+				a.Target = seat
+			case validHex(arg):
+				a.Hex = arg
+			default:
+				return Action{}, errors.New("aim needs a hex or a character to aim at, e.g. " + strconv.Quote(e+":aim:A-F6") + " or " + strconv.Quote(e+":aim:@1"))
 			}
-			a.Hex = arg
 		} else if arg != "" {
 			return Action{}, errors.New("option " + strconv.Quote(opt) + " takes no argument")
 		}
@@ -212,7 +221,12 @@ func (p Plan) String() string {
 			b.WriteString(a.Opt)
 			if a.Opt == OptAim {
 				b.WriteByte(':')
-				b.WriteString(a.Hex)
+				if a.Target >= 0 {
+					b.WriteByte('@')
+					b.WriteString(strconv.Itoa(a.Target))
+				} else {
+					b.WriteString(a.Hex)
+				}
 			}
 		} else if a.Dir != "" {
 			b.WriteByte(':')
@@ -272,8 +286,8 @@ func (p Plan) Validate(c Character) error {
 			if !validOpt(def.Code, a.Opt) {
 				return errors.New("choose what to do with the gun")
 			}
-			if a.Opt == OptAim && a.Hex == "" {
-				return errors.New("choose the hex to aim at")
+			if a.Opt == OptAim && a.Hex == "" && a.Target < 0 {
+				return errors.New("choose what to aim at")
 			}
 		case def.Choice.IsAheadRel():
 			if !a.Dir.IsAhead() {

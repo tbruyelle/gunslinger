@@ -328,8 +328,8 @@ export class GameScene extends Phaser.Scene {
   private pendingOpts: Map<number, ShootOption> = new Map();
   /** The option buttons shown while a gun action waits for its option. */
   private optMenu: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
-  /** The hex picked for each aim; the pick overlays while one is pending. */
-  private pendingAims: Map<number, string> = new Map();
+  /** The target picked for each aim (a hex, or the seat of a character standing on the clicked hex); the pick overlays while one is pending. */
+  private pendingAims: Map<number, { hex?: string; target?: number }> = new Map();
   private aimMode: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
   /** The AIM markers on the board, one per seat holding an aim. */
   private aimMarkers: Phaser.GameObjects.GameObject[] = [];
@@ -349,7 +349,7 @@ export class GameScene extends Phaser.Scene {
   // Replay of resolved turns: a turn that just resolved (live) or the history.
   private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
-  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, string> } | null = null;
+  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, { hex?: string; target?: number }> } | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -1067,8 +1067,9 @@ export class GameScene extends Phaser.Scene {
       }
       const opt = this.pendingOpts.get(e.card);
       if (opt) entry.opt = opt;
-      const hex = this.pendingAims.get(e.card);
-      if (hex) entry.hex = hex;
+      const aim = this.pendingAims.get(e.card);
+      if (aim?.hex) entry.hex = aim.hex;
+      if (aim?.target !== undefined) entry.target = aim.target;
       return entry;
     });
   }
@@ -1387,9 +1388,12 @@ export class GameScene extends Phaser.Scene {
     this.aimMode = null;
   }
 
+  /** A click on a hex with a character on it aims at the character, else at the hex. */
   private resolveAim(hex: string) {
     if (!this.aimMode) return;
-    this.pendingAims.set(this.aimMode.card, hex);
+    const chars = this.displayChars();
+    const seat = chars.findIndex((c, i) => c && i !== this.myIndex && c.hex === hex && c.status === "alive");
+    this.pendingAims.set(this.aimMode.card, seat >= 0 ? { target: seat } : { hex });
     this.closeAimMode();
     this.updatePreview();
     this.refreshSelectionDisplay();
@@ -1464,15 +1468,10 @@ export class GameScene extends Phaser.Scene {
     if (this.aimLineEnds) this.drawAimLine(time);
   }
 
-  /**
-   * Whether seat i's AIM markers ride on the opponent's token: they follow
-   * it (no hex), or the hex aimed at is the one the opponent stands in (as
-   * the realm will resolve a planned aim).
-   */
+  /** Whether seat i's AIM markers ride on the opponent's token (an aim at the character, no hex). */
   private aimOnToken(chars: CharView[], i: number): boolean {
     const c = chars[i];
-    const opp = chars[1 - i];
-    return !!c && c.aim > 0 && (!c.aimHex || (!!opp && c.aimHex === opp.hex));
+    return !!c && c.aim > 0 && !c.aimHex && !!chars[1 - i];
   }
 
   /** The AIM points the opponent of seat i holds on seat i's token (markers that ride on it). */

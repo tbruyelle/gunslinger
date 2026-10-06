@@ -267,7 +267,11 @@ func reveal(board *hex.Board, p int, c *Character, opp *Character, a Action, seg
 	case !cards.IsShooting(a.Code) || a.Opt == OptCock:
 		loseAim(p, c, seg, ReasonReveal, evs)
 	case a.Opt == OptAim:
-		if board.Distance(aimTarget(c, opp), a.Hex) > 1 {
+		named := a.Hex
+		if a.Target >= 0 {
+			named = opp.Hex
+		}
+		if board.Distance(aimTarget(c, opp), named) > 1 {
 			loseAim(p, c, seg, ReasonTransfer, evs)
 		}
 	case a.Opt == OptShoot:
@@ -684,25 +688,26 @@ func execute(board *hex.Board, p int, a Action, c *Character, opp *Character, se
 			g.Cocked = false
 			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvUncock, Action: a.Code, Gun: g.Type, GunID: g.ID})
 		case OptAim:
-			// Two AIM points on the hex named, in the aim zone (12.1, 12.2); when
-			// the opponent stands there the markers follow it.
-			if !board.Has(a.Hex) {
+			// Two AIM points (12.1, 12.2) on the target named: the opponent,
+			// wherever it is, or a hex; either must be in the aim zone.
+			hexAt := a.Hex
+			if a.Target >= 0 {
+				if a.Target == p || opp.Status != Alive {
+					return cancel(ReasonNoTarget)
+				}
+				hexAt = opp.Hex
+			} else if !board.Has(a.Hex) {
 				return cancel(ReasonNoHex)
 			}
-			if !board.InAimZone(c.Hex, c.Facing, a.Hex) {
+			if !board.InAimZone(c.Hex, c.Facing, hexAt) {
 				return cancel(ReasonOutOfZone)
 			}
 			c.Aim += 2
 			if c.Aim > MaxAim {
 				c.Aim = MaxAim
 			}
-			target := -1
-			c.AimHex = a.Hex
-			if opp.Status == Alive && opp.Hex == a.Hex {
-				c.AimHex = ""
-				target = 1 - p
-			}
-			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvAim, Action: a.Code, To: a.Hex, Target: target, N: c.Aim})
+			c.AimHex = a.Hex // "" for the opponent: the markers follow it
+			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvAim, Action: a.Code, To: hexAt, Target: a.Target, N: c.Aim})
 		}
 		return 0, true
 	}

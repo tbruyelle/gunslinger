@@ -13,8 +13,9 @@ export interface PlanEntry {
   hand?: number;
   /** What a Cock/Aim/Shoot does, or a Shoot (shoot or nothing). */
   opt?: ShootOption;
-  /** The hex aimed at, for the aim option. */
+  /** What the aim option targets: a hex, or a character by seat. */
   hex?: string;
+  target?: number;
 }
 
 export type ShootOption = "cock" | "uncock" | "aim" | "shoot" | "nothing";
@@ -77,7 +78,8 @@ export function encodePlan(plan: PlanEntry[]): string {
       const base = `${e.card}${e.side === "front" ? "f" : "b"}`;
       if (def.name in SHOOT_OPTIONS) {
         if (!e.opt || (def.name === "Shoot" && e.opt === "nothing")) return base;
-        return e.opt === "aim" ? `${base}:aim:${e.hex ?? ""}` : `${base}:${e.opt}`;
+        if (e.opt !== "aim") return `${base}:${e.opt}`;
+        return e.target !== undefined ? `${base}:aim:@${e.target}` : `${base}:aim:${e.hex ?? ""}`;
       }
       if (def.choiceType === "gun") return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
       const needsDir = def.choiceType === "move_ahead" || def.choiceType === "move_back" || def.choiceType === "turn_ahead" || def.choiceType === "turn_back";
@@ -89,7 +91,7 @@ export function encodePlan(plan: PlanEntry[]): string {
 export function decodePlan(s: string): PlanEntry[] {
   if (s === "") return [];
   return s.split(",").map((token) => {
-    const m = /^(\d{1,2})([fb])(?::([a-zA-Z_0-9:-]+))?$/.exec(token);
+    const m = /^(\d{1,2})([fb])(?::([a-zA-Z_0-9:@-]+))?$/.exec(token);
     if (!m) throw new Error(`invalid plan entry "${token}"`);
     const card = Number(m[1]);
     if (card < 1 || card > 12) throw new Error(`invalid card ${card}`);
@@ -102,8 +104,9 @@ export function decodePlan(s: string): PlanEntry[] {
       const arg = i >= 0 ? choice.slice(i + 1) : "";
       if (!(SHOOT_OPTIONS[name] as string[]).includes(opt)) throw new Error(`invalid option "${opt}" for ${name}`);
       if (opt === "aim") {
-        if (!/^[A-Z0-9-]{3,8}$/.test(arg)) throw new Error(`aim needs the hex to aim at, e.g. "${token.split(":")[0]}:aim:A-F6"`);
-        entry.hex = arg;
+        if (/^@[01]$/.test(arg)) entry.target = Number(arg.slice(1));
+        else if (/^[A-Z0-9-]{3,8}$/.test(arg)) entry.hex = arg;
+        else throw new Error(`aim needs a hex or a character to aim at, e.g. "${token.split(":")[0]}:aim:A-F6" or "…:aim:@1"`);
       } else if (arg) throw new Error(`option "${opt}" takes no argument`);
       entry.opt = opt as ShootOption;
       return entry;
@@ -145,7 +148,7 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
     names.add(def.name);
     if (def.name in SHOOT_OPTIONS) {
       if (!e.opt || !SHOOT_OPTIONS[def.name].includes(e.opt)) return "choose what to do with the gun";
-      if (e.opt === "aim" && !e.hex) return "choose the hex to aim at";
+      if (e.opt === "aim" && !e.hex && e.target === undefined) return "choose what to aim at";
       continue;
     }
     switch (def.choiceType) {

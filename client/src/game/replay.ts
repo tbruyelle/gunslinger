@@ -59,9 +59,9 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap):
           g.cocked = false;
           break;
         case "aim":
-          if (!e.hex) break; // the hex is not picked yet: nothing to show
+          if (!e.hex && e.target === undefined) break; // the target is not picked yet: nothing to show
           s.aim = Math.min(MAX_AIM, s.aim + 2);
-          s.aimHex = e.hex;
+          s.aimHex = e.hex ?? ""; // "" when the markers follow a character
           break;
         case "shoot":
           if (g.cocked && g.shells > 0) {

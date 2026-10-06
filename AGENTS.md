@@ -115,9 +115,10 @@ direction for move/turn cards (`ahead_left ahead ahead_right back_left back
 back_right`), for Draw & Cock `<gun id>:<hand>` (`9f:1:0`: gun 1 to the
 gun hand; hands: 0 gun hand, 1 other hand, 2 both hands; every gun has a
 stable id within the game, the starting Colt is 1), or for the gun actions
-the option: Cock/Aim/Shoot `5f:cock|uncock|shoot` or `5f:aim:<hex>` (the
-hex aimed at, any hex of the aim zone), Shoot `7f:shoot` or a bare `7f`
-(does nothing, keeps the aim). A shot is always at the opponent.
+the option: Cock/Aim/Shoot `5f:cock|uncock|shoot`, `5f:aim:<hex>` (a hex of
+the aim zone) or `5f:aim:@<seat>` (a character; the client turns a click on
+an occupied hex into this), Shoot `7f:shoot` or a bare `7f` (does nothing,
+keeps the aim). A shot is always at the opponent.
 At most 5 entries, empty = pass. Example `1f:ahead_left,2f:ahead,3f`. Rules
 (engine `Plan.Validate`): one side per card, dir required for move/turn
 cards and in the right set, no choice otherwise, Draw & Cock needs that gun
@@ -155,8 +156,9 @@ for those after segment 5 (cancels, passing out, the serious-wound check).
 **Guns and shooting** (rules 11–14, Colt 45 only). Draw & Cock moves a
 holstered gun to the gun hand, cocked. Cock/Aim/Shoot cocks, uncocks, aims
 or shoots; Shoot shoots or does nothing. **Aiming** puts 2 AIM points (max
-8) on the hex named, which must be in the aim zone; when the opponent stands
-there the markers follow it (`Character.AimHex` is "" then, else the hex). The gun must be in a box it fires from
+8) on the target named, a character (the markers then follow it wherever
+it goes, `Character.AimHex` is "") or a hex (`AimHex` holds it); the target
+must be in the aim zone when the aim executes or the action is cancelled. The gun must be in a box it fires from
 (one-handed: gun hand or both hands) or the action is cancelled; a shot also
 needs it cocked and loaded. **Aim** is lost when revealing any action but a
 Turn or a gun action that does not cock (12.44), when a new target (the hex
@@ -375,6 +377,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
+    - prevent shoot if uncocked
     - add smoke
     - wizzle screen
     - missed
