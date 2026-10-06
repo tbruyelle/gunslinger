@@ -90,9 +90,8 @@ const GUN_RADIUS = 0.5;
 /** Groups the display objects of one character token. */
 class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
-  /** The "DEL n" marker in the bottom-right corner, when the character carries delay. */
+  /** The "DEL n" marker at the bottom corner on the arrow's side (upright frame), when the character carries delay. */
   private badge: Phaser.GameObjects.Image | null = null;
-  private badgeOffset = 0;
   /** The icon of the gun held in a hand, at the token corner above the arrow. */
   private gun: Phaser.GameObjects.Image | null = null;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
@@ -167,7 +166,11 @@ class CharacterToken {
     const { x, y } = this.sprite;
     this.highlight.setPosition(x, y);
     this.overlay?.setPosition(x, y);
-    this.badge?.setPosition(x + this.badgeOffset, y + this.badgeOffset);
+    if (this.badge) {
+      const a = Phaser.Math.DegToRad(this.badgeAngle());
+      const r = this.sprite.displayWidth * GUN_RADIUS;
+      this.badge.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
     if (this.gun) {
       const a = Phaser.Math.DegToRad(this.gunAngle());
       const r = this.sprite.displayWidth * GUN_RADIUS;
@@ -187,6 +190,11 @@ class CharacterToken {
    */
   private aimAngle(): number {
     return this.arrowAngle() + (CHAR_ARROW_DIR[this.charKey] === 5 ? 135 : -135);
+  }
+
+  /** Screen angle of the bottom corner below the gun corner in the upright frame: 45° from the arrow toward the feet. */
+  private badgeAngle(): number {
+    return this.arrowAngle() + (CHAR_ARROW_DIR[this.charKey] === 5 ? -45 : 45);
   }
 
   /** Shows the AIM marker of the points the opponent holds on this character (none for 0). */
@@ -241,17 +249,13 @@ class CharacterToken {
     const key = `delay_${Math.min(n, MAX_DELAY_MARKER)}`;
     if (!scene.textures.exists(key)) return;
     const size = this.sprite.displayWidth * 0.42;
-    this.badgeOffset = this.sprite.displayWidth * 0.36;
     if (!this.badge) {
-      this.badge = scene.add
-        .image(this.sprite.x + this.badgeOffset, this.sprite.y + this.badgeOffset, key)
-        .setOrigin(0.5)
-        .setMask(mask)
-        .setDepth(this.depth + 4);
+      this.badge = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 4);
     } else if (this.badge.texture.key !== key) {
       this.badge.setTexture(key);
     }
     this.badge.setDisplaySize(size, size);
+    this.follow();
   }
 
   /** Shows the icon of the gun held in a hand (none when every gun is holstered). */

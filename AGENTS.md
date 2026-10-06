@@ -256,7 +256,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   over the stack (`updateStackHover`, animated) so each one can be clicked.
   A gun held in a hand shows as its icon (`assets/guns/<type>.gif`) at the
   token corner above the arrow, "above" in the figure's upright frame
-  (`CharacterToken.setGun`, `gunAngle`); `CharView.guns` carries
+  (`CharacterToken.setGun`, `gunAngle`); the DEL badge takes the corner
+  below it and the opponent's AIM marker the other top corner, all turning
+  with the token; `CharView.guns` carries
   the guns through the preview (Draw & Cock moves the gun) and the playback
   (`draw` and `wild_shot` events are folded, the turn's `start` JSON lists
   the guns). Clicking a token opens the **character
@@ -363,6 +365,8 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
   - Resolution log
     - improve consistency
     - improve visiblity/readability
+    - add missing end of turn statements 
+    - add start of turn statements like SERIOUS
   - Cards
     - make border transparent
     - add drop weapon action cards (show waepon on the ground)
@@ -372,13 +376,14 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - allow moving to other hands and both hands
   - Aim/Shoots
     - add smoke
+    - wizzle screen
     - missed
         - add missed!
         - dont stop the red line to the target token
     - hit
-        - add LOCATION hit!
+        - add <LOCATION> hit!
         - blood on the ground behind the shoot
-        - rumble the target icon
+        - wizzle the target icon
     - check what hjappens in a character goes to a hex that contains a aim
       marker
     - check what happens if a aimed character move
