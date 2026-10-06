@@ -625,6 +625,14 @@ export class GameScene extends Phaser.Scene {
     this.cardHighlights = [];
     this.choiceOverlays = [];
     this.cardPreview = null;
+    // Everything above was destroyed with the children: drop the stale handles
+    // (a destroyed Graphics would silently swallow the aim line).
+    this.aimLine = null;
+    this.aimLineEnds = null;
+    this.aimMarkers = [];
+    this.logPopup = null;
+    if (this.optMenu) this.optMenu.objects = [];
+    if (this.aimMode) this.aimMode.objects = [];
 
     const w = this.cw;
     const h = this.ch;
@@ -646,6 +654,8 @@ export class GameScene extends Phaser.Scene {
     this.refreshPanels();
     this.refreshHUD();
     if (this.choiceMode) this.showChoiceOverlays();
+    if (this.optMenu) this.openOptMenu(this.optMenu.card, this.optMenu.side);
+    if (this.aimMode) this.enterAimMode(this.aimMode.card, this.aimMode.side);
     this.input.mouse?.disableContextMenu();
   }
 
