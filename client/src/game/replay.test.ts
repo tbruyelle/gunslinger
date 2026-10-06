@@ -42,7 +42,7 @@ describe("replayPlan", () => {
     const atKid = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:@1"), BOARD_A);
     expect(atKid.aim).toBe(2);
     expect(atKid.aimHex).toBe("");
-    const shot = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:A-F6,7f:shoot"), BOARD_A);
+    const shot = replayPlan({ ...start, guns: [armed] }, decodePlan("5f:aim:A-F6,7f:shoot:@1"), BOARD_A);
     expect(shot.aim).toBe(0);
     expect(shot.aimHex).toBe("");
     expect(shot.guns[0]).toEqual({ ...armed, cocked: false, shells: 5 });
@@ -52,7 +52,7 @@ describe("replayPlan", () => {
     expect(replayPlan({ ...start, aim: 4, guns: [armed] }, decodePlan("5f:cock"), BOARD_A).aim).toBe(0);
     expect(replayPlan({ ...start, guns: [{ ...armed, cocked: false }] }, decodePlan("5f:cock"), BOARD_A).guns[0].cocked).toBe(true);
     // Draw & Cock then shoot in one plan.
-    const drawn = replayPlan({ ...start, guns: [colt] }, decodePlan("9f:1:0,7f:shoot"), BOARD_A);
+    const drawn = replayPlan({ ...start, guns: [colt] }, decodePlan("9f:1:0,7f:shoot:@1"), BOARD_A);
     expect(drawn.guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: false, shells: 5 });
   });
 

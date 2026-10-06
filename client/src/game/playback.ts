@@ -174,7 +174,8 @@ export function describeEvent(e: TurnEvent, names: string[]): string {
     case "nothing":
       return `${who} does nothing (${action})`;
     case "shot": {
-      const head = `${who} shoots ${names[e.target] ?? `seat ${e.target}`} (card ${e.card}, aim time ${e.n}, range ${e.range}): `;
+      const at = e.target >= 0 ? `${names[e.target] ?? `seat ${e.target}`} in ${e.to}` : `at ${e.to}`;
+      const head = `${who} shoots ${at} (card ${e.card}, aim time ${e.n}, range ${e.range}): `;
       if (e.reason === "misfire") return head + "misfire";
       if (e.hit === "-") return head + "miss" + (e.reason ? ` (${e.reason.replace(/_/g, " ")})` : "");
       return head + `${e.hit} hit`;

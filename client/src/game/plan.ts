@@ -13,7 +13,7 @@ export interface PlanEntry {
   hand?: number;
   /** What a Cock/Aim/Shoot does, or a Shoot (shoot or nothing). */
   opt?: ShootOption;
-  /** What the aim option targets: a hex, or a character by seat. */
+  /** What an aim or a shot targets: a hex, or a character by seat. */
   hex?: string;
   target?: number;
 }
@@ -78,8 +78,8 @@ export function encodePlan(plan: PlanEntry[]): string {
       const base = `${e.card}${e.side === "front" ? "f" : "b"}`;
       if (def.name in SHOOT_OPTIONS) {
         if (!e.opt || (def.name === "Shoot" && e.opt === "nothing")) return base;
-        if (e.opt !== "aim") return `${base}:${e.opt}`;
-        return e.target !== undefined ? `${base}:aim:@${e.target}` : `${base}:aim:${e.hex ?? ""}`;
+        if (e.opt !== "aim" && e.opt !== "shoot") return `${base}:${e.opt}`;
+        return e.target !== undefined ? `${base}:${e.opt}:@${e.target}` : `${base}:${e.opt}:${e.hex ?? ""}`;
       }
       if (def.choiceType === "gun") return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
       const needsDir = def.choiceType === "move_ahead" || def.choiceType === "move_back" || def.choiceType === "turn_ahead" || def.choiceType === "turn_back";
@@ -103,10 +103,10 @@ export function decodePlan(s: string): PlanEntry[] {
       const opt = i >= 0 ? choice.slice(0, i) : choice;
       const arg = i >= 0 ? choice.slice(i + 1) : "";
       if (!(SHOOT_OPTIONS[name] as string[]).includes(opt)) throw new Error(`invalid option "${opt}" for ${name}`);
-      if (opt === "aim") {
+      if (opt === "aim" || opt === "shoot") {
         if (/^@[01]$/.test(arg)) entry.target = Number(arg.slice(1));
         else if (/^[A-Z0-9-]{3,8}$/.test(arg)) entry.hex = arg;
-        else throw new Error(`aim needs a hex or a character to aim at, e.g. "${token.split(":")[0]}:aim:A-F6" or "…:aim:@1"`);
+        else throw new Error(`${opt} needs a hex or a character to ${opt} at, e.g. "${token.split(":")[0]}:${opt}:A-F6" or "…:${opt}:@1"`);
       } else if (arg) throw new Error(`option "${opt}" takes no argument`);
       entry.opt = opt as ShootOption;
       return entry;
@@ -148,7 +148,7 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
     names.add(def.name);
     if (def.name in SHOOT_OPTIONS) {
       if (!e.opt || !SHOOT_OPTIONS[def.name].includes(e.opt)) return "choose what to do with the gun";
-      if (e.opt === "aim" && !e.hex && e.target === undefined) return "choose what to aim at";
+      if ((e.opt === "aim" || e.opt === "shoot") && !e.hex && e.target === undefined) return `choose what to ${e.opt} at`;
       continue;
     }
     switch (def.choiceType) {

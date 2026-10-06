@@ -243,7 +243,11 @@ func describeEvent(g *Game, e engine.Event) string {
 	case engine.EvNothing:
 		what = who + " does nothing (" + action + ")"
 	case engine.EvShot:
-		what = who + " shoots " + seatLabel(g, e.Target) + " (card " + strconv.Itoa(e.Card) + ", aim time " + strconv.Itoa(e.N) + ", range " + strconv.Itoa(e.Range) + "): "
+		at := "at " + e.To
+		if e.Target >= 0 {
+			at = seatLabel(g, e.Target) + " in " + e.To
+		}
+		what = who + " shoots " + at + " (card " + strconv.Itoa(e.Card) + ", aim time " + strconv.Itoa(e.N) + ", range " + strconv.Itoa(e.Range) + "): "
 		switch {
 		case e.Reason == engine.ReasonMisfire:
 			what += "misfire"

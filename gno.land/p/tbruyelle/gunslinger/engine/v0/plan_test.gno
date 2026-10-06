@@ -29,10 +29,10 @@ func TestParsePlanRoundTrip(t *testing.T) {
 		"9f:1:0",
 		"9f:12:2",
 		"5f:cock",
-		"6f:aim:A-F6,7f:shoot",
+		"6f:aim:A-F6,7f:shoot:@1",
 		"5f:aim:@1",
 		"7f",
-		"9f:1:0,7f:shoot",
+		"9f:1:0,7f:shoot:@1",
 	} {
 		p := mustPlan(t, s)
 		if got := p.String(); got != s {
@@ -72,7 +72,7 @@ func TestParsePlanRejects(t *testing.T) {
 		"1f,", ",1f", "1f,,2f", "1f, 2f", " 1f", "1f ",
 		"1f:ahead:ahead", "9f:1", "9f:0:0", "9f:-1:0", "9f:ahead", "1f:0", "9f:1:3", "9f:1:x", "9f:1:0:0",
 		"5f", "5f:nothing", "5f:ahead", "5f:fire", "7f:aim", "7f:cock", "7f:ahead", "6f:1:0", "1f:shoot",
-		"5f:aim", "5f:aim:", "5f:aim:a-f6", "5f:aim:A-F6:x", "5f:cock:A-F6", "7f:shoot:A-F6", "5f:aim:@2", "5f:aim:@-1", "5f:aim:@x", "5f:aim:@",
+		"5f:aim", "5f:aim:", "5f:aim:a-f6", "5f:aim:A-F6:x", "5f:cock:A-F6", "5f:aim:@2", "5f:aim:@-1", "5f:aim:@x", "5f:aim:@", "7f:shoot", "5f:shoot", "7f:shoot:", "7f:shoot:@2",
 		strings.Repeat("1f,", 60),
 	} {
 		if p, err := ParsePlan(s); err == nil {
@@ -117,11 +117,11 @@ func TestValidate(t *testing.T) {
 		{"5f:aim:A-F6,6f:aim:A-F7", 0, ""},
 		{"5f:aim:@1", 0, ""},
 		{"7f", 0, ""},
-		{"7f:shoot", 0, ""},
-		{"9f:1:0,7f:shoot", 0, ""},
-		{"9f:1:0,5f:shoot", 0, ""},
-		{"9f:1:0,5f:shoot,7f:shoot", 0, "more time points"},
-		{"5f:aim:A-F6,6f:aim:A-F6,7f:shoot", 1, "more time points"},
+		{"7f:shoot:@1", 0, ""},
+		{"9f:1:0,7f:shoot:@1", 0, ""},
+		{"9f:1:0,5f:shoot:@1", 0, ""},
+		{"9f:1:0,5f:shoot:@1,7f:shoot:@1", 0, "more time points"},
+		{"5f:aim:A-F6,6f:aim:A-F6,7f:shoot:@1", 1, "more time points"},
 		{"9f", 0, "choose the gun"},
 		{"9f:2:0", 0, "not in a holster"},
 		{"9f:1:1", 0, "only the gun hand"},

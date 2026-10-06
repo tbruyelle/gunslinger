@@ -20,7 +20,7 @@ const (
 	EvAim          = "aim"           // N = AIM points after aiming, To = the hex they sit on, Target = the seat they follow (-1 for a hex)
 	EvLoseAim      = "lose_aim"      // Reason
 	EvNothing      = "nothing"       // a Shoot used to do nothing (keeps the aim)
-	EvShot         = "shot"          // Card, Target, Hit (final location or Miss), Range, N = aim time, Reason "" | out_of_zone | misfire
+	EvShot         = "shot"          // Card, Target (-1 for a shot at a hex nobody stands in), To = the hex shot at, Hit (final location or Miss), Range, N = aim time, Reason "" | out_of_zone | misfire | empty_hex
 	EvMalfunction  = "malfunction"   // Card, Result (no_effect, misfire, jams, explodes, no_penalty), Gun, GunID
 	EvWildShot     = "wild_shot"     // Gun went off without hitting anything: uncocked, one shell less
 	EvWound        = "wound"         // Player hit: Result = penalty kind (Kill, Stun...), N
@@ -56,6 +56,7 @@ const (
 	ReasonShot      = "shot"        // aim spent by a shot (12.43)
 	ReasonStagger   = "stagger"     // thrown by a STAGGER penalty
 	ReasonMisfire   = "misfire"     // the shot was cancelled by a MALFUNCTION
+	ReasonEmptyHex  = "empty_hex"   // the shot went at a hex nobody stood in
 )
 
 // Malfunction results.
@@ -269,19 +270,16 @@ func reveal(board *hex.Board, p int, c *Character, opp *Character, a Action, seg
 	case a.Code == cards.Turn:
 	case !cards.IsShooting(a.Code) || a.Opt == OptCock:
 		loseAim(p, c, seg, ReasonReveal, evs)
-	case a.Opt == OptAim:
+	case a.Opt == OptAim || a.Opt == OptShoot:
+		// The target named: the markers move onto it within one hex (12.5).
 		named := a.Hex
 		if a.Target >= 0 {
 			named = opp.Hex
 		}
 		if board.Distance(aimTarget(c, opp), named) > 1 {
 			loseAim(p, c, seg, ReasonTransfer, evs)
-		}
-	case a.Opt == OptShoot:
-		if c.AimHex != "" && board.Distance(c.AimHex, opp.Hex) > 1 {
-			loseAim(p, c, seg, ReasonTransfer, evs)
-		} else {
-			c.AimHex = "" // the markers move onto the target named (12.5)
+		} else if a.Opt == OptShoot {
+			c.AimHex = a.Hex // "" when the shot names the opponent
 		}
 	}
 }
@@ -404,9 +402,19 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 		return cancel(ReasonEmpty)
 	case !g.Cocked:
 		return cancel(ReasonNotCocked)
-	case t.Status != Alive:
+	case a.Target >= 0 && (a.Target == p || t.Status != Alive):
 		return cancel(ReasonNoTarget)
 	}
+	// The target: the opponent, or the hex named, where the opponent may or
+	// may not stand when the shot goes off.
+	at := t.Hex
+	if a.Target < 0 {
+		if !board.Has(a.Hex) {
+			return cancel(ReasonNoHex)
+		}
+		at = a.Hex
+	}
+	onTarget := t.Status == Alive && t.Hex == at
 	spec := g.Type.Spec()
 	aim := a.AimTime(spec.OneHanded) + c.Aim
 	if g.Location == GunHand || g.Location == BothHands {
@@ -415,8 +423,8 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 	if g.Location == OtherHand || g.Location == BothHands {
 		aim -= c.OtherArm
 	}
-	rng := board.Distance(c.Hex, t.Hex)
-	inZone := board.InAimZone(c.Hex, c.Facing, t.Hex)
+	rng := board.Distance(c.Hex, at)
+	inZone := board.InAimZone(c.Hex, c.Facing, at)
 
 	// Draw (13.2): a MALFUNCTION with no effect is replaced; a misfire
 	// cancels the shot and draws again for the gun (13.3, 13.31).
@@ -448,15 +456,19 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 		break
 	}
 	hit := Miss
-	ev := Event{Seg: seg, Player: p, Kind: EvShot, Action: a.Code, Card: card.N, Target: target, Range: rng, N: aim, Gun: g.Type, GunID: g.ID}
-	if misfire {
+	ev := Event{Seg: seg, Player: p, Kind: EvShot, Action: a.Code, Card: card.N, Target: -1, To: at, Range: rng, N: aim, Gun: g.Type, GunID: g.ID}
+	if onTarget {
+		ev.Target = target
+	}
+	switch {
+	case misfire:
 		ev.Reason = ReasonMisfire
-	} else {
-		if inZone {
-			hit = targetStatus(card, card.Fire.Lookup(aim, rng), t)
-		} else {
-			ev.Reason = ReasonOutOfZone
-		}
+	case !inZone:
+		ev.Reason = ReasonOutOfZone
+	case !onTarget:
+		ev.Reason = ReasonEmptyHex
+	default:
+		hit = targetStatus(card, card.Fire.Lookup(aim, rng), t)
 		if hit == Bullseye { // the shooter picks the location (13.7): the deadliest
 			hit = VitalHit
 		}

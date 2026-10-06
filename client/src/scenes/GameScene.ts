@@ -1229,7 +1229,8 @@ export class GameScene extends Phaser.Scene {
     } else if (this.optMenu) {
       this.selectedDisplay.setText(`${name}: choose what to do with the gun`).setColor("#ff9944");
     } else if (this.aimMode) {
-      this.selectedDisplay.setText(`${name}: click the hex to aim at`).setColor("#ff9944");
+      const verb = this.pendingOpts.get(this.aimMode.card) === "shoot" ? "shoot" : "aim";
+      this.selectedDisplay.setText(`${name}: click the hex to ${verb} at`).setColor("#ff9944");
     } else if (plan.length === 0) {
       const carry = me && me.delay > 0 ? ` (${me.delay} carried delay)` : "";
       this.selectedDisplay.setText(`${name}: select action cards, or send an empty plan to pass (0/${budget} points${carry})`).setColor("#888");
@@ -1265,7 +1266,7 @@ export class GameScene extends Phaser.Scene {
         def.choiceType !== "none" &&
         !this.pendingChoices.has(card) &&
         !this.pendingGuns.has(card) &&
-        !(this.pendingOpts.has(card) && (this.pendingOpts.get(card) !== "aim" || this.pendingAims.has(card)));
+        !(this.pendingOpts.has(card) && (!["aim", "shoot"].includes(this.pendingOpts.get(card) ?? "") || this.pendingAims.has(card)));
       const wouldExceed = !selected && cost + def.cost > budget;
       const pendingCard = this.choiceMode ?? this.optMenu ?? this.aimMode;
       const blockedByChoice = !!pendingCard && !(card === pendingCard.card && side === pendingCard.side);
@@ -1391,7 +1392,7 @@ export class GameScene extends Phaser.Scene {
     this.closeAimMode();
   }
 
-  /** Highlights every hex of my aim zone; clicking one is where the AIM markers go. */
+  /** Highlights every hex of my aim zone; clicking one is where the aim or the shot goes. */
   private enterAimMode(card: CardNumber, side: CardSide) {
     this.closeAimMode();
     const chars = this.displayChars();
@@ -1428,7 +1429,7 @@ export class GameScene extends Phaser.Scene {
     this.aimMode = null;
   }
 
-  /** A click on a hex with a character on it aims at the character, else at the hex. */
+  /** A click on a hex with a character on it targets the character, else the hex. */
   private resolveAim(hex: string) {
     if (!this.aimMode) return;
     const chars = this.displayChars();
@@ -1588,7 +1589,7 @@ export class GameScene extends Phaser.Scene {
     const { card, side } = this.optMenu;
     this.pendingOpts.set(card, opt);
     this.closeOptMenu();
-    if (opt === "aim") this.enterAimMode(card, side);
+    if (opt === "aim" || opt === "shoot") this.enterAimMode(card, side);
     this.updatePreview();
     this.refreshSelectionDisplay();
     this.refreshCardHighlights();

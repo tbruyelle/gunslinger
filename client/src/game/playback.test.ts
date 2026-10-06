@@ -51,7 +51,7 @@ describe("snapshotAfterSegment", () => {
     const evs = [
       ev({ seg: 0, p: 0, kind: "delay", n: 1, delay: 1, reason: "serious", card: 37, endurance: 1 }),
       ev({ seg: 1, p: 0, kind: "aim", action: "cock_aim_shoot", to: "A-F6", target: -1, n: 2 }),
-      ev({ seg: 3, p: 0, kind: "shot", action: "shoot", card: 6, target: 1, hit: "VITAL", range: 1, n: 3, gun: "colt45", gunId: 1 }),
+      ev({ seg: 3, p: 0, kind: "shot", action: "shoot", card: 6, target: 1, to: "A-F12", hit: "VITAL", range: 1, n: 3, gun: "colt45", gunId: 1 }),
       ev({ seg: 3, p: 0, kind: "lose_aim", reason: "shot" }),
       ev({ seg: 3, p: 1, kind: "wound", result: "kill" }),
       ev({ seg: END_OF_TURN_SEG, p: 0, kind: "pass_out" }),
@@ -70,9 +70,10 @@ describe("snapshotAfterSegment", () => {
     expect(s3[0].status).toBe("alive");
     expect(snapshotAfterSegment(s, evs, 5)[0].status).toBe("passed_out");
     const names = ["marshal", "dude"];
-    expect(describeEvent(evs[2], names)).toBe("marshal shoots dude (card 6, aim time 3, range 1): VITAL hit");
-    expect(describeEvent(ev({ p: 0, kind: "shot", card: 1, target: 1, hit: "-", range: 6, n: 3 }), names)).toBe("marshal shoots dude (card 1, aim time 3, range 6): miss");
-    expect(describeEvent(ev({ p: 0, kind: "shot", card: 104, target: 1, hit: "-", reason: "misfire" }), names)).toBe("marshal shoots dude (card 104, aim time 0, range 0): misfire");
+    expect(describeEvent(evs[2], names)).toBe("marshal shoots dude in A-F12 (card 6, aim time 3, range 1): VITAL hit");
+    expect(describeEvent(ev({ p: 0, kind: "shot", card: 1, target: 1, to: "A-F9", hit: "-", range: 6, n: 3 }), names)).toBe("marshal shoots dude in A-F9 (card 1, aim time 3, range 6): miss");
+    expect(describeEvent(ev({ p: 0, kind: "shot", card: 104, target: 1, to: "A-F9", hit: "-", reason: "misfire" }), names)).toBe("marshal shoots dude in A-F9 (card 104, aim time 0, range 0): misfire");
+    expect(describeEvent(ev({ p: 0, kind: "shot", card: 6, target: -1, to: "A-F6", hit: "-", range: 3, n: 1, reason: "empty_hex" }), names)).toBe("marshal shoots at A-F6 (card 6, aim time 1, range 3): miss (empty hex)");
     expect(describeEvent(evs[4], names)).toBe("dude suffers KILL");
     expect(describeEvent(ev({ p: 1, kind: "wound", result: "stun", n: 4 }), names)).toBe("dude suffers STUN 4");
     expect(describeEvent(evs[1], names)).toBe("marshal aims at A-F6: 2 AIM points");

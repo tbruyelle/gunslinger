@@ -378,7 +378,7 @@ func TestShootout(cur realm, t *testing.T) {
 
 	// Turn 3: alice shoots (aim time 1 + 4 = 5, range 6); bob does nothing with his gun.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	SubmitPlan(cross(cur), id, "7f:shoot")
+	SubmitPlan(cross(cur), id, "7f:shoot:@1")
 	testing.SetRealm(testing.NewUserRealm(bob))
 	SubmitPlan(cross(cur), id, "7f")
 	lt := g.lastTurn()
@@ -403,7 +403,7 @@ func TestShootout(cur realm, t *testing.T) {
 	uassert.True(t, g.State.Chars[0].Guns[0].Shells <= 5)
 	uassert.True(t, len(lt.Cards) >= 1)
 	uassert.True(t, strings.Contains(GameJSON(id), `"kind":"shot"`))
-	uassert.True(t, strings.Contains(Render("game/"+id), "shoots dude (card "))
+	uassert.True(t, strings.Contains(Render("game/"+id), "shoots dude in A-F9 (card "))
 }
 
 func TestAutoPass(cur realm, t *testing.T) {

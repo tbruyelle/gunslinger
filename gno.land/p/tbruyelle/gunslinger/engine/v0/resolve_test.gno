@@ -472,7 +472,7 @@ func TestAimTransfer(t *testing.T) {
 	st := armed(0)
 	st.Chars[0].Aim, st.Chars[0].AimHex = 2, "A-F8"
 	seq := Sequence{1}
-	st, evs := resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs := resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].N != 3 {
 		t.Errorf("shot = %v", sh)
 	}
@@ -483,7 +483,7 @@ func TestAimTransfer(t *testing.T) {
 	st = armed(0)
 	st.Chars[0].Aim, st.Chars[0].AimHex = 4, "A-F9"
 	seq = Sequence{1}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].N != 5 || st.Chars[0].AimHex != "" {
 		t.Errorf("shot = %v, marshal %+v", sh, st.Chars[0])
 	}
@@ -491,7 +491,7 @@ func TestAimTransfer(t *testing.T) {
 	st = armed(0)
 	st.Chars[0].Aim, st.Chars[0].AimHex = 2, "A-F6"
 	seq = Sequence{1}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	la := ofKind(evs, 0, EvLoseAim)
 	if len(la) != 1 || la[0].Reason != ReasonTransfer || la[0].Seg != 0 {
 		t.Errorf("lose aim = %v", la)
@@ -564,7 +564,7 @@ func TestShot(t *testing.T) {
 	st := armed(0)
 	st.Chars[0].Aim = 2
 	seq := Sequence{1, 37}
-	st, evs := resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs := resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	sh := ofKind(evs, 0, EvShot)
 	if len(sh) != 1 || sh[0].Seg != 1 || sh[0].Card != 1 || sh[0].Target != 1 || sh[0].Range != 6 || sh[0].N != 3 || sh[0].Hit != string(Miss) || sh[0].Reason != "" {
 		t.Errorf("shot = %v", sh)
@@ -586,7 +586,7 @@ func TestShot(t *testing.T) {
 	st.Chars[0].Aim = 6
 	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
 	seq = Sequence{1, 19, 19, 61, 65, 37} // FIRE, 2 wound cards (WOUND 1 each), 2 direction cards (Same, Same), 3 drop cards (DELAY 1)
-	st, evs = resolveWith(t, st, "5f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "5f:shoot:@1", "", &seq)
 	sh = ofKind(evs, 0, EvShot)
 	if len(sh) != 1 || sh[0].Seg != 2 || sh[0].Range != 1 || sh[0].N != 8 || sh[0].Hit != string(SideHit) {
 		t.Errorf("shot = %v", sh)
@@ -621,7 +621,7 @@ func TestShotKillsAndStaggerMoves(t *testing.T) {
 	st.Chars[0].Aim = 8
 	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
 	seq := Sequence{6}
-	st, evs := resolveWith(t, st, "5f:shoot", "1f:ahead,2f:ahead", &seq)
+	st, evs := resolveWith(t, st, "5f:shoot:@1", "1f:ahead,2f:ahead", &seq)
 	sh := ofKind(evs, 0, EvShot)
 	if len(sh) != 1 || sh[0].Hit != string(VitalHit) {
 		t.Errorf("shot = %v", sh)
@@ -649,7 +649,7 @@ func TestShotKillsAndStaggerMoves(t *testing.T) {
 	st.Chars[0].Aim = 5 // 2 + 5 = 7
 	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
 	seq = Sequence{20, 19, 19, 19, 19, 55, 61, 1} // FIRE, 4 wound cards (WOUND 1), Ahead Left, Same, DELAY 0 drop cards
-	st, evs = resolveWith(t, st, "5f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "5f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(BodyHit) {
 		t.Errorf("shot = %v", sh)
 	}
@@ -675,7 +675,7 @@ func TestShotStatusAndOutOfZone(t *testing.T) {
 	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
 	st.Chars[1].PlayedFoot = true
 	seq := Sequence{2, 1, 1, 61, 61, 1}
-	_, evs := resolveWith(t, st, "5f:shoot", "3b:ahead", &seq)
+	_, evs := resolveWith(t, st, "5f:shoot:@1", "3b:ahead", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(SideHit) {
 		t.Errorf("shot = %v", sh)
 	}
@@ -685,7 +685,7 @@ func TestShotStatusAndOutOfZone(t *testing.T) {
 	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
 	st.Chars[1].Down = true
 	seq = Sequence{5}
-	_, evs = resolveWith(t, st, "5f:shoot", "", &seq)
+	_, evs = resolveWith(t, st, "5f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(Miss) {
 		t.Errorf("shot = %v", sh)
 	}
@@ -693,20 +693,20 @@ func TestShotStatusAndOutOfZone(t *testing.T) {
 	st = armed(0)
 	st.Chars[0].Facing = hex.N
 	seq = Sequence{6}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Reason != ReasonOutOfZone || sh[0].Hit != string(Miss) || st.Chars[0].Guns[0].Shells != 5 {
 		t.Errorf("shot = %v", sh)
 	}
 	// Not cocked, empty: cancelled.
 	st = armed(0)
 	st.Chars[0].Guns[0].Cocked = false
-	_, evs = resolve(t, st, "7f:shoot", "")
+	_, evs = resolve(t, st, "7f:shoot:@1", "")
 	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNotCocked {
 		t.Errorf("cancels = %v", c)
 	}
 	st = armed(0)
 	st.Chars[0].Guns[0].Shells = 0
-	_, evs = resolve(t, st, "7f:shoot", "")
+	_, evs = resolve(t, st, "7f:shoot:@1", "")
 	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonEmpty {
 		t.Errorf("cancels = %v", c)
 	}
@@ -716,7 +716,7 @@ func TestMalfunctions(t *testing.T) {
 	// Card 101: no effect with handloaded shells, replaced by card 1 (miss at range 6).
 	st := armed(0)
 	seq := Sequence{101, 1}
-	st, evs := resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs := resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	m := ofKind(evs, 0, EvMalfunction)
 	if len(m) != 1 || m[0].Card != 101 || m[0].Result != MalfNoEffect {
 		t.Errorf("malfunctions = %v", m)
@@ -727,7 +727,7 @@ func TestMalfunctions(t *testing.T) {
 	// Card 104: misfire; the second draw is a FIRE: no penalty, shell spent.
 	st = armed(0)
 	seq = Sequence{104, 1}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	m = ofKind(evs, 0, EvMalfunction)
 	if len(m) != 2 || m[0].Result != MalfMisfire || m[1].Card != 1 || m[1].Result != MalfNoPenalty {
 		t.Errorf("malfunctions = %v", m)
@@ -738,18 +738,18 @@ func TestMalfunctions(t *testing.T) {
 	// Misfire then another MALFUNCTION: the gun jams (104) or explodes (107).
 	st = armed(0)
 	seq = Sequence{105, 104}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	if m = ofKind(evs, 0, EvMalfunction); len(m) != 2 || m[1].Result != GunJams || !st.Chars[0].Guns[0].Jammed || st.Chars[0].Guns[0].Shells != 0 {
 		t.Errorf("malfunctions = %v, gun %+v", m, st.Chars[0].Guns[0])
 	}
 	st = armed(0)
 	seq = Sequence{107, 108}
-	st, evs = resolveWith(t, st, "7f:shoot", "", &seq)
+	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
 	if m = ofKind(evs, 0, EvMalfunction); len(m) != 2 || m[1].Result != GunExplodes || !st.Chars[0].Guns[0].Exploded {
 		t.Errorf("malfunctions = %v, gun %+v", m, st.Chars[0].Guns[0])
 	}
 	st.Chars[0].Guns[0].Cocked = true
-	_, evs = resolve(t, st, "7f:shoot", "")
+	_, evs = resolve(t, st, "7f:shoot:@1", "")
 	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonBroken {
 		t.Errorf("cancels = %v", c)
 	}
@@ -765,7 +765,7 @@ func TestGunHitDropsTheGun(t *testing.T) {
 	st.Chars[1].Guns[0].Cocked = true
 	st.Chars[1].Aim = 2
 	seq := Sequence{81, 19, 19, 19, 19} // FIRE, 4 wound cards (WOUND 1)
-	st, evs := resolveWith(t, st, "5f:shoot", "", &seq)
+	st, evs := resolveWith(t, st, "5f:shoot:@1", "", &seq)
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(GunHit) {
 		t.Errorf("shot = %v", sh)
 	}
@@ -788,7 +788,7 @@ func TestGunHitDropsTheGun(t *testing.T) {
 	st.Chars[1].Guns[0].Location, st.Chars[1].Guns[0].Cocked = GunHand, true
 	st.Chars[1].Delay = 0
 	seq = Sequence{6}
-	_, evs = resolveWith(t, st, "", "5f:shoot", &seq)
+	_, evs = resolveWith(t, st, "", "5f:shoot:@0", &seq)
 	if sh := ofKind(evs, 1, EvShot); len(sh) != 1 || sh[0].N != -2 || sh[0].Hit != string(Miss) {
 		t.Errorf("shot = %v", sh)
 	}
@@ -885,5 +885,46 @@ func TestAimAtCharacterOrHex(t *testing.T) {
 	st, evs = resolve(t, st, "5f:aim:A-F8", "2f:ahead")
 	if a = ofKind(evs, 0, EvAim); len(a) != 1 || a[0].Target != -1 || a[0].To != "A-F8" || st.Chars[0].AimHex != "A-F8" || st.Chars[1].Hex != "A-F8" {
 		t.Errorf("aims = %v, marshal %+v, kid at %s", a, st.Chars[0], st.Chars[1].Hex)
+	}
+}
+
+func TestShotAtHex(t *testing.T) {
+	// A shot at the hex the Kid stands in is a shot at the Kid.
+	st := armed(0)
+	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F6"
+	st.Chars[0].Aim = 6
+	seq := Sequence{1, 19, 19, 61, 65, 37}
+	st, evs := resolveWith(t, st, "5f:shoot:A-F6", "", &seq)
+	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Target != 1 || sh[0].To != "A-F6" || sh[0].Hit != string(SideHit) {
+		t.Errorf("shot = %v", sh)
+	}
+	// A shot at an empty hex is wasted: card drawn, shell spent, aim lost, nobody hit.
+	st = armed(0)
+	st.Chars[0].Aim = 2
+	seq = Sequence{6}
+	st, evs = resolveWith(t, st, "7f:shoot:A-F6", "", &seq)
+	sh := ofKind(evs, 0, EvShot)
+	if len(sh) != 1 || sh[0].Target != -1 || sh[0].To != "A-F6" || sh[0].Reason != ReasonEmptyHex || sh[0].Hit != string(Miss) || sh[0].Card != 6 {
+		t.Errorf("shot = %v", sh)
+	}
+	if g := st.Chars[0].Guns[0]; g.Cocked || g.Shells != 5 || st.Chars[0].Aim != 0 || len(ofKind(evs, 1, EvWound)) != 0 {
+		t.Errorf("gun = %+v, aim %d", g, st.Chars[0].Aim)
+	}
+	// The Kid walks into the hex shot at before the shot goes off: hit.
+	st = armed(0)
+	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F7"
+	st.Chars[0].Aim = 6
+	seq = Sequence{1, 19, 19, 61, 65, 37}
+	st, evs = resolveWith(t, st, "5f:shoot:A-F6", "1f:ahead", &seq) // the Kid advances at seg 2, the shot goes off at seg 2 first... at the Kid still in F7
+	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Target != -1 || sh[0].Reason != ReasonEmptyHex {
+		t.Errorf("shot = %v", sh)
+	}
+	st = armed(0)
+	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F7"
+	st.Chars[0].Aim = 6
+	seq = Sequence{1, 19, 19, 61, 65, 37}
+	st, evs = resolveWith(t, st, "3b:ahead,5f:shoot:A-F6", "2f:ahead,1f:ahead", &seq) // the Kid runs into F6 at seg 1; the shot goes off at seg 3
+	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Target != 1 || sh[0].Hit != string(SideHit) {
+		t.Errorf("shot = %v", sh)
 	}
 }

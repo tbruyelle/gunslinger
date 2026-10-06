@@ -27,13 +27,15 @@ type Action struct {
 	Gun  int     // id of the gun for a gun choice (Draw & Cock), 0 when the side takes none
 	Hand int     // destination hand code for a gun choice (HandGun...), -1 when the side takes none
 	Opt    string  // shoot option for Cock/Aim/Shoot and Shoot (OptCock...), "" when the side takes none
-	Hex    string  // the hex aimed at, for an aim at a hex
-	Target int     // the seat aimed at, for an aim at a character; -1 otherwise
+	Hex    string  // the hex named by an aim or a shot at a hex
+	Target int     // the seat named by an aim or a shot at a character; -1 otherwise
 }
 
 // Shoot options: what a Cock/Aim/Shoot does (11.3), or a Shoot (shoot or
-// nothing). Aiming names its target: a hex of the aim zone ("5f:aim:A-F6")
-// or a character by seat ("5f:aim:@1"); a shot is always at the opponent.
+// nothing). Aiming and shooting name their target (11.31): a hex of the
+// aim zone ("5f:aim:A-F6", "7f:shoot:A-F6") or a character by seat
+// ("5f:aim:@1", "7f:shoot:@1"). A shot at a hex hits the character standing
+// there when it goes off, and is wasted otherwise.
 const (
 	OptCock    = "cock"
 	OptUncock  = "uncock"
@@ -159,18 +161,18 @@ func parseEntry(e string) (Action, error) {
 		if !validOpt(def.Code, opt) {
 			return Action{}, errors.New("invalid option " + strconv.Quote(opt) + " for " + def.Name)
 		}
-		if opt == OptAim {
+		if opt == OptAim || opt == OptShoot {
 			switch {
 			case strings.HasPrefix(arg, "@"):
 				seat, err := strconv.Atoi(arg[1:])
 				if err != nil || seat < 0 || seat >= NumPlayers {
-					return Action{}, errors.New("invalid character " + strconv.Quote(arg) + " to aim at")
+					return Action{}, errors.New("invalid character " + strconv.Quote(arg) + " to " + opt + " at")
 				}
 				a.Target = seat
 			case validHex(arg):
 				a.Hex = arg
 			default:
-				return Action{}, errors.New("aim needs a hex or a character to aim at, e.g. " + strconv.Quote(e+":aim:A-F6") + " or " + strconv.Quote(e+":aim:@1"))
+				return Action{}, errors.New(opt + " needs a hex or a character to " + opt + " at, e.g. " + strconv.Quote(e+":"+opt+":A-F6") + " or " + strconv.Quote(e+":"+opt+":@1"))
 			}
 		} else if arg != "" {
 			return Action{}, errors.New("option " + strconv.Quote(opt) + " takes no argument")
@@ -219,7 +221,7 @@ func (p Plan) String() string {
 		} else if a.Opt != "" && !(a.Code == cards.Shoot && a.Opt == OptNothing) {
 			b.WriteByte(':')
 			b.WriteString(a.Opt)
-			if a.Opt == OptAim {
+			if a.Opt == OptAim || a.Opt == OptShoot {
 				b.WriteByte(':')
 				if a.Target >= 0 {
 					b.WriteByte('@')
@@ -286,8 +288,8 @@ func (p Plan) Validate(c Character) error {
 			if !validOpt(def.Code, a.Opt) {
 				return errors.New("choose what to do with the gun")
 			}
-			if a.Opt == OptAim && a.Hex == "" && a.Target < 0 {
-				return errors.New("choose what to aim at")
+			if (a.Opt == OptAim || a.Opt == OptShoot) && a.Hex == "" && a.Target < 0 {
+				return errors.New("choose what to " + a.Opt + " at")
 			}
 		case def.Choice.IsAheadRel():
 			if !a.Dir.IsAhead() {
