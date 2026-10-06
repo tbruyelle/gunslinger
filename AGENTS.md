@@ -252,7 +252,8 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   (`CREATOR_CHAR`/`JOINER_CHAR`); the realm still takes any character key.
 - `GameScene`: renders `committed` state from the chain; card strip builds an
   ordered plan with a live preview (`replayPlan`) and relative-direction hex
-  picks; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
+  picks; sides the realm does not play yet (`isEnabled`) are not shown at
+  all, sides that cannot be picked right now are greyed out; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
   resolution log is played back segment by segment (`playback.ts`) from the
   turn's stored starting state, then the state re-syncs. **Replay** opens
   the whole history (`json/history/{id}`) with turn navigation and

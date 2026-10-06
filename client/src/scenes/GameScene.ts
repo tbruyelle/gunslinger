@@ -17,7 +17,7 @@ import {
   stepForward,
   type ReplayPos,
 } from "../game/playback";
-import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
+import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled } from "../game/plan";
 import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
 import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
@@ -1279,6 +1279,13 @@ export class GameScene extends Phaser.Scene {
       const hl = this.cardHighlights[i];
       const card = img.getData("card") as CardNumber;
       const side = img.getData("side") as CardSide;
+      // Actions the realm does not play yet are not shown at all; the ones
+      // it plays but that cannot be picked right now are greyed out below.
+      if (!isEnabled({ card, side })) {
+        img.setVisible(false);
+        hl.setVisible(false);
+        continue;
+      }
       const def = getActionDef({ card, side });
       const selected = this.isSelected(card, side);
       const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
