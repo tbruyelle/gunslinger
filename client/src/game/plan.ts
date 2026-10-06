@@ -58,15 +58,23 @@ export function isEnabled(entry: { card: CardNumber; side: CardSide }): boolean 
   return ENABLED_ACTIONS.has(getActionDef(entry).name);
 }
 
+/** The gun that can fire from its box: a one-handed gun in the gun hand or both hands. */
+export function gunInFiringBox(guns: GunView[]): GunView | undefined {
+  return guns.find((g) => g.location === "gun_hand" || g.location === "both_hands");
+}
+
 /**
  * Whether a side can be picked now: implemented, Sprint only after a Run on
- * the previous turn, Draw & Cock only with a holstered gun and a free gun hand.
+ * the previous turn, Draw & Cock only with a holstered gun and a free gun
+ * hand, Cock/Aim/Shoot and Shoot only with a gun in hand (guns is the state
+ * the plan leaves before the card, so a Draw & Cock earlier in the plan counts).
  */
 export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean, guns: GunView[] = []): boolean {
   if (!isEnabled(entry)) return false;
   const name = getActionDef(entry).name;
   if (name === "Sprint") return ranLastTurn;
   if (name === "Draw & Cock") return drawableGuns(guns).length > 0;
+  if (name in SHOOT_OPTIONS) return gunInFiringBox(guns) !== undefined;
   return true;
 }
 

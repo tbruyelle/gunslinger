@@ -69,7 +69,12 @@ describe("validatePlan", () => {
     expect(canPlay({ card: 3, side: "front" }, true)).toBe(true);
     expect(canPlay({ card: 2, side: "front" }, false)).toBe(true);
     expect(canPlay({ card: 8, side: "front" }, true)).toBe(false);
-    expect(canPlay({ card: 7, side: "front" }, true)).toBe(true);
+    // Cock/Aim/Shoot and Shoot need a gun in hand.
+    expect(canPlay({ card: 7, side: "front" }, true)).toBe(false);
+    expect(canPlay({ card: 5, side: "front" }, true, [COLT])).toBe(false);
+    expect(canPlay({ card: 5, side: "front" }, true, [{ ...COLT, location: "gun_hand" }])).toBe(true);
+    expect(canPlay({ card: 7, side: "front" }, true, [{ ...COLT, location: "both_hands" }])).toBe(true);
+    expect(canPlay({ card: 7, side: "front" }, true, [{ ...COLT, location: "other_hand" }])).toBe(false);
   });
 
   it("aims at a hex", () => {

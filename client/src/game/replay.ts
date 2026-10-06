@@ -1,7 +1,7 @@
 import { getActionDef, relativeToAbsoluteDir } from "../rules";
 import type { BoardMap } from "../board/boardA";
 import type { GunLocation, GunView, PlayerStatus, WoundFields } from "../chain/types";
-import { MAX_AIM, type PlanEntry } from "./plan";
+import { MAX_AIM, gunInFiringBox, type PlanEntry } from "./plan";
 
 /** What the board shows for one character. */
 export interface CharView extends WoundFields {
@@ -16,9 +16,7 @@ export interface CharView extends WoundFields {
 }
 
 /** The gun that can fire from its box: a one-handed gun in the gun hand or both hands. */
-export function firingGun(guns: GunView[]): GunView | undefined {
-  return guns.find((g) => g.location === "gun_hand" || g.location === "both_hands");
-}
+export const firingGun = gunInFiringBox;
 
 /** Destination of a Draw & Cock by hand code (0 gun hand, 1 other hand, 2 both hands). */
 const HAND_LOCATIONS: GunLocation[] = ["gun_hand", "other_hand", "both_hands"];

@@ -1129,6 +1129,11 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** My character's guns as the plan leaves them before the next card (the chain's when nothing is planned). */
+  private plannedGuns() {
+    return this.preview?.guns ?? this.myGuns();
+  }
+
   /** My character's guns, as the chain shows them. */
   private myGuns() {
     return (this.myIndex >= 0 ? this.view?.players[this.myIndex]?.guns : undefined) ?? [];
@@ -1205,7 +1210,7 @@ export class GameScene extends Phaser.Scene {
     const wasSelected = this.isSelected(card, side);
     const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
     if (!wasSelected) {
-      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn(), this.myGuns())) return;
+      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns())) return;
       if (planCost(this.currentPlan()) + def.cost > this.budget()) return;
     }
     this.exitChoiceMode();
@@ -1301,7 +1306,7 @@ export class GameScene extends Phaser.Scene {
         img.setAlpha(0.6);
       } else {
         hl.setStrokeStyle(2, GOLD, 0);
-        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn(), this.myGuns());
+        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns());
         img.setAlpha(usable ? 1 : 0.3);
       }
     }
