@@ -1804,7 +1804,9 @@ export class GameScene extends Phaser.Scene {
     const chars = this.displayChars();
     for (const e of events) {
       if (e.kind !== "shot" || !chars[e.p] || !chars[e.target]) continue;
-      const from = this.tokenScreenPos(chars, e.p);
+      // The bullet leaves the shooter's gun icon, like the aim line.
+      const gun = this.gunCentre(e.p);
+      const from = { sx: gun.x, sy: gun.y };
       // The bullet lands somewhere on the target's token, not dead centre.
       const centre = this.tokenScreenPos(chars, e.target);
       const angle = Math.random() * Math.PI * 2;
@@ -1825,6 +1827,9 @@ export class GameScene extends Phaser.Scene {
         g.fillCircle(x, y, 5);
       };
       const flight = Math.min(400, 60 + Math.hypot(to.sx - from.sx, to.sy - from.sy) / 4);
+      const hit = e.hit !== "-";
+      // The gunshot shakes the view as the bullet leaves, harder on a hit.
+      this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
       this.tweens.add({
         targets: bullet,
         t: 1,
