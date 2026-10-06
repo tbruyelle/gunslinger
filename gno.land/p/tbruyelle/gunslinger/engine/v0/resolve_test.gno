@@ -539,12 +539,20 @@ func TestAimIsLost(t *testing.T) {
 	if len(la) != 1 || la[0].Seg != 1 || la[0].Reason != ReasonReveal {
 		t.Errorf("lose aim = %v", la)
 	}
-	// Cocking loses it too.
+	// Cocking, uncocking or doing nothing with the gun lose it too; an aim keeps it.
+	for _, plan := range []string{"5f:cock", "5f:uncock", "7f"} {
+		st = armed(0)
+		st.Chars[0].Aim = 4
+		st, evs = resolve(t, st, plan, "")
+		if la := ofKind(evs, 0, EvLoseAim); len(la) != 1 || la[0].Seg != 0 || la[0].Reason != ReasonReveal || st.Chars[0].Aim != 0 {
+			t.Errorf("%s: lose aim = %v", plan, la)
+		}
+	}
 	st = armed(0)
 	st.Chars[0].Aim = 4
-	st, evs = resolve(t, st, "5f:cock", "")
-	if la := ofKind(evs, 0, EvLoseAim); len(la) != 1 || la[0].Seg != 0 || st.Chars[0].Aim != 0 {
-		t.Errorf("lose aim = %v", la)
+	st, evs = resolve(t, st, "5f:aim:@1", "")
+	if la := ofKind(evs, 0, EvLoseAim); len(la) != 0 || st.Chars[0].Aim != 6 {
+		t.Errorf("aim: lose aim = %v, aim %d", la, st.Chars[0].Aim)
 	}
 	// The target moving out of the aim zone at the end of a segment (12.41).
 	st = armed(0)

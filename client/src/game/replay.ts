@@ -42,9 +42,9 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap):
   const s = copyChar(start);
   for (const e of plan) {
     const def = getActionDef(e);
-    // Revealing anything but a Turn or a gun action that does not cock loses the aim (12.44).
+    // Revealing anything but a Turn, an aim or a shot loses the aim (12.44 as played here).
     const gunAction = def.name === "Cock/Aim/Shoot" || def.name === "Shoot";
-    if (!(def.name === "Turn" || (gunAction && e.opt !== "cock"))) {
+    if (!(def.name === "Turn" || (gunAction && (e.opt === "aim" || e.opt === "shoot")))) {
       s.aim = 0;
       s.aimHex = "";
     }

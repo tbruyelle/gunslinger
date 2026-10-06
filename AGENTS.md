@@ -164,7 +164,8 @@ it goes, `Character.AimHex` is "") or a hex (`AimHex` holds it); the target
 must be in the aim zone when the aim executes or the action is cancelled. The gun must be in a box it fires from
 (one-handed: gun hand or both hands) or the action is cancelled; a shot also
 needs it cocked and loaded. **Aim** is lost when revealing any action but a
-Turn or a gun action that does not cock (12.44), when a new target (the hex
+Turn, an aim or a shot (stricter than 12.44: cocking, uncocking and a Shoot
+doing nothing lose it too), when a new target (the hex
 aimed at, or the opponent shot at) is more than one hex from the markers
 (12.5; within one hex the markers move), when the markers' hex leaves the
 aim zone at the end of a segment (12.41), after a shot (12.43) and on
@@ -384,11 +385,9 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
-    - shoot action ask which hex (bc it can change)
     - check empty guns
     - show chance of hit near Shoot option
     - aim dotted line not visible if range=0
-    - if shot canceled for any reason-> loose aim
     - add smoke
     - wizzle screen
     - missed

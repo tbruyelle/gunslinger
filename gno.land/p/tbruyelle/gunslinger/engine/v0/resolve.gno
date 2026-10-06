@@ -258,17 +258,18 @@ func runningDelay(evs []Event, start [NumPlayers]int) {
 }
 
 // reveal applies rules 12.44 and 12.5 when an action becomes the next one:
-// the aim is lost unless the action is a Turn or a gun action that does not
-// cock; a gun action naming a new target (the hex aimed at, or the opponent
-// shot at) keeps the markers only within one hex of their place, and a shot
-// moves them onto the opponent.
+// the aim is lost unless the action is a Turn, an aim or a shot (which
+// spends it when it goes off); cocking, uncocking or doing nothing with a
+// gun lose it like any other action. An aim or a shot naming a new target
+// keeps the markers only within one hex of their place, and a shot moves
+// them onto its target.
 func reveal(board *hex.Board, p int, c *Character, opp *Character, a Action, seg int, evs *[]Event) {
 	if c.Aim == 0 {
 		return
 	}
 	switch {
 	case a.Code == cards.Turn:
-	case !cards.IsShooting(a.Code) || a.Opt == OptCock:
+	case !cards.IsShooting(a.Code) || (a.Opt != OptAim && a.Opt != OptShoot):
 		loseAim(p, c, seg, ReasonReveal, evs)
 	case a.Opt == OptAim || a.Opt == OptShoot:
 		// The target named: the markers move onto it within one hex (12.5).

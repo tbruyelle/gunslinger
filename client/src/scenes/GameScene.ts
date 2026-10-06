@@ -240,6 +240,11 @@ class CharacterToken {
     else this.sprite.clearTint();
   }
 
+  /** Where the gun icon sits, or the token centre without one. */
+  gunCentre(): { x: number; y: number } {
+    return this.gun ? { x: this.gun.x, y: this.gun.y } : { x: this.sprite.x, y: this.sprite.y };
+  }
+
   /** Screen angle (degrees, clockwise from east) the token's baked-in arrow points at. */
   private arrowAngle(): number {
     return this.sprite.angle + 60 * (CHAR_ARROW_DIR[this.charKey] ?? 1) - 90;
@@ -751,14 +756,14 @@ export class GameScene extends Phaser.Scene {
       img.on("pointerout", () => this.applyTokenHighlight(i));
       const token = new CharacterToken(p.char, img, hl, CharacterToken.depthFor(i));
       // The AIM marker on this token belongs to the opponent: the line runs from the aimer to here.
-      token.onAimHover = (over) => (over ? this.showAimLine(this.tokenCentre(1 - i), this.tokenCentre(i)) : this.hideAimLine());
+      token.onAimHover = (over) => (over ? this.showAimLine(this.gunCentre(1 - i), this.tokenCentre(i)) : this.hideAimLine());
       // The gun of an aiming character: the line runs from the aimer to its target.
       token.onGunHover = (over) => {
         const chars = this.displayChars();
         const c = chars[i];
         if (!over || !c || c.aim <= 0) return this.hideAimLine();
         const target = this.aimOnToken(chars, i) ? this.tokenCentre(1 - i) : this.hexCentre(c.aimHex);
-        this.showAimLine(this.tokenCentre(i), target);
+        this.showAimLine(this.gunCentre(i), target);
       };
       token.setOverlay(this, overlayKey(c), this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
@@ -1421,7 +1426,7 @@ export class GameScene extends Phaser.Scene {
         .setDepth(500);
       circle.on("pointerover", () => {
         circle.setFillStyle(0xb01010, 0.6);
-        this.showAimLine(this.tokenCentre(this.myIndex), { x: sx, y: sy }); // where the aim would go
+        this.showAimLine(this.gunCentre(this.myIndex), { x: sx, y: sy }); // where the aim would go
       });
       circle.on("pointerout", () => {
         circle.setFillStyle(0xb01010, 0.3);
@@ -1461,7 +1466,7 @@ export class GameScene extends Phaser.Scene {
       const { sx, sy } = this.hexToScreen(c.aimHex);
       const marker = this.add.image(sx, sy, aimMarkerKey(c.aim)).setOrigin(0.5).setDisplaySize(size, size).setMask(this.arrMask).setDepth(30).setInteractive();
       const seat = chars.indexOf(c);
-      marker.on("pointerover", () => this.showAimLine(this.tokenCentre(seat), { x: sx, y: sy }));
+      marker.on("pointerover", () => this.showAimLine(this.gunCentre(seat), { x: sx, y: sy }));
       marker.on("pointerout", () => this.hideAimLine());
       this.aimMarkers.push(marker);
     }
@@ -1470,6 +1475,11 @@ export class GameScene extends Phaser.Scene {
   private tokenCentre(seat: number): { x: number; y: number } {
     const { sx, sy } = this.tokenScreenPos(this.displayChars(), seat);
     return { x: sx, y: sy };
+  }
+
+  /** The aim line starts at the aimer's gun icon. */
+  private gunCentre(seat: number): { x: number; y: number } {
+    return this.tokens[seat]?.gunCentre() ?? this.tokenCentre(seat);
   }
 
   private hexCentre(hex: string): { x: number; y: number } {
