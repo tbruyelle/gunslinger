@@ -92,13 +92,13 @@ change and is what clients poll. Every resolved turn is kept in `Turns`
 | `CreateGame(cur, charKey, maxTurns, timeoutMinutes) string` | seat 0; 0 turns = 10; 0 timeout = 2 days (5 min to 30 days); phase `waiting` |
 | `JoinGame(cur, id, charKey)` | seat 1; phase `planning` |
 | `CancelGame(cur, id)` | creator, while waiting |
-| `SubmitPlan(cur, id, plan) int` | validates, stores; the **second** plan resolves the turn in the same tx; returns Rev |
+| `SubmitPlan(cur, id, plan) int` | validates, stores; the **second** plan resolves the turn in the same tx; returns Rev. A player with 5 or more delay cannot play anything and is passed automatically (`autoPass`, event `PlanPassed`), so the other plan alone resolves the turn; with both passed, turns resolve by themselves until someone can act |
 | `Resign(cur, id)` | forfeit |
 | `ClaimTimeout(cur, id)` | anyone, after the game's timeout without progress (`time.Now()`, lazy: no timers on chain); waiting → `expired`, one plan in → `timeout` (other forfeits), none → `abandoned` |
 
 Errors are panics prefixed `gunslinger: `; the client extracts them from the
 tx result log. Events: `GameCreated`, `PlayerJoined`, `PlanSubmitted`,
-`TurnResolved`, `GameEnded` (informational; there is no event subscription on
+`PlanPassed`, `TurnResolved`, `GameEnded` (informational; there is no event subscription on
 the RPC, clients poll).
 
 ### Reads
@@ -328,7 +328,7 @@ once combat lands); effects apply at segment end. Full rules:
 character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png` (630×880),
 `hex_grid.json` (hex centres, scaled 2×), gun icons `guns/<type>.gif` and AIM
 markers `aim{2,4,6,8}.gif` (from the VASSAL module). `assets/local/` (VASSAL): status
-overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
+overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `python scripts/fetch_assets.py` re-downloads
 (not needed, everything is present).
 
 ## TODO
@@ -364,6 +364,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - move timeout in the same form
 - Showdown
   - Add token placement during create/join phase
+  - See submitted plan?
   - Resolution log
     - improve consistency
     - improve visiblity/readability
@@ -377,7 +378,9 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
+    - aim dotted line not visible if range<2
     - prevent shoot if uncocked
+    - if shot canceled for any reason-> loose aim
     - add smoke
     - wizzle screen
     - missed

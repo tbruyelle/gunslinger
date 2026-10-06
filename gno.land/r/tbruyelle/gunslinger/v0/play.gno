@@ -46,12 +46,39 @@ func SubmitPlan(cur realm, id string, plan string) int {
 	if resolved {
 		seed = resolveTurn(g)
 	}
+	autoPass(g)
 	save(g)
 	emit("PlanSubmitted", "id", id, "turn", strconv.Itoa(turn), "player", caller.String(), "seat", strconv.Itoa(p))
 	if resolved {
 		emit("TurnResolved", "id", id, "turn", strconv.Itoa(turn), "rev", strconv.Itoa(g.Rev), "seed", seed)
 	}
 	return g.Rev
+}
+
+// autoPass passes the turn for every player who cannot play anything (a
+// carried delay of 5 or more leaves no time points, rule 7.3): there is
+// nothing to wait for from them. When nobody is left to wait for, the turn
+// resolves at once, and so on while that lasts.
+func autoPass(g *Game) {
+	for g.Phase == PhasePlanning {
+		for p := range g.Players {
+			c := &g.State.Chars[p]
+			if c.Status != engine.Alive || g.Submitted[p] || g.State.Budget(p) > 0 {
+				continue
+			}
+			c.PlayedFoot = false
+			c.PlayedRun = false
+			g.Plans[p] = ""
+			g.Submitted[p] = true
+			emit("PlanPassed", "id", g.ID, "turn", strconv.Itoa(g.Turn), "seat", strconv.Itoa(p))
+		}
+		if !(g.Submitted[0] && g.Submitted[1]) {
+			return
+		}
+		turn := g.Turn
+		seed := resolveTurn(g)
+		emit("TurnResolved", "id", g.ID, "turn", strconv.Itoa(turn), "rev", strconv.Itoa(g.Rev+1), "seed", seed)
+	}
 }
 
 // resolveTurn plays both plans with the result deck shuffled from this

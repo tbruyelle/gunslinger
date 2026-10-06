@@ -61,6 +61,15 @@ const MAX_DELAY_MARKER = 8;
  * full one while the pointer is over the stack, so each token is wholly
  * visible and clickable.
  */
+/** The status overlays drawn over a token (assets/local/<key>.png). */
+const STATE_OVERLAYS = ["state_down", "state_dead", "state_passed_out"];
+/** The overlay a character shows: killed or passed out first, else down. */
+function overlayKey(c: CharView): string | null {
+  if (c.status === "killed") return "state_dead";
+  if (c.status === "passed_out") return "state_passed_out";
+  return c.down ? "state_down" : null;
+}
+
 /** The AIM markers available (assets/aimN.gif, from the VASSAL module): aim comes by 2 points, up to 8. */
 const AIM_MARKERS = [2, 4, 6, 8];
 /** The marker texture for n AIM points: the closest one at or above n. */
@@ -278,19 +287,22 @@ class CharacterToken {
     this.follow();
   }
 
-  setDown(scene: Phaser.Scene, down: boolean, mask: Phaser.Display.Masks.GeometryMask) {
-    if (!down) {
+  /** Shows the status overlay (DOWN, DEAD, PASSED OUT), or none. */
+  setOverlay(scene: Phaser.Scene, key: string | null, mask: Phaser.Display.Masks.GeometryMask) {
+    if (!key || !scene.textures.exists(key)) {
       this.overlay?.destroy();
       this.overlay = null;
       return;
     }
     if (!this.overlay) {
       this.overlay = scene.add
-        .image(this.sprite.x, this.sprite.y, "state_down")
+        .image(this.sprite.x, this.sprite.y, key)
         .setScale(this.sprite.scaleX)
         .setOrigin(0.5)
         .setMask(mask)
         .setDepth(this.depth + 2);
+    } else if (this.overlay.texture.key !== key) {
+      this.overlay.setTexture(key);
     }
   }
 
@@ -454,7 +466,9 @@ export class GameScene extends Phaser.Scene {
       if (!this.textures.exists(fKey)) this.load.image(fKey, getActionCardAsset(n, "front"));
       if (!this.textures.exists(bKey)) this.load.image(bKey, getActionCardAsset(n, "back"));
     }
-    if (!this.textures.exists("state_down")) this.load.image("state_down", "local/state_down.png");
+    for (const key of STATE_OVERLAYS) {
+      if (!this.textures.exists(key)) this.load.image(key, `local/${key}.png`);
+    }
     for (let i = 1; i <= MAX_DELAY_MARKER; i++) {
       if (!this.textures.exists(`delay_${i}`)) this.load.image(`delay_${i}`, `del${i}.gif`);
     }
@@ -667,7 +681,7 @@ export class GameScene extends Phaser.Scene {
         t.killTweens(this.tweens);
         t.sprite.destroy();
         t.highlight.destroy();
-        t.setDown(this, false, this.arrMask);
+        t.setOverlay(this, null, this.arrMask);
         t.setDelay(this, 0, this.arrMask);
         t.setGun(this, null, this.arrMask);
         t.setTargetAim(this, 0, this.arrMask);
@@ -714,7 +728,7 @@ export class GameScene extends Phaser.Scene {
         const target = this.aimOnToken(chars, i) ? this.tokenCentre(1 - i) : this.hexCentre(c.aimHex);
         this.showAimLine(this.tokenCentre(i), target);
       };
-      token.setDown(this, c.down, this.arrMask);
+      token.setOverlay(this, overlayKey(c), this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
       token.setGun(this, gunInHand(c.guns), this.arrMask);
       token.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
@@ -735,7 +749,7 @@ export class GameScene extends Phaser.Scene {
       const angle = dirIndexToAngle(c.facing, t.charKey);
       t.killTweens(this.tweens);
       // Status, delay and gun first, so new markers travel with the token.
-      t.setDown(this, c.down, this.arrMask);
+      t.setOverlay(this, overlayKey(c), this.arrMask);
       t.setDelay(this, c.delay, this.arrMask);
       t.setGun(this, gunInHand(c.guns), this.arrMask);
       t.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
@@ -872,8 +886,12 @@ export class GameScene extends Phaser.Scene {
         return "Your move: pick your action cards";
       case "submitting":
         return "Signing your plan…";
-      case "waiting":
-        return view.phase === "waiting" ? "Waiting for a second player…" : "Plan sent, waiting for the opponent…";
+      case "waiting": {
+        if (view.phase === "waiting") return "Waiting for a second player…";
+        const me = this.myIndex >= 0 ? view.players[this.myIndex] : null;
+        if (me && me.delay >= MAX_ACTION_POINTS) return `Too much delay to act this turn (${me.delay}): you pass, waiting for the opponent…`;
+        return "Plan sent, waiting for the opponent…";
+      }
       case "playback":
         return this.playback?.live ? `Turn ${this.playback.turns[0].turn} resolution` : "Replay";
       case "spectate":

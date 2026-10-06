@@ -216,6 +216,9 @@ func Resolve(board *hex.Board, st State, plans [NumPlayers]Plan, d Drawer) (Stat
 		// the events carry the running total as the cards come.
 		for p := 0; p < NumPlayers; p++ {
 			startDelay[p] = st.Chars[p].Delay
+			if st.Chars[p].Status == Killed {
+				continue // the delay gained before the kill is moot
+			}
 			st.Chars[p].Delay += gained[p]
 		}
 		runningDelay(evs[first:], startDelay)
@@ -516,6 +519,7 @@ func applyPenalties(board *hex.Board, p int, st *State, r pending, seg int, d Dr
 			c.Status = Killed
 			c.Down = true
 			c.Aim = 0
+			c.Delay = 0 // a dead character carries no delay marker
 		case Stun:
 			for i := 0; i < pen.N; i++ {
 				gained += drawCard(p, c, seg, ReasonStun, woundLine, d, evs)

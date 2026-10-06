@@ -104,6 +104,7 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
             c.status = "killed";
             c.down = true;
             c.aim = 0;
+            c.delay = 0;
             break;
           case "serious":
             c.serious += e.n;

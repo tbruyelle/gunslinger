@@ -405,3 +405,33 @@ func TestShootout(cur realm, t *testing.T) {
 	uassert.True(t, strings.Contains(GameJSON(id), `"kind":"shot"`))
 	uassert.True(t, strings.Contains(Render("game/"+id), "shoots dude (card "))
 }
+
+func TestAutoPass(cur realm, t *testing.T) {
+	testing.SetRealm(testing.NewUserRealm(alice))
+	id := CreateGame(cross(cur), "marshal", 10, 0)
+	testing.SetRealm(testing.NewUserRealm(bob))
+	JoinGame(cross(cur), id, "dude")
+	g := getGame(id)
+	// Alice carries 5 delay: she cannot play anything, so bob's plan alone
+	// resolves the turn; her pass is recorded as an empty plan.
+	g.State.Chars[0].Delay = 5
+	g.State.Chars[0].PlayedFoot = true
+	SubmitPlan(cross(cur), id, "1f:ahead")
+	uassert.Equal(t, 2, g.Turn)
+	lt := g.lastTurn()
+	uassert.Equal(t, "", lt.Plans[0])
+	uassert.Equal(t, "1f:ahead", lt.Plans[1])
+	uassert.False(t, lt.Start[0].PlayedFoot)
+	uassert.Equal(t, 2, g.State.Chars[0].Delay) // 5 -> 2: she can play 3 points now
+	uassert.False(t, g.Submitted[0])
+	uassert.False(t, g.Submitted[1])
+	// Both unable to act: the turns resolve by themselves until someone can play.
+	g.State.Chars[0].Delay = 6
+	g.State.Chars[1].Delay = 5
+	autoPass(g)
+	uassert.Equal(t, 3, g.Turn)
+	uassert.Equal(t, 3, g.State.Chars[0].Delay) // 6 -> 3
+	uassert.Equal(t, 2, g.State.Chars[1].Delay) // 5 -> 2
+	uassert.Equal(t, 2, len(g.Turns))
+	uassert.Equal(t, "planning", g.Phase.String())
+}
