@@ -104,7 +104,7 @@ class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
   /** The "DEL n" marker at the bottom corner on the arrow's side (upright frame), when the character carries delay. */
   private badge: Phaser.GameObjects.Image | null = null;
-  /** The icon of the gun held in a hand, at the token corner above the arrow, with its shells as red dots. */
+  /** The icon of the gun held in a hand, at the token corner above the arrow, with its shells as red dots; greyed out while uncocked. */
   private gun: Phaser.GameObjects.Image | null = null;
   private shells: Phaser.GameObjects.Graphics | null = null;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
@@ -292,9 +292,12 @@ class CharacterToken {
       this.gun.setTexture(key);
     }
     this.gun.setDisplaySize(size, size);
-    // One dot per chamber along the icon's bottom edge: red while loaded, dark once spent.
+    // Cocked: the icon in full colour; uncocked: greyed out.
     const g = this.shells!;
     g.clear();
+    if (gun.cocked) this.gun.clearTint().setAlpha(1);
+    else this.gun.setTint(0xb4b4b4).setAlpha(0.7);
+    // One dot per chamber along the icon's bottom edge: red while loaded, dark once spent.
     const n = Math.max(gun.capacity, gun.shells, 1);
     const step = size / (n + 1);
     const radius = Math.max(1.5, size * 0.055);

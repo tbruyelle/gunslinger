@@ -258,7 +258,8 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   over the stack (`updateStackHover`, animated) so each one can be clicked.
   A gun held in a hand shows as its icon (`assets/guns/<type>.gif`) at the
   token corner above the arrow, "above" in the figure's upright frame
-  (`CharacterToken.setGun`, `gunAngle`); the DEL badge takes the corner
+  (`CharacterToken.setGun`, `gunAngle`), with its shells as red dots along
+  the bottom, greyed out while uncocked; the DEL badge takes the corner
   below it and the opponent's AIM marker the other top corner, all turning
   with the token; `CharView.guns` carries
   the guns through the preview (Draw & Cock moves the gun) and the playback
@@ -379,10 +380,10 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
+    - shoot action ask which hex (bc it can change)
     - check empty guns
     - show chance of hit near Shoot option
-    - aim dotted line not visible if range<2
-    - prevent shoot if uncocked
+    - aim dotted line not visible if range=0
     - if shot canceled for any reason-> loose aim
     - add smoke
     - wizzle screen
