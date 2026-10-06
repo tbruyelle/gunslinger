@@ -85,6 +85,9 @@ const STACK_REST = 0.12;
 const STACK_SPREAD = 0.42;
 const STACK_MS = 180;
 
+/** The option buttons offered for each gun action (uncocking stays possible in the plan string, not in the menu). */
+const MENU_OPTIONS: Record<string, ShootOption[]> = { "Cock/Aim/Shoot": ["cock", "aim", "shoot"], Shoot: ["shoot", "nothing"] };
+
 /** Gun models with an icon in assets/guns/<type>.gif. */
 const GUN_TYPES = ["colt45"];
 /**
@@ -1507,20 +1510,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Buttons for the option of a gun action (cock, uncock, aim, shoot; or
-   * shoot, nothing), laid out in a ring around my character's token.
+   * Buttons for the option of a gun action, in a column to the right of my
+   * token: Cock / Aim / Shoot for Cock/Aim/Shoot, Shoot / Do nothing for
+   * Shoot. With the gun uncocked (as the plan leaves it before this card)
+   * only Cock is enabled; cocked, Cock is disabled and the others enabled.
    */
   private openOptMenu(card: CardNumber, side: CardSide) {
     this.closeOptMenu();
-    // Cocking a cocked gun, or uncocking an uncocked one, is pointless: hide it.
-    // The gun's state is the one the plan leaves before this card.
     const chars = this.displayChars();
     const me = this.myIndex >= 0 ? chars[this.myIndex] : null;
     const gun = me ? firingGun(me.guns) : undefined;
-    const opts = (SHOOT_OPTIONS[getActionDef({ card, side }).name] ?? []).filter((o) => !gun || (o === "cock" ? !gun.cocked : o === "uncock" ? gun.cocked : true));
-    const labels: Record<ShootOption, string> = { cock: "Cock", uncock: "Uncock", aim: "Aim (+2)", shoot: "Shoot", nothing: "Do nothing" };
+    const name = getActionDef({ card, side }).name;
+    const opts = MENU_OPTIONS[name] ?? [];
+    const enabled = (o: ShootOption) => !gun || (o === "cock" ? !gun.cocked : o === "nothing" ? true : gun.cocked);
+    const labels: Record<ShootOption, string> = { cock: "Cock", uncock: "Uncock", aim: "Aim", shoot: "Shoot", nothing: "Do nothing" };
     const objects: Phaser.GameObjects.GameObject[] = [];
-    // A column to the right of the token, centred on it, top to bottom.
     const center = me ? this.tokenScreenPos(chars, this.myIndex) : { sx: this.cw / 2, sy: HUD_H + this.arrH / 2 };
     const x = center.sx + this.tokenDiameter() * 0.8;
     const gap = 6;
@@ -1538,17 +1542,17 @@ export class GameScene extends Phaser.Scene {
       const text = texts[i];
       y += text.height / 2;
       text.setY(y);
-      const box = this.add
-        .rectangle(x, y, width, text.height, 0x8e2f1a, 1)
-        .setOrigin(0, 0.5)
-        .setStrokeStyle(3, GOLD, 1)
-        .setMask(this.arrMask)
-        .setDepth(601)
-        .setInteractive({ useHandCursor: true });
+      const box = this.add.rectangle(x, y, width, text.height, 0x8e2f1a, 1).setOrigin(0, 0.5).setStrokeStyle(3, GOLD, 1).setMask(this.arrMask).setDepth(601);
       y += text.height / 2 + gap;
-      box.on("pointerover", () => box.setFillStyle(0xb8442a, 1));
-      box.on("pointerout", () => box.setFillStyle(0x8e2f1a, 1));
-      box.on("pointerup", () => this.resolveOpt(o));
+      if (enabled(o)) {
+        box.setInteractive({ useHandCursor: true });
+        box.on("pointerover", () => box.setFillStyle(0xb8442a, 1));
+        box.on("pointerout", () => box.setFillStyle(0x8e2f1a, 1));
+        box.on("pointerup", () => this.resolveOpt(o));
+      } else {
+        box.setAlpha(0.35);
+        text.setAlpha(0.35);
+      }
       objects.push(box, text);
     });
     this.optMenu = { card, side, objects };

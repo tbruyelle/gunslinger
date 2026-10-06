@@ -273,9 +273,10 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   the first gun action: picking it opens the sheet in pick mode, where the
   holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
   carries the gun id and hand (`9f:1:0`) and the resolution moves and cocks the gun
-  (`draw` event). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: cock,
-  uncock, aim, shoot / shoot, do nothing; `pendingOpts`; cock and uncock
-  hide when pointless). Aim then highlights the aim zone (`BoardMap.aimZone`,
+  (`draw` event). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: Cock,
+  Aim, Shoot / Shoot, Do nothing; `pendingOpts`; with the gun uncocked only
+  Cock is enabled, cocked only Aim and Shoot; uncocking is only reachable
+  through the plan string). Aim then highlights the aim zone (`BoardMap.aimZone`,
   same axial maths as the realm) and the clicked hex goes into the plan
   (`pendingAims`, `5f:aim:A-F6`). The preview (`replayPlan`) follows the
   aim, cocking and shells; AIM markers are drawn on the aimed hex, or on the opponent's token when
@@ -378,6 +379,8 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
+    - check empty guns
+    - show chance of hit near Shoot option
     - aim dotted line not visible if range<2
     - prevent shoot if uncocked
     - if shot canceled for any reason-> loose aim
@@ -390,7 +393,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
         - add <LOCATION> hit!
         - blood on the ground behind the shoot
         - wizzle the target icon
-    - check what hjappens in a character goes to a hex that contains a aim
+    - check what happens in a character goes to a hex that contains a aim
       marker
     - check what happens if a aimed character move
     - aim lines does not appear after shooter submit and during replay last
