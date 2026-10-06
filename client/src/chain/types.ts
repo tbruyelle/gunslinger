@@ -64,6 +64,7 @@ export interface StartChar {
   down: boolean;
   delay: number;
   status: PlayerStatus;
+  guns: GunView[];
 }
 
 export interface TurnResult {

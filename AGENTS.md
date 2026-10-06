@@ -205,7 +205,12 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   relative to the state before it). Tokens sharing a hex are fanned out
   along a diagonal (`STACK_REST`), and spread fully while the pointer is
   over the stack (`updateStackHover`, animated) so each one can be clicked.
-  Clicking a token opens the **character
+  A gun held in a hand shows as its icon (`assets/guns/<type>.gif`) at the
+  token corner above the arrow, "above" in the figure's upright frame
+  (`CharacterToken.setGun`, `gunAngle`); `CharView.guns` carries
+  the guns through the preview (Draw & Cock moves the gun) and the playback
+  (`draw` and `wild_shot` events are folded, the turn's `start` JSON lists
+  the guns). Clicking a token opens the **character
   sheet** (`ui/characterSheet.ts`): an HTML overlay built from the design
   template `ui/characterSheet.html` (1100×850, fonts Rye / Zilla Slab from
   Google Fonts), filled with the name, token and a live status row; hands,
@@ -268,6 +273,7 @@ overlays `state_*.png`, markers. `python scripts/fetch_assets.py` re-downloads
 - Session keys (`MsgCreateSession`) so Adena signs once per game.
 - Replace the tbruyelle realm to sthing else
 - upgrade architecture with player boards and profile preserved
+- use gnotiff
 - Player profile
   - Add profile page with specific token and linked reputation (check RPG rules)
   - Add a challenge player button

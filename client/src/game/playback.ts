@@ -1,5 +1,5 @@
-import type { TurnEvent, TurnResult } from "../chain/types";
-import type { CharView } from "./replay";
+import type { GunLocation, TurnEvent, TurnResult } from "../chain/types";
+import { copyChar, type CharView } from "./replay";
 
 export const SEGMENTS = 5;
 
@@ -25,13 +25,13 @@ export function stepBack(pos: ReplayPos): ReplayPos | null {
 
 /** The characters' state when a turn began, from the stored snapshot. */
 export function startOfTurn(t: TurnResult, fallback: CharView[]): CharView[] {
-  if (!t.start || t.start.length === 0) return fallback.map((c) => ({ ...c }));
-  return t.start.map((c) => ({ hex: c.hex, facing: c.facing, down: c.down, delay: c.delay }));
+  if (!t.start || t.start.length === 0) return fallback.map(copyChar);
+  return t.start.map((c) => ({ hex: c.hex, facing: c.facing, down: c.down, delay: c.delay, guns: (c.guns ?? []).map((g) => ({ ...g })) }));
 }
 
 /** The characters' state once every event up to and including segment seg has applied. */
 export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number): CharView[] {
-  const out = start.map((c) => ({ ...c }));
+  const out = start.map(copyChar);
   for (const e of events) {
     if (e.seg < 1 || e.seg > seg) continue;
     const c = out[e.p];
@@ -51,6 +51,22 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
       case "delay":
         c.delay = e.delay;
         break;
+      case "draw": {
+        const g = c.guns.find((x) => x.id === e.gunId);
+        if (g) {
+          g.location = e.to as GunLocation;
+          g.cocked = true;
+        }
+        break;
+      }
+      case "wild_shot": {
+        const g = c.guns.find((x) => x.id === e.gunId);
+        if (g) {
+          g.cocked = false;
+          g.shells = Math.max(0, g.shells - 1);
+        }
+        break;
+      }
     }
   }
   return out;

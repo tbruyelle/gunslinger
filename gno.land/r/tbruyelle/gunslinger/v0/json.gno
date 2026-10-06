@@ -21,7 +21,7 @@ const listLimit = 50
 //	             "guns":[{"id","type","name","location","cocked","shells","capacity"}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],"events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","gun","gunId"}],
-//	             "start":[{"hex","facing","down","delay","status"},..]}}
+//	             "start":[{"hex","facing","down","delay","status","guns":[..]},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
 // The plans of the turn in progress are not exposed, only the submitted flags.
@@ -97,9 +97,15 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 	b.WriteString(`,"playedFoot":` + strconv.FormatBool(c.PlayedFoot))
 	b.WriteString(`,"playedRun":` + strconv.FormatBool(c.PlayedRun))
 	b.WriteString(`,"ranLastTurn":` + strconv.FormatBool(c.RanLastTurn))
+	writeGuns(b, c.Guns)
+	b.WriteByte('}')
+}
+
+// writeGuns writes the ,"guns":[...] member of a character.
+func writeGuns(b *strings.Builder, guns engine.Guns) {
 	b.WriteString(`,"guns":[`)
 	n := 0
-	for _, g := range c.Guns {
+	for _, g := range guns {
 		if g.Type == engine.NoGun {
 			continue
 		}
@@ -117,7 +123,7 @@ func writePlayer(b *strings.Builder, g *Game, i int) {
 		b.WriteString(`,"capacity":` + strconv.Itoa(spec.Capacity))
 		b.WriteByte('}')
 	}
-	b.WriteString("]}")
+	b.WriteByte(']')
 }
 
 func writeTurnResult(b *strings.Builder, r *TurnResult) {
@@ -158,6 +164,7 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 		b.WriteString(`,"down":` + strconv.FormatBool(c.Down))
 		b.WriteString(`,"delay":` + strconv.Itoa(c.Delay))
 		b.WriteString(`,"status":` + quote(c.Status.String()))
+		writeGuns(b, c.Guns)
 		b.WriteByte('}')
 	}
 	b.WriteString("]}")

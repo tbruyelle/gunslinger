@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { CardNumber, CardSide, ChoiceType, RelativeDirection } from "../rules";
-import { AHEAD_DIRS, BACK_DIRS, dirIndexToAngle, getActionCardAsset, getActionDef, relativeToAbsoluteDir } from "../rules";
+import { AHEAD_DIRS, BACK_DIRS, dirIndexToAngle, getActionCardAsset, getActionDef, relativeToAbsoluteDir, CHAR_ARROW_DIR } from "../rules";
 import { BOARD_A } from "../board/boardA";
 import { getChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
@@ -18,7 +18,7 @@ import {
   type ReplayPos,
 } from "../game/playback";
 import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry } from "../game/plan";
-import { replayPlan, type CharView } from "../game/replay";
+import { gunInHand, replayPlan, type CharView } from "../game/replay";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
 import { charName } from "./LobbyScene";
@@ -64,17 +64,30 @@ const STACK_REST = 0.12;
 const STACK_SPREAD = 0.42;
 const STACK_MS = 180;
 
+/** Gun models with an icon in assets/guns/<type>.gif. */
+const GUN_TYPES = ["colt45"];
+/**
+ * The gun-in-hand icon sits at the token's top-left or top-right corner, the
+ * corner above the arrow once the figure stands upright (the art leans 30°
+ * toward the arrow's side, see the sheet's SHEET_UPRIGHT_DEG): size and
+ * distance from the centre as fractions of the token diameter.
+ */
+const GUN_SIZE = 0.4;
+const GUN_RADIUS = 0.5;
+
 /** Groups the display objects of one character token. */
 class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
   /** The "DEL n" marker in the bottom-right corner, when the character carries delay. */
   private badge: Phaser.GameObjects.Image | null = null;
   private badgeOffset = 0;
+  /** The icon of the gun held in a hand, at the token corner above the arrow. */
+  private gun: Phaser.GameObjects.Image | null = null;
   /** In-flight position tweens, retargeted by moveTo without touching the rotation. */
   private posTweens: Phaser.Tweens.Tween[] = [];
 
   /**
-   * Each token owns a band of 4 depths (ring, sprite, DOWN overlay, DEL
+   * Each token owns a band of 5 depths (ring, sprite, DOWN overlay, gun, DEL
    * badge), later seats above earlier ones, so stacked tokens layer as units
    * and a hidden token's badge never shows over the token covering it.
    */
@@ -89,13 +102,14 @@ class CharacterToken {
   }
 
   static depthFor(seat: number): number {
-    return 1 + seat * 4;
+    return 1 + seat * 5;
   }
 
   private get parts(): Phaser.GameObjects.GameObject[] {
     const list: Phaser.GameObjects.GameObject[] = [this.sprite, this.highlight];
     if (this.overlay) list.push(this.overlay);
     if (this.badge) list.push(this.badge);
+    if (this.gun) list.push(this.gun);
     return list;
   }
 
@@ -104,19 +118,56 @@ class CharacterToken {
     this.posTweens = [];
   }
 
+  /** Tweens the sprite; the other parts follow it every frame. */
   moveTo(tweens: Phaser.Tweens.TweenManager, sx: number, sy: number, duration: number) {
     for (const tw of this.posTweens) tw.stop();
-    this.posTweens = this.parts.map((p) => {
-      const off = p === this.badge ? this.badgeOffset : 0;
-      return tweens.add({ targets: p, x: sx + off, y: sy + off, duration, ease: "Cubic.easeInOut" });
-    });
+    this.posTweens = [tweens.add({ targets: this.sprite, x: sx, y: sy, duration, ease: "Cubic.easeInOut", onUpdate: () => this.follow() })];
   }
 
   setPosition(sx: number, sy: number) {
     this.sprite.setPosition(sx, sy);
-    this.highlight.setPosition(sx, sy);
-    this.overlay?.setPosition(sx, sy);
-    this.badge?.setPosition(sx + this.badgeOffset, sy + this.badgeOffset);
+    this.follow();
+  }
+
+  rotateTo(tweens: Phaser.Tweens.TweenManager, targetAngle: number, duration: number) {
+    let diff = targetAngle - this.sprite.angle;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    if (Math.abs(diff) > 0.5) {
+      tweens.add({ targets: this.sprite, angle: this.sprite.angle + diff, duration, ease: "Cubic.easeInOut", onUpdate: () => this.follow() });
+    }
+  }
+
+  setAngle(angle: number) {
+    this.sprite.setAngle(angle);
+    this.follow();
+  }
+
+  /** Places the ring, overlay, badge and gun icon relative to the sprite. */
+  private follow() {
+    const { x, y } = this.sprite;
+    this.highlight.setPosition(x, y);
+    this.overlay?.setPosition(x, y);
+    this.badge?.setPosition(x + this.badgeOffset, y + this.badgeOffset);
+    if (this.gun) {
+      const a = Phaser.Math.DegToRad(this.gunAngle());
+      const r = this.sprite.displayWidth * GUN_RADIUS;
+      this.gun.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+  }
+
+  /** Screen angle (degrees, clockwise from east) the token's baked-in arrow points at. */
+  private arrowAngle(): number {
+    return this.sprite.angle + 60 * (CHAR_ARROW_DIR[this.charKey] ?? 1) - 90;
+  }
+
+  /**
+   * Screen angle of the corner above the arrow in the figure's upright
+   * frame: 45° toward the figure's head from the arrow, which points to its
+   * right (NE tokens) or its left (NW tokens).
+   */
+  private gunAngle(): number {
+    return this.arrowAngle() + (CHAR_ARROW_DIR[this.charKey] === 5 ? 45 : -45);
   }
 
   /** Shows the delay marker for n points (none for 0), sized relative to the token. */
@@ -135,20 +186,29 @@ class CharacterToken {
         .image(this.sprite.x + this.badgeOffset, this.sprite.y + this.badgeOffset, key)
         .setOrigin(0.5)
         .setMask(mask)
-        .setDepth(this.depth + 3);
+        .setDepth(this.depth + 4);
     } else if (this.badge.texture.key !== key) {
       this.badge.setTexture(key);
     }
     this.badge.setDisplaySize(size, size);
   }
 
-  rotateTo(tweens: Phaser.Tweens.TweenManager, targetAngle: number, duration: number) {
-    let diff = targetAngle - this.sprite.angle;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    if (Math.abs(diff) > 0.5) {
-      tweens.add({ targets: this.sprite, angle: this.sprite.angle + diff, duration, ease: "Cubic.easeInOut" });
+  /** Shows the icon of the gun held in a hand (none when every gun is holstered). */
+  setGun(scene: Phaser.Scene, type: string | null, mask: Phaser.Display.Masks.GeometryMask) {
+    const key = `gun_${type}`;
+    if (!type || !scene.textures.exists(key)) {
+      this.gun?.destroy();
+      this.gun = null;
+      return;
     }
+    const size = this.sprite.displayWidth * GUN_SIZE;
+    if (!this.gun) {
+      this.gun = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 3);
+    } else if (this.gun.texture.key !== key) {
+      this.gun.setTexture(key);
+    }
+    this.gun.setDisplaySize(size, size);
+    this.follow();
   }
 
   setDown(scene: Phaser.Scene, down: boolean, mask: Phaser.Display.Masks.GeometryMask) {
@@ -306,6 +366,9 @@ export class GameScene extends Phaser.Scene {
     for (let i = 1; i <= MAX_DELAY_MARKER; i++) {
       if (!this.textures.exists(`delay_${i}`)) this.load.image(`delay_${i}`, `del${i}.gif`);
     }
+    for (const t of GUN_TYPES) {
+      if (!this.textures.exists(`gun_${t}`)) this.load.image(`gun_${t}`, `guns/${t}.gif`);
+    }
   }
 
   create() {
@@ -397,7 +460,7 @@ export class GameScene extends Phaser.Scene {
     const view = this.view;
     if (!view) return;
     const turnChanged = view.turn !== this.renderedTurn;
-    this.committed = view.players.map((p) => ({ hex: p.hex, facing: p.facing, down: p.down, delay: p.delay }));
+    this.committed = view.players.map((p) => ({ hex: p.hex, facing: p.facing, down: p.down, delay: p.delay, guns: p.guns.map((g) => ({ ...g })) }));
     this.renderedTurn = view.turn;
     this.shownResultTurn = view.lastTurn?.turn ?? 0;
 
@@ -506,6 +569,8 @@ export class GameScene extends Phaser.Scene {
         t.sprite.destroy();
         t.highlight.destroy();
         t.setDown(this, false, this.arrMask);
+        t.setDelay(this, 0, this.arrMask);
+        t.setGun(this, null, this.arrMask);
       }
     }
     this.tokens = [];
@@ -541,6 +606,7 @@ export class GameScene extends Phaser.Scene {
       const token = new CharacterToken(p.char, img, hl, CharacterToken.depthFor(i));
       token.setDown(this, c.down, this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
+      token.setGun(this, gunInHand(c.guns), this.arrMask);
       this.tokens.push(token);
     });
   }
@@ -554,15 +620,16 @@ export class GameScene extends Phaser.Scene {
       const { sx, sy } = this.tokenScreenPos(chars, i);
       const angle = dirIndexToAngle(c.facing, t.charKey);
       t.killTweens(this.tweens);
-      // Status and delay first, so new markers travel with the token.
+      // Status, delay and gun first, so new markers travel with the token.
       t.setDown(this, c.down, this.arrMask);
       t.setDelay(this, c.delay, this.arrMask);
+      t.setGun(this, gunInHand(c.guns), this.arrMask);
       if (animate) {
         t.moveTo(this.tweens, sx, sy, 450);
         t.rotateTo(this.tweens, angle, 300);
       } else {
         t.setPosition(sx, sy);
-        t.sprite.setAngle(angle);
+        t.setAngle(angle);
       }
       this.applyTokenHighlight(i);
     });
@@ -1056,6 +1123,7 @@ export class GameScene extends Phaser.Scene {
         onPick: (gunId, hand) => {
           picked = true;
           this.pendingGuns.set(card, { gun: gunId, hand });
+          this.updatePreview(); // the gun icon joins the token right away
           this.refreshSelectionDisplay();
           this.refreshCardHighlights();
         },

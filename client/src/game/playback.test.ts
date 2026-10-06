@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TurnEvent, TurnResult } from "../chain/types";
+import type { GunView, TurnEvent, TurnResult } from "../chain/types";
 import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
@@ -15,20 +15,33 @@ const events: TurnEvent[] = [
 ];
 
 const start = [
-  { hex: "A-F1", facing: 3, down: false, delay: 0 },
-  { hex: "A-F12", facing: 0, down: false, delay: 0 },
+  { hex: "A-F1", facing: 3, down: false, delay: 0, guns: [] },
+  { hex: "A-F12", facing: 0, down: false, delay: 0, guns: [] },
 ];
+const colt: GunView = { id: 1, type: "colt45", name: "Colt 45", location: "holstered", cocked: false, shells: 6, capacity: 6 };
 
 describe("snapshotAfterSegment", () => {
   it("folds events up to a segment", () => {
     expect(snapshotAfterSegment(start, events, 0)).toEqual(start);
     const s1 = snapshotAfterSegment(start, events, 1);
-    expect(s1[1]).toEqual({ hex: "A-F12", facing: 0, down: true, delay: 2 });
+    expect(s1[1]).toEqual({ hex: "A-F12", facing: 0, down: true, delay: 2, guns: [] });
     expect(s1[0]).toEqual(start[0]);
     const s3 = snapshotAfterSegment(start, events, 3);
-    expect(s3[0]).toEqual({ hex: "A-G2", facing: 4, down: false, delay: 0 });
+    expect(s3[0]).toEqual({ hex: "A-G2", facing: 4, down: false, delay: 0, guns: [] });
     expect(snapshotAfterSegment(start, events, 5)).toEqual(s3);
     expect(start[1].down).toBe(false);
+  });
+
+  it("folds gun events", () => {
+    const s = [{ ...start[0], guns: [colt] }, start[1]];
+    const evs = [
+      ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "holstered", to: "gun_hand", gun: "colt45", gunId: 1 }),
+      ev({ seg: 4, p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }),
+    ];
+    expect(snapshotAfterSegment(s, evs, 2)[0].guns[0]).toEqual(colt);
+    expect(snapshotAfterSegment(s, evs, 3)[0].guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: true });
+    expect(snapshotAfterSegment(s, evs, 4)[0].guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: false, shells: 5 });
+    expect(colt.location).toBe("holstered");
   });
 
   it("filters segments", () => {
@@ -62,11 +75,12 @@ describe("replay stepping", () => {
   });
 
   it("uses the stored start of a turn, or the fallback", () => {
-    const t: TurnResult = { turn: 1, seed: "", cards: [], plans: ["", ""], events: [], start: [{ hex: "A-F3", facing: 3, down: false, delay: 1, status: "alive" }, { hex: "A-F9", facing: 0, down: true, delay: 0, status: "alive" }] };
+    const t: TurnResult = { turn: 1, seed: "", cards: [], plans: ["", ""], events: [], start: [{ hex: "A-F3", facing: 3, down: false, delay: 1, status: "alive", guns: [colt] }, { hex: "A-F9", facing: 0, down: true, delay: 0, status: "alive", guns: [] }] };
     expect(startOfTurn(t, start)).toEqual([
-      { hex: "A-F3", facing: 3, down: false, delay: 1 },
-      { hex: "A-F9", facing: 0, down: true, delay: 0 },
+      { hex: "A-F3", facing: 3, down: false, delay: 1, guns: [colt] },
+      { hex: "A-F9", facing: 0, down: true, delay: 0, guns: [] },
     ]);
+    expect(startOfTurn(t, start)[0].guns[0]).not.toBe(colt);
     expect(startOfTurn({ ...t, start: [] }, start)).toEqual(start);
   });
 });
