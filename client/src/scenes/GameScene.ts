@@ -505,6 +505,9 @@ export class GameScene extends Phaser.Scene {
     for (const n of AIM_MARKERS) {
       if (!this.textures.exists(`aim_${n}`)) this.load.image(`aim_${n}`, `aim${n}.gif`);
     }
+    for (const key of ["missed", "hit"]) {
+      if (!this.textures.exists(key)) this.load.image(key, `${key}.png`);
+    }
   }
 
   create() {
@@ -1484,6 +1487,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * A "HIT!" or "MISSED!" burst beside a token, off to the side of the
+   * bullet's path (perpendicular to it, on whichever side has more room):
+   * pops up, holds, fades.
+   */
+  private popBurst(key: "hit" | "missed", at: { sx: number; sy: number }, along: { x: number; y: number }) {
+    if (!this.textures.exists(key)) return;
+    const d = this.tokenDiameter();
+    const len = Math.hypot(along.x, along.y) || 1;
+    const nx = -along.y / len;
+    const ny = along.x / len;
+    const room = (x: number, y: number) => Math.min(x, this.cw - x, y - HUD_H, this.panelY - y);
+    const side = room(at.sx + nx * d, at.sy + ny * d) >= room(at.sx - nx * d, at.sy - ny * d) ? 1 : -1;
+    const img = this.add
+      .image(at.sx + nx * d * 1.1 * side, at.sy + ny * d * 1.1 * side, key)
+      .setOrigin(0.5)
+      .setScale(0)
+      .setMask(this.arrMask)
+      .setDepth(40);
+    const scale = (d * 1.8) / img.width;
+    this.tweens.add({ targets: img, scale, duration: 260, ease: "Back.easeOut" });
+    this.tweens.add({ targets: img, alpha: 0, y: img.y - d * 0.3, duration: 450, delay: 900, ease: "Cubic.easeIn", onComplete: () => img.destroy() });
+  }
+
+  /** Where the ray from one point through another leaves the board area (the arena between the HUD and the panel). */
+  private beyondTheBoard(from: { sx: number; sy: number }, through: { sx: number; sy: number }): { sx: number; sy: number } {
+    const dx = through.sx - from.sx;
+    const dy = through.sy - from.sy;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return through;
+    let t = Infinity;
+    if (dx > 0) t = Math.min(t, (this.cw - from.sx) / dx);
+    if (dx < 0) t = Math.min(t, (0 - from.sx) / dx);
+    if (dy > 0) t = Math.min(t, (this.panelY - from.sy) / dy);
+    if (dy < 0) t = Math.min(t, (HUD_H - from.sy) / dy);
+    if (!Number.isFinite(t) || t < 1) return through;
+    return { sx: from.sx + dx * t, sy: from.sy + dy * t };
+  }
+
   private tokenCentre(seat: number): { x: number; y: number } {
     const { sx, sy } = this.tokenScreenPos(this.displayChars(), seat);
     return { x: sx, y: sy };
@@ -1811,7 +1852,10 @@ export class GameScene extends Phaser.Scene {
       const centre = this.tokenScreenPos(chars, e.target);
       const angle = Math.random() * Math.PI * 2;
       const spread = Math.random() * this.tokenDiameter() * 0.4;
-      const to = { sx: centre.sx + Math.cos(angle) * spread, sy: centre.sy + Math.sin(angle) * spread };
+      const hit = e.hit !== "-";
+      const near = { sx: centre.sx + Math.cos(angle) * spread, sy: centre.sy + Math.sin(angle) * spread };
+      let to = near;
+      if (!hit) to = this.beyondTheBoard(from, near); // a miss flies on past the target and off the board
       const g = this.add.graphics().setMask(this.arrMask).setDepth(this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }));
       const bullet = { t: 0 };
       const draw = () => {
@@ -1826,10 +1870,15 @@ export class GameScene extends Phaser.Scene {
         g.fillStyle(0xffd860, 1);
         g.fillCircle(x, y, 5);
       };
-      const flight = Math.min(400, 60 + Math.hypot(to.sx - from.sx, to.sy - from.sy) / 4);
-      const hit = e.hit !== "-";
+      const length = Math.hypot(to.sx - from.sx, to.sy - from.sy);
+      const flight = Math.min(700, 60 + length / 4);
       // The gunshot shakes the view as the bullet leaves, harder on a hit.
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
+      // "HIT!" or "MISSED!" bursts beside the target as the bullet reaches it.
+      if (e.target >= 0) {
+        const passing = length > 0 ? Math.hypot(near.sx - from.sx, near.sy - from.sy) / length : 1;
+        this.time.delayedCall(flight * passing, () => this.popBurst(hit ? "hit" : "missed", centre, { x: to.sx - from.sx, y: to.sy - from.sy }));
+      }
       this.tweens.add({
         targets: bullet,
         t: 1,

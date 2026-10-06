@@ -290,8 +290,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   they follow it (`refreshAimMarkers`); tokens grey out for a killed or
   passed-out character; the sheet
   shows AIM, endurance (boxes above the ones left are crossed off) and the
-  permanent wounds. During playback a tracer is drawn for each shot
-  (`flashShots`), red on a hit. Loading, throwing and brawling stay disabled.
+  permanent wounds. During playback a bullet flies from the shooter's gun
+  icon for each shot (`flashShots`), shaking the view; a miss flies on off
+  the board; `assets/hit.png` or `missed.png` bursts beside the target. Loading, throwing and brawling stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
@@ -381,19 +382,17 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
   - Cards
     - make border transparent
     - add drop weapon action cards (show waepon on the ground)
-    - allow move aim
   - Character sheets
     - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
+    - allow move aim on Aim and Shoot cards (if more than 1, restart aim)
     - check empty guns
     - show chance of hit near Shoot option
     - aim dotted line not visible if range=0
     - add smoke
-    - wizzle screen
     - missed
         - add missed!
-        - dont stop the red line to the target token
     - hit
         - add <LOCATION> hit!
         - blood on the ground behind the shoot
