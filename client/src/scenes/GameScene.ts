@@ -1488,6 +1488,46 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Blood squirting from the impact point, sprayed onward along the bullet's
+   * path with a little gravity, plus a few stains that linger on the board
+   * under the tokens before fading.
+   */
+  private spurtBlood(at: { sx: number; sy: number }, along: { x: number; y: number }) {
+    if (!this.textures.exists("blood")) {
+      const g = this.make.graphics({ x: 0, y: 0 }, false);
+      g.fillStyle(0xb0120e, 1).fillCircle(4, 4, 4);
+      g.generateTexture("blood", 8, 8);
+      g.destroy();
+    }
+    const d = this.tokenDiameter();
+    const dir = Phaser.Math.RadToDeg(Math.atan2(along.y, along.x));
+    const emitter = this.add
+      .particles(at.sx, at.sy, "blood", {
+        angle: { min: dir - 35, max: dir + 35 },
+        speed: { min: d * 1.2, max: d * 3.5 },
+        lifespan: { min: 250, max: 650 },
+        scale: { start: Math.max(0.5, d / 110), end: 0.15 },
+        alpha: { start: 1, end: 0 },
+        gravityY: d * 2.5,
+        emitting: false,
+      })
+      .setMask(this.arrMask)
+      .setDepth(35);
+    emitter.explode(30);
+    this.time.delayedCall(1200, () => emitter.destroy());
+    // Stains: splattered a little past the impact, fading slowly.
+    const len = Math.hypot(along.x, along.y) || 1;
+    for (let i = 0; i < 7; i++) {
+      const spread = (Math.random() - 0.5) * d * 0.8;
+      const ahead = Math.random() * d * 0.9;
+      const x = at.sx + (along.x / len) * ahead - (along.y / len) * spread;
+      const y = at.sy + (along.y / len) * ahead + (along.x / len) * spread;
+      const stain = this.add.circle(x, y, d * (0.03 + Math.random() * 0.06), 0x7a0c0a, 0.85).setMask(this.arrMask).setDepth(0.6);
+      this.tweens.add({ targets: stain, alpha: 0, duration: 5000, delay: 2500 + Math.random() * 1500, onComplete: () => stain.destroy() });
+    }
+  }
+
+  /**
    * A "HIT!" or "MISSED!" burst beside a token, off to the side of the
    * bullet's path (perpendicular to it, on whichever side has more room):
    * pops up, holds, fades.
@@ -1874,10 +1914,14 @@ export class GameScene extends Phaser.Scene {
       const flight = Math.min(700, 60 + length / 4);
       // The gunshot shakes the view as the bullet leaves, harder on a hit.
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
-      // "HIT!" or "MISSED!" bursts beside the target as the bullet reaches it.
+      // "HIT!" or "MISSED!" bursts beside the target as the bullet reaches it; a hit bleeds.
       if (e.target >= 0) {
         const passing = length > 0 ? Math.hypot(near.sx - from.sx, near.sy - from.sy) / length : 1;
-        this.time.delayedCall(flight * passing, () => this.popBurst(hit ? "hit" : "missed", centre, { x: to.sx - from.sx, y: to.sy - from.sy }));
+        const along = { x: to.sx - from.sx, y: to.sy - from.sy };
+        this.time.delayedCall(flight * passing, () => {
+          this.popBurst(hit ? "hit" : "missed", centre, along);
+          if (hit) this.spurtBlood(near, along);
+        });
       }
       this.tweens.add({
         targets: bullet,
