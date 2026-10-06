@@ -27,7 +27,7 @@ describe("replayPlan", () => {
     expect(end.guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: true });
     expect(end.hex).toBe("A-F2");
     expect(colt.location).toBe("holstered");
-    expect(gunInHand(end.guns)).toBe("colt45");
+    expect(gunInHand(end.guns)?.type).toBe("colt45");
     expect(gunInHand([colt])).toBeNull();
   });
 

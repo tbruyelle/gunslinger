@@ -6,7 +6,7 @@ import { getChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
 import { userMessage } from "../chain/errors";
 import { GamePoller } from "../chain/poller";
-import { seatOf, shortAddr, type GameView, type TurnResult, type PlayerStatus, type TurnEvent } from "../chain/types";
+import { seatOf, shortAddr, type GameView, type TurnResult, type PlayerStatus, type TurnEvent, type GunView } from "../chain/types";
 import {
   describeEvent,
   endOfTurnEvents,
@@ -104,8 +104,9 @@ class CharacterToken {
   private overlay: Phaser.GameObjects.Image | null = null;
   /** The "DEL n" marker at the bottom corner on the arrow's side (upright frame), when the character carries delay. */
   private badge: Phaser.GameObjects.Image | null = null;
-  /** The icon of the gun held in a hand, at the token corner above the arrow. */
+  /** The icon of the gun held in a hand, at the token corner above the arrow, with its shells as red dots. */
   private gun: Phaser.GameObjects.Image | null = null;
+  private shells: Phaser.GameObjects.Graphics | null = null;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
   private aim: Phaser.GameObjects.Image | null = null;
 
@@ -139,6 +140,7 @@ class CharacterToken {
     if (this.overlay) list.push(this.overlay);
     if (this.badge) list.push(this.badge);
     if (this.gun) list.push(this.gun);
+    if (this.shells) list.push(this.shells);
     if (this.aim) list.push(this.aim);
     return list;
   }
@@ -187,6 +189,7 @@ class CharacterToken {
       const a = Phaser.Math.DegToRad(this.gunAngle());
       const r = this.sprite.displayWidth * GUN_RADIUS;
       this.gun.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      this.shells?.setPosition(this.gun.x, this.gun.y);
     }
     if (this.aim) {
       const a = Phaser.Math.DegToRad(this.aimAngle());
@@ -270,12 +273,13 @@ class CharacterToken {
     this.follow();
   }
 
-  /** Shows the icon of the gun held in a hand (none when every gun is holstered). */
-  setGun(scene: Phaser.Scene, type: string | null, mask: Phaser.Display.Masks.GeometryMask) {
-    const key = `gun_${type}`;
-    if (!type || !scene.textures.exists(key)) {
+  /** Shows the icon of the gun held in a hand (none when every gun is holstered), its shells as red dots along the bottom. */
+  setGun(scene: Phaser.Scene, gun: GunView | null, mask: Phaser.Display.Masks.GeometryMask) {
+    const key = `gun_${gun?.type}`;
+    if (!gun || !scene.textures.exists(key)) {
       this.gun?.destroy();
-      this.gun = null;
+      this.shells?.destroy();
+      this.gun = this.shells = null;
       return;
     }
     const size = this.sprite.displayWidth * GUN_SIZE;
@@ -283,10 +287,22 @@ class CharacterToken {
       this.gun = scene.add.image(this.sprite.x, this.sprite.y, key).setOrigin(0.5).setMask(mask).setDepth(this.depth + 3).setInteractive();
       this.gun.on("pointerover", () => this.onGunHover?.(true));
       this.gun.on("pointerout", () => this.onGunHover?.(false));
+      this.shells = scene.add.graphics().setMask(mask).setDepth(this.depth + 3);
     } else if (this.gun.texture.key !== key) {
       this.gun.setTexture(key);
     }
     this.gun.setDisplaySize(size, size);
+    // One dot per chamber along the icon's bottom edge: red while loaded, dark once spent.
+    const g = this.shells!;
+    g.clear();
+    const n = Math.max(gun.capacity, gun.shells, 1);
+    const step = size / (n + 1);
+    const radius = Math.max(1.5, size * 0.055);
+    for (let i = 0; i < n; i++) {
+      const loaded = i < gun.shells;
+      g.fillStyle(loaded ? 0xd81818 : 0x3a2510, loaded ? 1 : 0.6);
+      g.fillCircle(-size / 2 + step * (i + 1), size * 0.4, radius);
+    }
     this.follow();
   }
 

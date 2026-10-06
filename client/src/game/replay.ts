@@ -23,9 +23,9 @@ export function firingGun(guns: GunView[]): GunView | undefined {
 /** Destination of a Draw & Cock by hand code (0 gun hand, 1 other hand, 2 both hands). */
 const HAND_LOCATIONS: GunLocation[] = ["gun_hand", "other_hand", "both_hands"];
 
-/** The type of the gun held in a hand, if any. */
-export function gunInHand(guns: GunView[]): string | null {
-  return guns.find((g) => g.location !== "holstered")?.type ?? null;
+/** The gun held in a hand, if any. */
+export function gunInHand(guns: GunView[]): GunView | null {
+  return guns.find((g) => g.location !== "holstered") ?? null;
 }
 
 /** A copy of a character view that shares nothing with the original. */
