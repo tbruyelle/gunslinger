@@ -111,6 +111,8 @@ class CharacterToken {
   private gunIn = 1;
   /** The icon's opacity once in place (dimmed while uncocked). */
   private gunAlpha = 1;
+  /** Extra rotation of the icon, for the recoil of a shot. */
+  private recoil = 0;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
   private aim: Phaser.GameObjects.Image | null = null;
 
@@ -195,7 +197,7 @@ class CharacterToken {
       this.gun
         .setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r)
         .setAlpha(this.gunAlpha * this.gunIn)
-        .setAngle((1 - this.gunIn) * 360);
+        .setAngle((1 - this.gunIn) * 360 + this.recoil);
       this.shells?.setPosition(this.gun.x, this.gun.y).setAlpha(this.gunIn).setAngle(this.gun.angle);
     }
     if (this.aim) {
@@ -271,6 +273,12 @@ class CharacterToken {
     this.sprite.setAlpha(out ? 0.75 : 1);
     if (out) this.sprite.setTint(0x808080);
     else this.sprite.clearTint();
+  }
+
+  /** The recoil of a shot: a quick small kick of the gun icon. */
+  kickGun(tweens: Phaser.Tweens.TweenManager) {
+    if (!this.gun) return;
+    tweens.add({ targets: this, recoil: -28, duration: 70, yoyo: true, ease: "Quad.easeOut", onUpdate: () => this.follow() });
   }
 
   /** Where the gun icon sits, or the token centre without one. */
@@ -2020,7 +2028,8 @@ export class GameScene extends Phaser.Scene {
       };
       const length = Math.hypot(to.sx - from.sx, to.sy - from.sy);
       const flight = Math.min(700, 60 + length / 4);
-      // The gunshot shakes the view as the bullet leaves, harder on a hit.
+      // The gunshot kicks the gun and shakes the view as the bullet leaves, harder on a hit.
+      this.tokens[e.p]?.kickGun(this.tweens);
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
       // "HIT!" or "MISSED!" bursts beside the target as the bullet reaches it; a hit bleeds.
       const passing = length > 0 ? Math.hypot(near.sx - from.sx, near.sy - from.sy) / length : 1;
