@@ -62,6 +62,27 @@ func GameJSON(id string) string {
 	return b.String()
 }
 
+// PlanJSON is the plan an address submitted for the turn in progress (plans
+// are plain on chain, see the Plan string):
+//
+//	{"id","turn","seat" (-1 when addr is not a player),"submitted","plan"}
+func PlanJSON(id, addr string) string {
+	g := getGame(id)
+	seat := g.seat(address(addr))
+	var b strings.Builder
+	b.WriteString(`{"id":` + quote(g.ID))
+	b.WriteString(`,"turn":` + strconv.Itoa(g.Turn))
+	b.WriteString(`,"seat":` + strconv.Itoa(seat))
+	submitted, plan := false, ""
+	if seat >= 0 {
+		submitted, plan = g.Submitted[seat], g.Plans[seat]
+	}
+	b.WriteString(`,"submitted":` + strconv.FormatBool(submitted))
+	b.WriteString(`,"plan":` + quote(plan))
+	b.WriteByte('}')
+	return b.String()
+}
+
 // HistoryJSON is every resolved turn of a game, oldest first, for replays:
 //
 //	{"id","turn","phase","players":[{"addr","char"}],"turns":[turn result...]}

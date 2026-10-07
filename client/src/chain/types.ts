@@ -201,6 +201,22 @@ export function parseGameView(json: string): GameView {
   return v as unknown as GameView;
 }
 
+/** The plan an address submitted for the turn in progress (json/plan/{id}/{addr}). */
+export interface PlanView {
+  id: string;
+  turn: number;
+  /** Seat of the address, -1 when it is not a player. */
+  seat: number;
+  submitted: boolean;
+  plan: string;
+}
+
+export function parsePlanView(json: string): PlanView {
+  const v: unknown = JSON.parse(json);
+  if (!isRecord(v) || typeof v.id !== "string" || typeof v.turn !== "number" || typeof v.submitted !== "boolean" || typeof v.plan !== "string") bad("plan");
+  return v as unknown as PlanView;
+}
+
 export function parseHistoryView(json: string): HistoryView {
   const v: unknown = JSON.parse(json);
   if (!isRecord(v) || typeof v.id !== "string" || !Array.isArray(v.players) || !Array.isArray(v.turns)) bad("history");

@@ -102,9 +102,11 @@ tx result log. Events: `GameCreated`, `PlayerJoined`, `PlanSubmitted`,
 the RPC, clients poll).
 
 ### Reads
-`Render("json/game/{id}")`, `Render("json/games/{addr}")` and
+`Render("json/game/{id}")`, `Render("json/games/{addr}")`,
 `Render("json/history/{id}")` (every resolved turn with its starting state,
-plans, seed, drawn cards and events, for replays) return raw JSON through `vm/qrender`
+plans, seed, drawn cards and events, for replays) and
+`Render("json/plan/{id}/{addr}")` (the plan an address submitted for the
+turn in progress, shown by the client while waiting) return raw JSON through `vm/qrender`
 (`vm/qeval` would Go-quote the string). `Render("")`, `game/{id}`, `help` are
 gnoweb pages. `GameJSON`, `GamesJSON`, `HistoryJSON`, `GameRev` are plain
 getters for tests and gnokey.
@@ -357,10 +359,14 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
 - use gnotiff
 - Player profile
   - Add profile page with specific token and linked reputation (check RPG rules)
+    - Add XP to player to increase stats? 
   - Add a challenge player button
   - Can pick a specific character token
   - Buy more character tokens 
   - Buy guns
+  - Buy bonus cards
+    - Say some cowbow thing during the game
+    - Real bonus cards from the game
 - Tutorial
   - Basic tutorial
     - Movement
@@ -378,12 +384,23 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
       - part of the pot is hold by the realm to create events
     - only the default gun
     - any gun bought
-    - chose number of turns (max 30)
+    - chose number of turns (min 10 max 30)
     - move timeout in the same form
 - Showdown
-  - show endurance on top of character if not full
+  - Test other wounds:
+    - Gun hand X
+    - Gun ARM
+    - LEG
+    - Other ARM
+    - Other hand
+    - Serious X
+    - Stagger X
+    - Drop X
+    - Sun X
+  - players with Serious:
+    - leave some blood behind them when moving
+    - find a way to show the status on the character token
   - Add token placement during create/join phase
-  - See submitted plan?
   - Resolution log
     - improve consistency
     - improve visiblity/readability
@@ -393,7 +410,6 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - make border transparent
     - add drop weapon action cards (show waepon on the ground)
   - Character sheets
-    - add ground section on the character sheet to draw weaopon on the ground
     - allow moving to other hands and both hands
   - Aim/Shoots
     - allow move aim on Aim and Shoot cards (if more than 1, restart aim)
@@ -415,9 +431,6 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - implement walls 
     - obstacles delay
     - check 3 players in the same hex
-  - Guns icons
-    - added cock icon
-    - show remaining bullets
   - Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
     simultaneous selection and dice seeded from revealed salts.
   - More guns and brawling: enable Load, Throw and the brawling cards;

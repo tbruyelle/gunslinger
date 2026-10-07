@@ -17,7 +17,7 @@ import {
   stepForward,
   type ReplayPos,
 } from "../game/playback";
-import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled } from "../game/plan";
+import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled, decodePlan } from "../game/plan";
 import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
 import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
@@ -543,6 +543,8 @@ export class GameScene extends Phaser.Scene {
   // Replay of resolved turns: a turn that just resolved (live) or the history.
   private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
+  /** The plan sent this turn, shown while waiting: known from sending it, else read back from the chain. */
+  private sentPlan: { turn: number; plan: string } | null = null;
   private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun?: number; ground?: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, { hex?: string; target?: number }> } | null = null;
 
   // Zoom & pan
@@ -584,8 +586,9 @@ export class GameScene extends Phaser.Scene {
   private seqLogArea = { top: 0, bottom: 0 };
   private seqScroll = 0;
   private seqScrollbar: { track: Phaser.GameObjects.Rectangle; thumb: Phaser.GameObjects.Rectangle } | null = null;
-  /** The resolution log opened in a wide popup (click on the log). */
+  /** A wide popup over the board: the resolution log (click on the log) or the plan sent this turn. */
   private logPopup: {
+    kind: "log" | "plan";
     objects: Phaser.GameObjects.GameObject[];
     text: Phaser.GameObjects.Text;
     area: { top: number; bottom: number };
@@ -777,6 +780,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshTokens(!reset);
     this.refreshPanels();
     this.refreshHUD();
+    if (this.mode === "waiting" && view.phase === "planning") void this.loadSentPlan();
   }
 
   // ── Layout ────────────────────────────────────────────────────────────────
@@ -1239,6 +1243,25 @@ export class GameScene extends Phaser.Scene {
       if (o.getData("button")) o.destroy();
     });
     this.infoText.setText(this.statusLine());
+    // "Plan sent" becomes a link to what was sent, when this session knows it.
+    if (this.mode === "waiting" && view.phase === "planning" && this.sentPlanString() !== null) {
+      const status = this.statusLine();
+      const linkLabel = "Plan sent";
+      const rest = status.startsWith(linkLabel) ? status.slice(linkLabel.length) : ` · ${status}`;
+      this.infoText.setText("");
+      const style = { fontSize: "20px", color: GOLD_STR };
+      const link = this.add.text(0, this.panelY + 60, linkLabel, { ...style, color: "#ffe2a0" }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true }).setData("button", true);
+      const tail = this.add.text(0, this.panelY + 60, rest, style).setOrigin(0, 0.5).setData("button", true);
+      const underline = this.add.rectangle(0, this.panelY + 60 + 12, link.width, 1, 0xffe2a0, 1).setOrigin(0, 0.5).setData("button", true);
+      const left = this.cw / 2 - (link.width + tail.width) / 2;
+      link.setX(left);
+      underline.setX(left);
+      tail.setX(left + link.width);
+      link.on("pointerover", () => link.setColor("#ffffff"));
+      link.on("pointerout", () => link.setColor("#ffe2a0"));
+      link.on("pointerup", () => this.openPlanPopup());
+      this.infoContainer.add([link, underline, tail]);
+    }
     const y = this.panelY + 130;
     const buttons: { label: string; onClick: () => void }[] = [];
     if (this.mode === "waiting" && this.myIndex >= 0) {
@@ -2044,8 +2067,10 @@ export class GameScene extends Phaser.Scene {
     this.refreshPanels();
     this.refreshHUD();
     try {
-      await this.chain.realm.submitPlan(this.gameID, encodePlan(plan));
+      const encoded = encodePlan(plan);
+      await this.chain.realm.submitPlan(this.gameID, encoded);
       if (!this.scene.isActive()) return;
+      this.rememberSentPlan(encoded);
       // While the wallet was answering (its result screen stays open until
       // closed), the poll may already have seen the resolved turn and started
       // its playback: leave that alone.
@@ -2364,6 +2389,31 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private rememberSentPlan(plan: string) {
+    this.sentPlan = { turn: this.view?.turn ?? 0, plan };
+  }
+
+  /** The plan sent for the current turn, or null while it is not known yet. */
+  private sentPlanString(): string | null {
+    const sent = this.sentPlan;
+    return sent && sent.turn === this.view?.turn ? sent.plan : null;
+  }
+
+  /** Reads my plan for the turn in progress back from the chain, when the chain says I sent one this session does not know. */
+  private async loadSentPlan() {
+    const view = this.view;
+    if (!view || this.myIndex < 0 || !view.players[this.myIndex]?.submitted || this.sentPlan?.turn === view.turn) return;
+    const turn = view.turn;
+    try {
+      const p = await this.chain.realm.getPlan(this.gameID, this.chain.wallet.address);
+      if (!this.scene.isActive() || !p.submitted || p.turn !== turn || this.view?.turn !== turn) return;
+      this.sentPlan = { turn, plan: p.plan };
+      if (this.mode === "waiting") this.refreshInfoPanel();
+    } catch {
+      // the status stays plain text
+    }
+  }
+
   /** The lines of the resolution log for the segment shown: the plans and turn-start events at segment 0, else the segment's events. */
   private logLines(): string[] {
     const pb = this.playback;
@@ -2387,6 +2437,25 @@ export class GameScene extends Phaser.Scene {
    * wheel; closed by its × button, a click outside or Escape.
    */
   private openLogPopup() {
+    this.openPopup(this.seqTitle.text, this.logLines(), "log");
+  }
+
+  /** The plan sent this turn, entry by entry, in a popup. */
+  private openPlanPopup() {
+    const sent = this.sentPlanString();
+    if (sent === null) return;
+    const names = this.view?.players.map((p) => charName(p.char)) ?? [];
+    let entries: PlanEntry[];
+    try {
+      entries = decodePlan(sent);
+    } catch {
+      entries = [];
+    }
+    const lines = entries.length === 0 ? ["You passed: no action this turn."] : entries.map((e, i) => `${i + 1}. ${describePlanEntry(e, names)}`);
+    this.openPopup(`Your plan for turn ${this.view?.turn ?? ""}`, lines, "plan");
+  }
+
+  private openPopup(title: string, lines: string[], kind: "log" | "plan") {
     this.closeLogPopup();
     const pw = Math.min(this.cw - 80, 900);
     const ph = Math.min(this.ch - 120, 560);
@@ -2395,18 +2464,18 @@ export class GameScene extends Phaser.Scene {
     const backdrop = this.add.rectangle(0, 0, this.cw, this.ch, 0x000000, 0.6).setOrigin(0).setDepth(900).setInteractive();
     backdrop.on("pointerup", () => this.closeLogPopup());
     const panel = this.add.rectangle(px, py, pw, ph, 0x1a0f07, 1).setOrigin(0).setStrokeStyle(3, GOLD, 1).setDepth(901).setInteractive();
-    const title = this.add.text(px + pw / 2, py + 26, this.seqTitle.text, { fontSize: "22px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5).setDepth(902);
+    const titleText = this.add.text(px + pw / 2, py + 26, title, { fontSize: "22px", color: GOLD_STR, fontStyle: "bold" }).setOrigin(0.5).setDepth(902);
     const close = this.add.text(px + pw - 22, py + 22, "✕", { fontSize: "22px", color: GOLD_STR }).setOrigin(0.5).setDepth(902).setInteractive({ useHandCursor: true });
     close.on("pointerup", () => this.closeLogPopup());
     const area = { top: py + 56, bottom: py + ph - 24 };
     const text = this.add
-      .text(px + 28, area.top, this.logLines().join("\n"), { fontSize: "17px", color: "#e8d5b0", lineSpacing: 6, wordWrap: { width: pw - 80 } })
+      .text(px + 28, area.top, lines.join("\n"), { fontSize: "17px", color: "#e8d5b0", lineSpacing: 6, wordWrap: { width: pw - 80 } })
       .setOrigin(0, 0)
       .setDepth(902)
       .setMask(this.make.graphics({ x: 0, y: 0 }, false).fillRect(px, area.top, pw, area.bottom - area.top).createGeometryMask());
     const track = this.add.rectangle(px + pw - 20, area.top, 6, area.bottom - area.top, 0x3a2510, 1).setOrigin(0.5, 0).setDepth(902);
     const thumb = this.add.rectangle(px + pw - 20, area.top, 6, 20, GOLD, 0.8).setOrigin(0.5, 0).setDepth(903);
-    this.logPopup = { objects: [backdrop, panel, title, close, text, track, thumb], text, area, scroll: 0, track, thumb };
+    this.logPopup = { kind, objects: [backdrop, panel, titleText, close, text, track, thumb], text, area, scroll: 0, track, thumb };
     this.scrollPopup(0);
   }
 
@@ -2442,7 +2511,7 @@ export class GameScene extends Phaser.Scene {
     this.seqLog.setText(this.logLines().join("\n"));
     this.seqScroll = 0;
     this.scrollLog(0);
-    if (this.logPopup) this.openLogPopup(); // keep an open popup on the segment shown
+    if (this.logPopup?.kind === "log") this.openLogPopup(); // keep an open log popup on the segment shown
     const pos = { index: pb.index, seg: pb.seg };
     this.prevSeqBtn.setAlpha(stepBack(pos) ? 1 : 0.3);
     this.nextSeqBtn.setAlpha(stepForward(pos, pb.turns.length) ? 1 : 0.3);
@@ -2541,6 +2610,26 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown-ESC", () => this.closeLogPopup());
   }
 }
+
+/** One plan entry in words, for the plan popup. */
+function describePlanEntry(e: PlanEntry, names: string[]): string {
+  const def = getActionDef(e);
+  const target = e.target !== undefined ? (names[e.target] ?? `seat ${e.target}`) : e.hex ?? "";
+  switch (def.name) {
+    case "Draw & Cock":
+      return e.groundGun !== undefined ? `Draw & Cock: pick up the gun from the ground into the ${HAND_NAMES[e.hand ?? 0]}` : `Draw & Cock: gun ${e.gun ?? "?"} to the ${HAND_NAMES[e.hand ?? 0]}`;
+    case "Cock/Aim/Shoot":
+      if (e.opt === "aim") return `Cock/Aim/Shoot: aim at ${target}`;
+      if (e.opt === "shoot") return `Cock/Aim/Shoot: shoot at ${target}`;
+      return `Cock/Aim/Shoot: ${e.opt ?? "?"} the gun`;
+    case "Shoot":
+      return e.opt === "shoot" ? `Shoot at ${target}` : "Shoot: do nothing";
+    default:
+      return e.dir ? `${def.name} ${e.dir.replace(/_/g, " ")}` : def.name;
+  }
+}
+
+const HAND_NAMES = ["gun hand", "other hand", "both hands"];
 
 function choicePrompt(ct: ChoiceType): string {
   switch (ct) {

@@ -31,11 +31,14 @@ func init() {
 	router.HandleFunc("json/history/{id}", func(res *mux.ResponseWriter, req *mux.Request) {
 		res.Write(HistoryJSON(req.GetVar("id")))
 	})
+	router.HandleFunc("json/plan/{id}/{addr}", func(res *mux.ResponseWriter, req *mux.Request) {
+		res.Write(PlanJSON(req.GetVar("id"), req.GetVar("addr")))
+	})
 }
 
 // Render serves the gnoweb pages ("", "help", "game/{id}") and the raw JSON
 // views the web client reads ("json/game/{id}", "json/games/{addr}",
-// "json/history/{id}").
+// "json/history/{id}", "json/plan/{id}/{addr}").
 func Render(path string) string {
 	return router.Render(path)
 }

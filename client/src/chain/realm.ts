@@ -2,7 +2,7 @@ import type { Wallet, VmCall } from "./adena";
 import { WALLET_TIMEOUT_MS } from "./adena";
 import { ChainError } from "./errors";
 import { Rpc, unwrapQevalString, type TxResult } from "./rpc";
-import { parseGameView, parseGamesView, parseHistoryView, seatOf, type GameView, type GamesView, type HistoryView } from "./types";
+import { parseGameView, parseGamesView, parseHistoryView, seatOf, type GameView, type GamesView, type HistoryView, parsePlanView, type PlanView } from "./types";
 
 const WATCH_INTERVAL_MS = 1500;
 
@@ -29,6 +29,11 @@ export class RealmClient {
 
   async getHistory(id: string): Promise<HistoryView> {
     return parseHistoryView(await this.rpc.qrender(this.pkgPath, `json/history/${id}`));
+  }
+
+  /** The plan addr submitted for the turn in progress (plans are plain on chain). */
+  async getPlan(id: string, addr: string): Promise<PlanView> {
+    return parsePlanView(await this.rpc.qrender(this.pkgPath, `json/plan/${id}/${addr}`));
   }
 
   async listGames(addr: string): Promise<GamesView> {

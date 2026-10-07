@@ -117,6 +117,11 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.Equal(t, rev+1, r)
 	uassert.True(t, g.Submitted[0])
 	uassert.False(t, g.Submitted[1])
+	// The plan in progress can be read back by its author (plans are plain on chain).
+	uassert.Equal(t, `{"id":"`+id+`","turn":1,"seat":0,"submitted":true,"plan":"1f:ahead,2f:ahead"}`, PlanJSON(id, alice.String()))
+	uassert.Equal(t, `{"id":"`+id+`","turn":1,"seat":1,"submitted":false,"plan":""}`, PlanJSON(id, bob.String()))
+	uassert.Equal(t, `{"id":"`+id+`","turn":1,"seat":-1,"submitted":false,"plan":""}`, PlanJSON(id, carol.String()))
+	uassert.Equal(t, PlanJSON(id, alice.String()), Render("json/plan/"+id+"/"+alice.String()))
 	uassert.Equal(t, 1, g.Turn)
 	uassert.Equal(t, "1f:ahead,2f:ahead", g.Plans[0])
 	uassert.True(t, g.State.Chars[0].PlayedFoot)
