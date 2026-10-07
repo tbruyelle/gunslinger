@@ -296,6 +296,24 @@ class CharacterToken {
     else this.sprite.clearTint();
   }
 
+  /** The flinch of a hit: the token rocks quickly back and forth around its facing. */
+  flinch(tweens: Phaser.Tweens.TweenManager) {
+    const base = this.sprite.angle;
+    tweens.add({
+      targets: this.sprite,
+      angle: base + 14,
+      duration: 55,
+      yoyo: true,
+      repeat: 2,
+      ease: "Sine.easeInOut",
+      onUpdate: () => this.follow(),
+      onComplete: () => {
+        this.sprite.setAngle(base);
+        this.follow();
+      },
+    });
+  }
+
   /** The recoil of a shot: a quick small kick of the gun icon. */
   kickGun(tweens: Phaser.Tweens.TweenManager) {
     if (!this.gun) return;
@@ -2156,7 +2174,10 @@ export class GameScene extends Phaser.Scene {
       const along = { x: to.sx - from.sx, y: to.sy - from.sy };
       this.time.delayedCall(flight * passing, () => {
         this.popBurst(hit ? "hit" : "missed", centre, along);
-        if (hit) this.spurtBlood(near, along);
+        if (hit) {
+          this.spurtBlood(near, along);
+          if (atToken) this.tokens[e.target]?.flinch(this.tweens);
+        }
       });
       this.tweens.add({
         targets: bullet,
