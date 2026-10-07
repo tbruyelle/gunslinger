@@ -2187,7 +2187,9 @@ export class GameScene extends Phaser.Scene {
     const lost = events.filter((e) => e.kind === "lose_aim");
     const fade = lost.length > 0 || vanishing.length > 0 ? 400 : 0;
     for (const e of lost) this.fadeAim(e.p, fade);
-    const aim = events.find((e) => e.kind === "aim");
+    // An aim taken this segment gets its line and pulse, unless the same
+    // segment takes it away again (a hit's DROP, say): nothing to land then.
+    const aim = events.find((e) => e.kind === "aim" && (after[e.p]?.aim ?? 0) > 0);
     const land = () => {
       if (!same()) return;
       if (!aim) {
@@ -2197,12 +2199,15 @@ export class GameScene extends Phaser.Scene {
       // An aim taken this segment: the dotted line shows where it goes; a
       // beat later the markers land there with a zoom pulse while the line
       // is still on, then the line clears.
+      // Both ends are fixed up front: the gun may be gone from the token by the
+      // end of the segment (dropped by a hit), which would jump the line.
+      const from = this.gunCentre(aim.p);
       const target = aim.target >= 0 ? this.tokenCentre(aim.target) : this.hexCentre(aim.to);
-      this.showAimLine(this.gunCentre(aim.p), target);
+      this.showAimLine(from, target);
       this.time.delayedCall(150, () => {
         if (!same()) return;
         settle();
-        this.showAimLine(this.gunCentre(aim.p), target); // refreshTokens cleared it
+        this.showAimLine(from, target); // refreshTokens cleared it
         this.pulseAim(aim.p);
       });
       this.time.delayedCall(470, () => {
