@@ -50,6 +50,8 @@ describe("replayPlan", () => {
     expect(replayPlan({ ...start, aim: 4 }, decodePlan("1f:ahead"), BOARD_A).aim).toBe(0);
     expect(replayPlan({ ...start, aim: 4 }, decodePlan("3b:ahead"), BOARD_A).aim).toBe(4);
     expect(replayPlan({ ...start, aim: 4, guns: [armed] }, decodePlan("5f:cock"), BOARD_A).aim).toBe(0);
+    // A gun card whose option is not picked yet changes nothing.
+    expect(replayPlan({ ...start, aim: 4, guns: [armed] }, [{ card: 5, side: "front" }], BOARD_A).aim).toBe(4);
     expect(replayPlan({ ...start, guns: [{ ...armed, cocked: false }] }, decodePlan("5f:cock"), BOARD_A).guns[0].cocked).toBe(true);
     // Picking the Colt up from the ground gives it a fresh id, cocked, in the gun hand.
     const picked = replayPlan({ ...start, guns: [] }, decodePlan("9f:g4:0"), BOARD_A, [{ id: 4, hex: "A-F1", guns: [{ ...colt, shells: 4 }] }]);
