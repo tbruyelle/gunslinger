@@ -228,8 +228,14 @@ class CharacterToken {
     } else if (this.aim.texture.key !== key) {
       this.aim.setTexture(key);
     }
-    this.aim.setDisplaySize(size, size);
+    this.aim.setDisplaySize(size, size).setAlpha(1); // undo a fade-out if the aim came back
     this.follow();
+  }
+
+  /** Drifts the AIM marker up and fades it away, when the aim is lost. */
+  fadeAim(tweens: Phaser.Tweens.TweenManager, duration: number) {
+    if (!this.aim) return;
+    tweens.add({ targets: this.aim, y: this.aim.y - this.sprite.displayWidth * 0.5, alpha: 0, duration, ease: "Cubic.easeIn" });
   }
 
   /** Zooms the AIM marker in and out once, when the aim grows. */
@@ -1493,6 +1499,16 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Drifts seat's AIM marker up and fades it away, wherever it sits. */
+  private fadeAim(seat: number, duration: number) {
+    const marker = this.aimMarkers.get(seat);
+    if (marker) {
+      this.tweens.add({ targets: marker, y: marker.y - this.tokenDiameter() * 0.5, alpha: 0, duration, ease: "Cubic.easeIn" });
+      return;
+    }
+    this.tokens[1 - seat]?.fadeAim(this.tweens, duration);
+  }
+
   /** Zooms seat's AIM marker in and out once, wherever it sits. */
   private pulseAim(seat: number) {
     const marker = this.aimMarkers.get(seat);
@@ -1889,13 +1905,22 @@ export class GameScene extends Phaser.Scene {
     this.playback.index = pos.index;
     this.playback.seg = pos.seg;
     const events = eventsForSegment(this.playback.turns[pos.index].events, pos.seg);
+    const same = () => !!this.playback && this.playback.index === pos.index && this.playback.seg === pos.seg;
+    // An aim lost this segment: its marker drifts up and fades before the state moves on.
+    const lost = events.filter((e) => e.kind === "lose_aim");
+    const fade = lost.length > 0 ? 400 : 0;
+    for (const e of lost) this.fadeAim(e.p, fade);
     const aim = events.find((e) => e.kind === "aim");
-    if (aim) {
+    const land = () => {
+      if (!same()) return;
+      if (!aim) {
+        this.refreshTokens(true);
+        return;
+      }
       // An aim taken this segment: the dotted line shows where it goes; a
       // beat later the markers land there with a zoom pulse while the line
       // is still on, then the line clears.
       const target = aim.target >= 0 ? this.tokenCentre(aim.target) : this.hexCentre(aim.to);
-      const same = () => !!this.playback && this.playback.index === pos.index && this.playback.seg === pos.seg;
       this.showAimLine(this.gunCentre(aim.p), target);
       this.time.delayedCall(150, () => {
         if (!same()) return;
@@ -1906,9 +1931,9 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(470, () => {
         if (same()) this.hideAimLine();
       });
-    } else {
-      this.refreshTokens(true);
-    }
+    };
+    if (fade > 0) this.time.delayedCall(fade, land);
+    else land();
     this.refreshSequencePanel();
     this.flashShots(events);
   }
