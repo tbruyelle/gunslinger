@@ -238,6 +238,19 @@ class CharacterToken {
     tweens.add({ targets: this.aim, y: this.aim.y - this.sprite.displayWidth * 0.5, alpha: 0, duration, ease: "Cubic.easeIn" });
   }
 
+  /** Drifts the DEL badge up and fades it away, when the delay is gone. */
+  fadeBadge(tweens: Phaser.Tweens.TweenManager, duration: number) {
+    if (!this.badge) return;
+    tweens.add({ targets: this.badge, y: this.badge.y - this.sprite.displayWidth * 0.5, alpha: 0, duration, ease: "Cubic.easeIn" });
+  }
+
+  /** Zooms the DEL badge in and out once, when the delay changes. */
+  pulseBadge(tweens: Phaser.Tweens.TweenManager) {
+    if (!this.badge) return;
+    const { scaleX, scaleY } = this.badge;
+    tweens.add({ targets: this.badge, scaleX: scaleX * 1.35, scaleY: scaleY * 1.35, duration: 170, yoyo: true, ease: "Quad.easeOut" });
+  }
+
   /** Zooms the AIM marker in and out once, when the aim grows. */
   pulseAim(tweens: Phaser.Tweens.TweenManager) {
     if (!this.aim) return;
@@ -272,8 +285,16 @@ class CharacterToken {
     return this.arrowAngle() + (CHAR_ARROW_DIR[this.charKey] === 5 ? 45 : -45);
   }
 
+  private delay = 0;
+
+  /** The delay points the badge shows (0 without a badge). */
+  delayShown(): number {
+    return this.delay;
+  }
+
   /** Shows the delay marker for n points (none for 0), sized relative to the token. */
   setDelay(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask) {
+    this.delay = Math.max(0, n);
     if (n <= 0) {
       this.badge?.destroy();
       this.badge = null;
@@ -287,7 +308,7 @@ class CharacterToken {
     } else if (this.badge.texture.key !== key) {
       this.badge.setTexture(key);
     }
-    this.badge.setDisplaySize(size, size);
+    this.badge.setDisplaySize(size, size).setAlpha(1); // undo a fade-out if delay came back
     this.follow();
   }
 
@@ -1906,15 +1927,27 @@ export class GameScene extends Phaser.Scene {
     this.playback.seg = pos.seg;
     const events = eventsForSegment(this.playback.turns[pos.index].events, pos.seg);
     const same = () => !!this.playback && this.playback.index === pos.index && this.playback.seg === pos.seg;
+    const after = this.displayChars();
+    // DEL badges: one that goes away drifts up and fades first; one that
+    // appears or changes pulses once the new state is shown.
+    const vanishing = this.tokens.filter((t, i) => t && t.delayShown() > 0 && (after[i]?.delay ?? 0) === 0);
+    for (const t of vanishing) t?.fadeBadge(this.tweens, 400);
+    const settle = () => {
+      const before = this.tokens.map((t) => t?.delayShown() ?? 0);
+      this.refreshTokens(true);
+      this.displayChars().forEach((c, i) => {
+        if (c && c.delay !== before[i] && c.delay > 0) this.tokens[i]?.pulseBadge(this.tweens);
+      });
+    };
     // An aim lost this segment: its marker drifts up and fades before the state moves on.
     const lost = events.filter((e) => e.kind === "lose_aim");
-    const fade = lost.length > 0 ? 400 : 0;
+    const fade = lost.length > 0 || vanishing.length > 0 ? 400 : 0;
     for (const e of lost) this.fadeAim(e.p, fade);
     const aim = events.find((e) => e.kind === "aim");
     const land = () => {
       if (!same()) return;
       if (!aim) {
-        this.refreshTokens(true);
+        settle();
         return;
       }
       // An aim taken this segment: the dotted line shows where it goes; a
@@ -1924,7 +1957,7 @@ export class GameScene extends Phaser.Scene {
       this.showAimLine(this.gunCentre(aim.p), target);
       this.time.delayedCall(150, () => {
         if (!same()) return;
-        this.refreshTokens(true);
+        settle();
         this.showAimLine(this.gunCentre(aim.p), target); // refreshTokens cleared it
         this.pulseAim(aim.p);
       });
@@ -1946,12 +1979,14 @@ export class GameScene extends Phaser.Scene {
   private flashShots(events: TurnEvent[]) {
     const chars = this.displayChars();
     for (const e of events) {
-      if (e.kind !== "shot" || !chars[e.p] || !chars[e.target]) continue;
+      if (e.kind !== "shot" || !chars[e.p]) continue;
       // The bullet leaves the shooter's gun icon, like the aim line.
       const gun = this.gunCentre(e.p);
       const from = { sx: gun.x, sy: gun.y };
-      // The bullet lands somewhere on the target's token, not dead centre.
-      const centre = this.tokenScreenPos(chars, e.target);
+      // The bullet lands somewhere on the target's token, not dead centre;
+      // a shot at an empty hex goes for the hex.
+      const atToken = e.target >= 0 && !!chars[e.target];
+      const centre = atToken ? this.tokenScreenPos(chars, e.target) : this.hexToScreen(e.to);
       const angle = Math.random() * Math.PI * 2;
       const spread = Math.random() * this.tokenDiameter() * 0.4;
       const hit = e.hit !== "-";
@@ -1977,14 +2012,12 @@ export class GameScene extends Phaser.Scene {
       // The gunshot shakes the view as the bullet leaves, harder on a hit.
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
       // "HIT!" or "MISSED!" bursts beside the target as the bullet reaches it; a hit bleeds.
-      if (e.target >= 0) {
-        const passing = length > 0 ? Math.hypot(near.sx - from.sx, near.sy - from.sy) / length : 1;
-        const along = { x: to.sx - from.sx, y: to.sy - from.sy };
-        this.time.delayedCall(flight * passing, () => {
-          this.popBurst(hit ? "hit" : "missed", centre, along);
-          if (hit) this.spurtBlood(near, along);
-        });
-      }
+      const passing = length > 0 ? Math.hypot(near.sx - from.sx, near.sy - from.sy) / length : 1;
+      const along = { x: to.sx - from.sx, y: to.sy - from.sy };
+      this.time.delayedCall(flight * passing, () => {
+        this.popBurst(hit ? "hit" : "missed", centre, along);
+        if (hit) this.spurtBlood(near, along);
+      });
       this.tweens.add({
         targets: bullet,
         t: 1,
