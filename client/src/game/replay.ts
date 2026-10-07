@@ -1,6 +1,6 @@
 import { getActionDef, relativeToAbsoluteDir } from "../rules";
 import type { BoardMap } from "../board/boardA";
-import type { GunLocation, GunView, PlayerStatus, WoundFields } from "../chain/types";
+import type { GroundGunView, GunLocation, GunView, PlayerStatus, WoundFields } from "../chain/types";
 import { MAX_AIM, gunInFiringBox, type PlanEntry } from "./plan";
 
 /** What the board shows for one character. */
@@ -36,7 +36,7 @@ export function copyChar(c: CharView): CharView {
  * each relative choice is resolved against the state left by the previous
  * one, exactly as the realm replays the committed plan.
  */
-export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap): CharView {
+export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap, groundHere: GroundGunView[] = []): CharView {
   const s = copyChar(start);
   for (const e of plan) {
     const def = getActionDef(e);
@@ -73,9 +73,14 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap):
       continue;
     }
     if (def.choiceType === "gun") {
-      // Draw & Cock: the holstered gun moves to the chosen hand, cocked.
-      const g = s.guns.find((x) => x.id === e.gun && x.location === "holstered");
+      // Draw & Cock: the holstered gun, or the one picked up from the hex, goes to the chosen hand, cocked.
       const loc = HAND_LOCATIONS[e.hand ?? 0];
+      if (e.groundGun !== undefined) {
+        const lying = groundHere.find((x) => x.id === e.groundGun)?.guns[0];
+        if (lying && loc) s.guns.push({ ...lying, id: Math.max(0, ...s.guns.map((x) => x.id)) + 1, location: loc, cocked: true });
+        continue;
+      }
+      const g = s.guns.find((x) => x.id === e.gun && x.location === "holstered");
       if (g && loc) {
         g.location = loc;
         g.cocked = true;

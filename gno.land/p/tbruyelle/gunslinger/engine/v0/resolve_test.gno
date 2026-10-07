@@ -788,8 +788,11 @@ func TestGunHitDropsTheGun(t *testing.T) {
 	if kid.Guns.Count() != 0 || kid.Serious != 1 || kid.GunArm != 4 || kid.Aim != 0 || kid.Endurance != 16 {
 		t.Errorf("kid = %+v", kid)
 	}
-	if len(st.Ground) != 1 || st.Ground[0].Hex != "A-F6" || st.Ground[0].Gun.ID != 1 || st.Ground[0].Gun.Shells != 5 || st.Ground[0].Gun.Cocked {
+	if len(st.Ground) != 1 || st.Ground[0].ID != 1 || st.Ground[0].Hex != "A-F6" || st.Ground[0].Gun.ID != 1 || st.Ground[0].Gun.Shells != 5 || st.Ground[0].Gun.Cocked {
 		t.Errorf("ground = %+v", st.Ground)
+	}
+	if dg := ofKind(evs, 1, EvDropGun); len(dg) != 1 || dg[0].N != 1 {
+		t.Errorf("drop gun = %v", dg)
 	}
 	// A GUN ARM wound lowers the aim time: with the gun back in hand, 2 + 0 - 4 < 0: off the chart, miss.
 	st.Chars[1].Guns = startingGuns()
@@ -934,5 +937,53 @@ func TestShotAtHex(t *testing.T) {
 	st, evs = resolveWith(t, st, "3b:ahead,5f:shoot:A-F6", "2f:ahead,1f:ahead", &seq) // the Kid runs into F6 at seg 1; the shot goes off at seg 3
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Target != 1 || sh[0].Hit != string(SideHit) {
 		t.Errorf("shot = %v", sh)
+	}
+}
+
+func TestPickUpFromTheGround(t *testing.T) {
+	// A Colt with 4 shells lies in the marshal's hex; he has nothing in hand.
+	ground := func() State {
+		st := NewState()
+		st.Chars[0].Guns = Guns{}
+		st.Ground = []GroundGun{{ID: 7, Hex: "A-F3", Gun: Gun{ID: 1, Type: Colt45, Location: Holstered, Shells: 4}}}
+		st.GroundSeq = 7
+		return st
+	}
+	st, evs := resolve(t, ground(), "9f:g7:0", "")
+	d := ofKind(evs, 0, EvDraw)
+	if len(d) != 1 || d[0].Seg != 3 || d[0].From != "ground" || d[0].To != "gun_hand" || d[0].N != 7 || d[0].GunID != 1 || d[0].Gun != Colt45 {
+		t.Errorf("draw = %v", d)
+	}
+	g := st.Chars[0].Guns[0]
+	if g.Type != Colt45 || g.ID != 1 || g.Location != GunHand || !g.Cocked || g.Shells != 4 || len(st.Ground) != 0 {
+		t.Errorf("gun = %+v, ground %+v", g, st.Ground)
+	}
+	// Picking up keeps a fresh id next to the guns already carried.
+	st = ground()
+	st.Chars[0].Guns = Guns{{ID: 3, Type: Colt45, Location: Holstered, Shells: 6}}
+	st, _ = resolve(t, st, "9f:g7:0", "")
+	if st.Chars[0].Guns.Count() != 2 || st.Chars[0].Guns.Find(4) < 0 || st.Chars[0].Guns[st.Chars[0].Guns.Find(4)].Location != GunHand {
+		t.Errorf("guns = %+v", st.Chars[0].Guns)
+	}
+	// The gun must lie in the character's hex; a wrong id or hex cancels.
+	st = ground()
+	st.Ground[0].Hex = "A-F4"
+	_, evs = resolve(t, st, "9f:g7:0", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
+		t.Errorf("cancels = %v", c)
+	}
+	_, evs = resolve(t, ground(), "9f:g8:0", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
+		t.Errorf("cancels = %v", c)
+	}
+	// Both try to pick the same gun up in one segment: the first player gets it (11.11).
+	st = ground()
+	st.Chars[1].Hex, st.Chars[1].Guns = "A-F3", Guns{}
+	st, evs = resolve(t, st, "9f:g7:0", "9f:g7:0")
+	if st.Chars[0].Guns.Count() != 1 || st.Chars[1].Guns.Count() != 0 {
+		t.Errorf("guns: %+v / %+v", st.Chars[0].Guns, st.Chars[1].Guns)
+	}
+	if c := ofKind(evs, 1, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
+		t.Errorf("cancels = %v", c)
 	}
 }

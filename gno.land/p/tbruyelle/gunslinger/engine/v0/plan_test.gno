@@ -28,6 +28,7 @@ func TestParsePlanRoundTrip(t *testing.T) {
 		"5b,3b:ahead_right,4b",
 		"9f:1:0",
 		"9f:12:2",
+		"9f:g3:0",
 		"5f:cock",
 		"6f:aim:A-F6,7f:shoot:@1",
 		"5f:aim:@1",
@@ -70,7 +71,7 @@ func TestParsePlanRejects(t *testing.T) {
 		"1f:north", "1f:straight_ahead", "1f:Ahead",
 		"1f,2f,3f,4f,5f,6f", // six entries
 		"1f,", ",1f", "1f,,2f", "1f, 2f", " 1f", "1f ",
-		"1f:ahead:ahead", "9f:1", "9f:0:0", "9f:-1:0", "9f:ahead", "1f:0", "9f:1:3", "9f:1:x", "9f:1:0:0",
+		"1f:ahead:ahead", "9f:1", "9f:0:0", "9f:-1:0", "9f:ahead", "1f:0", "9f:1:3", "9f:1:x", "9f:1:0:0", "9f:g0:0", "9f:gx:0", "9f:g:0", "9f:g1",
 		"5f", "5f:nothing", "5f:ahead", "5f:fire", "7f:aim", "7f:cock", "7f:ahead", "6f:1:0", "1f:shoot",
 		"5f:aim", "5f:aim:", "5f:aim:a-f6", "5f:aim:A-F6:x", "5f:cock:A-F6", "5f:aim:@2", "5f:aim:@-1", "5f:aim:@x", "5f:aim:@", "7f:shoot", "5f:shoot", "7f:shoot:", "7f:shoot:@2",
 		strings.Repeat("1f,", 60),
@@ -128,6 +129,9 @@ func TestValidate(t *testing.T) {
 		{"9f:1:2", 0, "only the gun hand"},
 		{"9f:1:0", 0, ""},
 		{"1f:ahead,9f:1:0", 0, ""},
+		{"9f:g1:0", 0, ""},
+		{"9f:g1:1", 0, "only the gun hand"},
+		{"1f:ahead,2f:ahead,3f,4b,9f:g1:0", 0, "more time points"},
 	}
 	for _, tt := range tests {
 		p := mustPlan(t, tt.plan)

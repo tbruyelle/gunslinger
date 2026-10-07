@@ -39,8 +39,9 @@ export interface PlayerView {
 /** Wound and aim fields shared by the live view and the turn-start snapshots. */
 export type WoundFields = Pick<PlayerView, "aim" | "aimHex" | "endurance" | "serious" | "gunArm" | "otherArm" | "leg">;
 
-/** A weapon lying in a hex. */
+/** A weapon lying in a hex; id is its ground id, "g<id>" in a plan. */
 export interface GroundGunView {
+  id: number;
   hex: string;
   guns: GunView[];
 }

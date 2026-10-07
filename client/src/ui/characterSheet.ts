@@ -1,4 +1,4 @@
-import type { GunView } from "../chain/types";
+import type { GroundGunView, GunView } from "../chain/types";
 import { CHAR_ARROW_DIR } from "../rules";
 import template from "./characterSheet.html?raw";
 
@@ -16,6 +16,8 @@ export interface SheetData {
   phase: string;
   isMe: boolean;
   guns: GunView[];
+  /** The weapons lying in the character's hex. */
+  ground: GroundGunView[];
   /** AIM points and the hex the markers sit on ("" when they follow the opponent). */
   aim: number;
   aimHex: string;
@@ -37,14 +39,15 @@ const SHEET_H = 850;
 const ANIM_MS = 180;
 
 /**
- * Lets the player pick a holstered gun by dragging it to a hand box (or
- * clicking it, which targets the gun hand); onPick gets the gun id and the
- * hand code (0 gun hand, 1 other hand, 2 both hands). Only the gun hand
- * accepts drops for now.
+ * Lets the player pick a holstered gun, or one lying in the hex, by
+ * dragging it to a hand box (or clicking it, which targets the gun hand);
+ * onPick gets the pick (the gun id, or the ground id) and the hand code (0
+ * gun hand, 1 other hand, 2 both hands). Only the gun hand accepts drops
+ * for now.
  */
 export interface GunPick {
   prompt: string;
-  onPick: (gunId: number, hand: number) => void;
+  onPick: (pick: { gun?: number; ground?: number }, hand: number) => void;
 }
 
 const DROP_HANDS: { box: string; hand: number }[] = [{ box: "gun_hand", hand: 0 }];
@@ -71,6 +74,7 @@ export function openCharacterSheet(d: SheetData, onClosed?: () => void, pick?: G
     .replace("{{bothHands}}", gunBox(d.guns, "both_hands", pick))
     .replace("{{gunHand}}", gunBox(d.guns, "gun_hand", pick))
     .replace("{{holstered}}", gunBox(d.guns, "holstered", pick))
+    .replace("{{ground}}", groundBox(d.ground, pick))
     .replace("{{serious}}", wound(d.serious, "fatigue card per turn"))
     .replace("{{gunArm}}", wound(d.gunArm, "aim time with the gun hand", "−"))
     .replace("{{otherArm}}", wound(d.otherArm, "aim time with the other hand", "−"))
@@ -217,10 +221,13 @@ function promptBanner(text: string): string {
 
 /** Drag and drop (and click as a fallback) from the holstered guns to the GUN HAND box. */
 function wirePick(frame: HTMLElement, pick: GunPick) {
-  const choose = (gunId: number, hand: number) => {
+  // A drag carries "<gun id>" for a holstered gun or "g<ground id>" for one on the ground.
+  const choose = (ref: string, hand: number) => {
+    const m = /^(g?)([1-9][0-9]*)$/.exec(ref);
+    if (!m) return;
     // Record the pick before closing: the close handler treats a sheet
     // closed without a pick as a cancelled choice.
-    pick.onPick(gunId, hand);
+    pick.onPick(m[1] ? { ground: Number(m[2]) } : { gun: Number(m[2]) }, hand);
     closeCharacterSheet();
   };
   const targets: HTMLElement[] = [];
@@ -242,44 +249,51 @@ function wirePick(frame: HTMLElement, pick: GunPick) {
     target.addEventListener("dragleave", () => highlightAll(false));
     target.addEventListener("drop", (e) => {
       e.preventDefault();
-      const gunId = Number(e.dataTransfer?.getData("text/plain"));
-      if (Number.isInteger(gunId) && gunId > 0) choose(gunId, hand);
+      choose(e.dataTransfer?.getData("text/plain") ?? "", hand);
     });
   }
   const highlight = highlightAll;
   frame.querySelectorAll<HTMLElement>("[data-drag-gun]").forEach((el) => {
-    const gunId = Number(el.dataset.dragGun);
+    const ref = el.dataset.dragGun ?? "";
     el.addEventListener("dragstart", (e: DragEvent) => {
-      e.dataTransfer?.setData("text/plain", String(gunId));
+      e.dataTransfer?.setData("text/plain", ref);
       el.style.opacity = "0.5";
     });
     el.addEventListener("dragend", () => {
       el.style.opacity = "";
       highlight(false);
     });
-    el.addEventListener("click", () => choose(gunId, DROP_HANDS[0].hand));
+    el.addEventListener("click", () => choose(ref, DROP_HANDS[0].hand));
   });
 }
 
 /** The guns kept at one location, as cards inside the sheet's box. */
+/** One gun as a small card: icon, name, cocked state and shells; draggable (with the given drag reference) when being picked. */
+function gunCard(g: GunView, draggable: string | null): string {
+  return (
+    `<div${draggable ? ` draggable="true" data-drag-gun="${draggable}" title="Drag me to the gun hand"` : ""} ` +
+    `style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px${
+      draggable ? "; cursor: grab; box-shadow: 0 0 0 3px #8E2F1A" : ""
+    }">` +
+    `<img src="/guns/${escapeHtml(g.type)}.gif" alt="" style="width: 56px; height: 56px; image-rendering: pixelated; flex: none">` +
+    `<div>` +
+    `<div style="font-family: Rye, Georgia, serif; font-size: 22px; letter-spacing: 1px">${escapeHtml(g.name)}</div>` +
+    `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells</div>` +
+    `</div></div>`
+  );
+}
+
 function gunBox(guns: GunView[], location: GunView["location"], pick?: GunPick): string {
-  const draggable = (g: GunView) => !!pick && g.location === "holstered";
-  const cards = guns
-    .filter((g) => g.location === location)
-    .map(
-      (g) =>
-        `<div${draggable(g) ? ` draggable="true" data-drag-gun="${g.id}" title="Drag me to the gun hand"` : ""} ` +
-        `style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px${
-          draggable(g) ? "; cursor: grab; box-shadow: 0 0 0 3px #8E2F1A" : ""
-        }">` +
-        `<img src="/guns/${escapeHtml(g.type)}.gif" alt="" style="width: 56px; height: 56px; image-rendering: pixelated; flex: none">` +
-        `<div>` +
-        `<div style="font-family: Rye, Georgia, serif; font-size: 22px; letter-spacing: 1px">${escapeHtml(g.name)}</div>` +
-        `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells</div>` +
-        `</div></div>`,
-    );
+  const cards = guns.filter((g) => g.location === location).map((g) => gunCard(g, pick && g.location === "holstered" ? String(g.id) : null));
   const hint = pick && location === "gun_hand" && cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">drop the gun here</div>` : "";
   return `<div data-box="${location}" style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; min-height: 60px">${cards.join("")}${hint}</div>`;
+}
+
+/** The weapons lying in the character's hex; draggable to the gun hand when being picked. */
+function groundBox(ground: GroundGunView[], pick?: GunPick): string {
+  const cards = ground.flatMap((gg) => gg.guns.map((g) => gunCard(g, pick ? `g${gg.id}` : null)));
+  const hint = cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">nothing on the ground here</div>` : "";
+  return `<div data-box="ground" style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; min-height: 60px">${cards.join("")}${hint}</div>`;
 }
 
 function escapeHtml(s: string): string {

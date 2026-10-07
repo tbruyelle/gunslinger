@@ -114,7 +114,11 @@ getters for tests and gnokey.
 direction for move/turn cards (`ahead_left ahead ahead_right back_left back
 back_right`), for Draw & Cock `<gun id>:<hand>` (`9f:1:0`: gun 1 to the
 gun hand; hands: 0 gun hand, 1 other hand, 2 both hands; every gun has a
-stable id within the game, the starting Colt is 1), or for the gun actions
+stable id on its owner's sheet, the starting Colt is 1) or `g<ground
+id>:<hand>` to pick up a weapon lying in the character's hex (`9f:g2:0`;
+ground ids are stable for the game, `ground[].id` in the JSON; the realm
+rejects a gun that is not in the hex, and the pick-up gives the gun a fresh
+id on the new sheet, the first player winning a contested gun, 11.11), or for the gun actions
 the option: Cock/Aim/Shoot `5f:cock|uncock`, `5f:aim:<target>` or
 `5f:shoot:<target>`, Shoot `7f:shoot:<target>` or a bare `7f` (does nothing,
 keeps the aim); a target is a hex of the aim zone (`A-F6`) or a character
@@ -275,8 +279,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   sheet** (`ui/characterSheet.ts`): an HTML overlay built from the design
   template `ui/characterSheet.html` (1100×850, fonts Rye / Zilla Slab from
   Google Fonts), filled with the name, token and a live status row; hands,
-  holster boxes list the character's guns; wounds and endurance stay empty
-  until combat lands. Every character starts with a loaded, uncocked Colt 45
+  holster boxes list the character's guns, a GROUND panel above the
+  endurance track lists the weapons lying in the character's hex, which a
+  Draw & Cock can drag to the gun hand like a holstered gun. Every character starts with a loaded, uncocked Colt 45
   in the holster (`engine.startingGuns`). **Draw & Cock** (card 9 front) is
   the first gun action: picking it opens the sheet in pick mode, where the
   holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
@@ -346,6 +351,8 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
 
 - Session keys (`MsgCreateSession`) so Adena signs once per game.
 - Replace the tbruyelle realm to sthing else
+- add a court to inspect games to spot any bug that could have lead to lost
+  funds
 - upgrade architecture with player boards and profile preserved
 - use gnotiff
 - Player profile
@@ -371,7 +378,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
       - part of the pot is hold by the realm to create events
     - only the default gun
     - any gun bought
-    - chose number of turns
+    - chose number of turns (max 30)
     - move timeout in the same form
 - Showdown
   - show endurance on top of character if not full

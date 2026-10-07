@@ -63,7 +63,13 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
         if (e.endurance) c.endurance = Math.max(0, c.endurance - e.endurance);
         break;
       case "draw":
-        if (gun) {
+        if (e.from === "ground") {
+          // Picked up from the hex: the gun comes off the ground list with its new id.
+          const i = ground ? ground.findIndex((g) => g.id === e.n) : -1;
+          const lying = i >= 0 && ground ? ground[i].guns[0] : undefined;
+          if (lying) c.guns.push({ ...lying, id: e.gunId, location: e.to as GunLocation, cocked: true });
+          if (i >= 0 && ground) ground.splice(i, 1);
+        } else if (gun) {
           gun.location = e.to as GunLocation;
           gun.cocked = true;
         }
@@ -89,7 +95,7 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
         } else if (gun && e.result === "explodes") gun.exploded = true;
         break;
       case "drop_gun":
-        if (gun && ground) ground.push({ hex: e.to, guns: [{ ...gun, location: "holstered" }] });
+        if (gun && ground) ground.push({ id: e.n, hex: e.to, guns: [{ ...gun, location: "holstered" }] });
         c.guns = c.guns.filter((x) => x.id !== e.gunId);
         break;
       case "aim":
@@ -197,6 +203,7 @@ export function describeEvent(e: TurnEvent, names: string[]): string {
     case "cancel":
       return `${who}: ${action} is cancelled (${e.reason.replace(/_/g, " ")})`;
     case "draw":
+      if (e.from === "ground") return `${who} picks up the ${GUN_NAMES[e.gun] ?? e.gun} from the ground into the ${e.to.replace(/_/g, " ")} and cocks it`;
       return `${who} draws and cocks the ${GUN_NAMES[e.gun] ?? e.gun}`;
     default:
       return `${who} ${e.kind}`;

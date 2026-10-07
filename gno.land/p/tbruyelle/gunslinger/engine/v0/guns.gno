@@ -146,6 +146,16 @@ func (g Guns) Firing() int {
 	return -1
 }
 
+// Free returns an empty slot, or -1 when the character carries MaxGuns.
+func (g Guns) Free() int {
+	for i, gun := range g {
+		if gun.Type == NoGun {
+			return i
+		}
+	}
+	return -1
+}
+
 // Count is the number of guns carried.
 func (g Guns) Count() int {
 	n := 0

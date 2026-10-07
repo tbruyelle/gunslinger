@@ -421,7 +421,7 @@ export class GameScene extends Phaser.Scene {
   private selectionOrder: PlanEntry[] = [];
   private pendingChoices: Map<number, RelativeDirection> = new Map();
   /** Gun id and destination hand chosen for cards that draw a gun (Draw & Cock). */
-  private pendingGuns: Map<number, { gun: number; hand: number }> = new Map();
+  private pendingGuns: Map<number, { gun?: number; ground?: number; hand: number }> = new Map();
   /** Shoot option picked for Cock/Aim/Shoot and Shoot cards. */
   private pendingOpts: Map<number, ShootOption> = new Map();
   /** The option buttons shown while a gun action waits for its option. */
@@ -449,7 +449,7 @@ export class GameScene extends Phaser.Scene {
   // Replay of resolved turns: a turn that just resolved (live) or the history.
   private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
-  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, { hex?: string; target?: number }> } | null = null;
+  private stashedPlan: { turn: number; order: PlanEntry[]; choices: Map<number, RelativeDirection>; guns: Map<number, { gun?: number; ground?: number; hand: number }>; opts: Map<number, ShootOption>; aims: Map<number, { hex?: string; target?: number }> } | null = null;
 
   // Zoom & pan
   private zoom = 1;
@@ -773,18 +773,32 @@ export class GameScene extends Phaser.Scene {
     const view = this.view;
     if (!view) return [];
     const pb = this.playback;
-    if (!pb) return view.ground ?? [];
+    if (!pb) {
+      // A pick-up planned this turn lifts the gun off the ground in the preview.
+      const picked = new Set(this.preview ? this.currentPlan().map((e) => e.groundGun) : []);
+      return (view.ground ?? []).filter((g) => !picked.has(g.id));
+    }
+    const t = pb.turns[pb.index];
+    const ground = this.groundBefore();
+    snapshotAfterSegment(startOfTurn(t, this.committed), t.events, pb.seg, ground);
+    return ground;
+  }
+
+  /** The guns lying in hexes when the replayed turn began (a fresh copy). */
+  private groundBefore(): GroundGunView[] {
+    const pb = this.playback;
+    const view = this.view;
+    if (!pb || !view) return [];
     const t = pb.turns[pb.index];
     let base: GroundGunView[];
     if (pb.live) {
-      // The chain's ground minus what this turn dropped.
-      const dropped = t.events.filter((e) => e.kind === "drop_gun");
-      base = (view.ground ?? []).filter((g) => {
-        const i = dropped.findIndex((e) => e.to === g.hex && g.guns.some((x) => x.id === e.gunId && x.type === e.gun));
-        if (i < 0) return true;
-        dropped.splice(i, 1);
-        return false;
-      });
+      // The chain's ground, minus what this turn dropped, plus what it picked up.
+      base = (view.ground ?? []).filter((g) => !t.events.some((e) => e.kind === "drop_gun" && e.n === g.id));
+      for (const e of t.events) {
+        if (e.kind !== "draw" || e.from !== "ground") continue;
+        const owner = view.players[e.p]?.guns.find((x) => x.id === e.gunId);
+        if (owner) base.push({ id: e.n, hex: t.start[e.p]?.hex ?? "", guns: [{ ...owner, location: "holstered", cocked: false }] });
+      }
     } else {
       base = [];
       for (let i = 0; i < pb.index; i++) {
@@ -792,16 +806,14 @@ export class GameScene extends Phaser.Scene {
         snapshotAfterSegment(startOfTurn(prev, this.committed), prev.events, SEGMENTS, base);
       }
     }
-    const ground = base.map((g) => ({ hex: g.hex, guns: g.guns.map((x) => ({ ...x })) }));
-    snapshotAfterSegment(startOfTurn(t, this.committed), t.events, pb.seg, ground);
-    return ground;
+    return base.map((g) => ({ id: g.id, hex: g.hex, guns: g.guns.map((x) => ({ ...x })) }));
   }
 
   /** The characters as they should be drawn right now. */
   private displayChars(): CharView[] {
     if (this.playback) {
       const t = this.playback.turns[this.playback.index];
-      return snapshotAfterSegment(startOfTurn(t, this.committed), t.events, this.playback.seg);
+      return snapshotAfterSegment(startOfTurn(t, this.committed), t.events, this.playback.seg, this.groundBefore());
     }
     return this.committed.map((c, i) => (i === this.myIndex && this.preview ? this.preview : c));
   }
@@ -1269,7 +1281,8 @@ export class GameScene extends Phaser.Scene {
       if (dir) entry.dir = dir;
       const pick = this.pendingGuns.get(e.card);
       if (pick) {
-        entry.gun = pick.gun;
+        if (pick.ground !== undefined) entry.groundGun = pick.ground;
+        else entry.gun = pick.gun;
         entry.hand = pick.hand;
       }
       const opt = this.pendingOpts.get(e.card);
@@ -1284,6 +1297,12 @@ export class GameScene extends Phaser.Scene {
   /** My character's guns as the plan leaves them before the next card (the chain's when nothing is planned). */
   private plannedGuns() {
     return this.preview?.guns ?? this.myGuns();
+  }
+
+  /** The weapons lying in my character's hex, where the plan leaves it. */
+  private groundHere(): GroundGunView[] {
+    const me = this.preview ?? (this.myIndex >= 0 ? this.committed[this.myIndex] : null);
+    return me ? this.displayGround().filter((g) => g.hex === me.hex) : [];
   }
 
   /** My character's guns, as the chain shows them. */
@@ -1313,6 +1332,7 @@ export class GameScene extends Phaser.Scene {
       phase: view.phase,
       isMe: seat === this.myIndex,
       guns: c.guns,
+      ground: this.displayGround().filter((g) => g.hex === c.hex),
       aim: c.aim,
       aimHex: c.aimHex,
       endurance: c.endurance,
@@ -1362,7 +1382,7 @@ export class GameScene extends Phaser.Scene {
     const wasSelected = this.isSelected(card, side);
     const otherSelected = this.isSelected(card, side === "front" ? "back" : "front");
     if (!wasSelected) {
-      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns())) return;
+      if (otherSelected || !canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns(), this.groundHere())) return;
       if (planCost(this.currentPlan()) + def.cost > this.budget()) return;
     }
     this.exitChoiceMode();
@@ -1417,7 +1437,7 @@ export class GameScene extends Phaser.Scene {
       this.selectedDisplay.setText(`${name}: ${names.join(" + ")} = ${cost}/${budget} points${problem ? `  ⚠ ${problem}` : ""}`);
       this.selectedDisplay.setColor(problem ? "#ff9944" : GOLD_STR);
     }
-    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget, this.ranLastTurn(), this.myGuns()) === null;
+    const canSend = this.mode === "select" && !this.choiceMode && validatePlan(plan, budget, this.ranLastTurn(), this.myGuns(), this.groundHere()) === null;
     this.sendBtn.setColor(canSend ? GOLD_STR : "#555");
   }
 
@@ -1465,7 +1485,7 @@ export class GameScene extends Phaser.Scene {
         img.setAlpha(0.6);
       } else {
         hl.setStrokeStyle(2, GOLD, 0);
-        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns());
+        const usable = !blockedByChoice && !otherSelected && !wouldExceed && canPlay({ card, side }, this.ranLastTurn(), this.plannedGuns(), this.groundHere());
         img.setAlpha(usable ? 1 : 0.3);
       }
     }
@@ -1480,17 +1500,19 @@ export class GameScene extends Phaser.Scene {
    */
   private enterGunChoice(card: CardNumber, side: CardSide) {
     if (this.myIndex < 0) return;
-    const guns = drawableGuns(this.myGuns());
-    if (guns.length === 0) return;
+    const guns = drawableGuns(this.plannedGuns());
+    const ground = this.groundHere();
+    if (guns.length === 0 && ground.length === 0) return;
     let picked = false;
     this.input.enabled = false;
+    const what = guns.length > 0 && ground.length > 0 ? "a gun from the holster or the ground" : guns.length > 0 ? "your gun from the holster" : "the gun from the ground";
     this.openSheet(
       this.myIndex,
       {
-        prompt: "Draw & Cock: drag your gun from the holster to the gun hand",
-        onPick: (gunId, hand) => {
+        prompt: `Draw & Cock: drag ${what} to the gun hand`,
+        onPick: (pick, hand) => {
           picked = true;
-          this.pendingGuns.set(card, { gun: gunId, hand });
+          this.pendingGuns.set(card, { ...pick, hand });
           this.updatePreview(); // the gun icon joins the token right away
           this.refreshSelectionDisplay();
           this.refreshCardHighlights();
@@ -1886,7 +1908,8 @@ export class GameScene extends Phaser.Scene {
   /** Recomputes where the plan leaves my character and animates the token there. */
   private updatePreview() {
     if (this.myIndex < 0 || !this.committed[this.myIndex]) return;
-    this.preview = replayPlan(this.committed[this.myIndex], this.currentPlan(), BOARD_A);
+    const me = this.committed[this.myIndex];
+    this.preview = replayPlan(me, this.currentPlan(), BOARD_A, this.displayGround().filter((g) => g.hex === me.hex));
     this.refreshTokens(true);
   }
 
@@ -1895,7 +1918,7 @@ export class GameScene extends Phaser.Scene {
   private async sendPlan() {
     if (this.mode !== "select" || this.choiceMode || this.optMenu || this.aimMode || !this.view) return;
     const plan = this.currentPlan();
-    const problem = validatePlan(plan, this.budget(), this.ranLastTurn(), this.myGuns());
+    const problem = validatePlan(plan, this.budget(), this.ranLastTurn(), this.myGuns(), this.groundHere());
     if (problem) {
       showToast(this, problem, "error");
       return;

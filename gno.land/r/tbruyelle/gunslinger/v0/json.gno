@@ -20,7 +20,7 @@ const listLimit = 50
 //	 "players":[{"addr","char","hex","facing","down","delay","status","submitted","playedFoot","playedRun","ranLastTurn",
 //	             "aim","aimHex" (the hex the AIM markers sit on, "" when on the opponent),"endurance","serious","gunArm","otherArm","leg",
 //	             "guns":[{"id","type","name","location","cocked","shells","capacity","jammed","exploded"}]}],
-//	 "ground":[{"hex","guns":[{..}]}],
+//	 "ground":[{"id" (ground id, "g<id>" in a plan),"hex","guns":[{..}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],
 //	             "events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","endurance","target","hit","range","gun","gunId"}],
@@ -125,7 +125,8 @@ func writeGround(b *strings.Builder, ground []engine.GroundGun) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		b.WriteString(`{"hex":` + quote(gg.Hex))
+		b.WriteString(`{"id":` + strconv.Itoa(gg.ID))
+		b.WriteString(`,"hex":` + quote(gg.Hex))
 		writeGuns(b, engine.Guns{gg.Gun})
 		b.WriteByte('}')
 	}

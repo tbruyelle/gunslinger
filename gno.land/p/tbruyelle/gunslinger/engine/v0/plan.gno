@@ -24,8 +24,9 @@ type Action struct {
 	Code cards.Code
 	Cost int
 	Dir  hex.Rel // committed relative direction, "" when the side takes none
-	Gun  int     // id of the gun for a gun choice (Draw & Cock), 0 when the side takes none
-	Hand int     // destination hand code for a gun choice (HandGun...), -1 when the side takes none
+	Gun    int     // id of the character's gun for a gun choice (Draw & Cock), 0 when none
+	Ground int     // id of the gun on the ground to pick up (Draw & Cock, "g<id>"), 0 when none
+	Hand   int     // destination hand code for a gun choice (HandGun...), -1 when the side takes none
 	Opt    string  // shoot option for Cock/Aim/Shoot and Shoot (OptCock...), "" when the side takes none
 	Hex    string  // the hex named by an aim or a shot at a hex
 	Target int     // the seat named by an aim or a shot at a character; -1 otherwise
@@ -95,8 +96,9 @@ func validOpt(code cards.Code, opt string) bool {
 // Its string form, used as the transaction argument, is a comma-separated
 // list of entries "<card><f|b>[:<choice>]", the choice being a relative
 // direction for move and turn cards ("1f:ahead_left"), for Draw & Cock a
-// gun id and the hand it goes to ("9f:1:0": gun 1 to the gun hand; hand
-// codes: 0 gun hand, 1 other hand, 2 both hands), or for Cock/Aim/Shoot and
+// gun and the hand it goes to ("9f:1:0": the character's gun 1 to the gun
+// hand, "9f:g2:0": the gun lying in its hex with ground id 2; hand codes: 0
+// gun hand, 1 other hand, 2 both hands), or for Cock/Aim/Shoot and
 // Shoot the option ("5f:aim", "7f:shoot"; a bare "7f" does nothing), e.g.
 // "1f:ahead_left,2f:ahead,3f". An empty string is a pass.
 type Plan []Action
@@ -184,7 +186,8 @@ func parseEntry(e string) (Action, error) {
 		if len(parts) != 2 {
 			return Action{}, errors.New("gun choice must be <gun id>:<hand> in " + strconv.Quote(e+":"+choice))
 		}
-		id, err := strconv.Atoi(parts[0])
+		ref := strings.TrimPrefix(parts[0], "g")
+		id, err := strconv.Atoi(ref)
 		if err != nil || id < 1 {
 			return Action{}, errors.New("invalid gun id " + strconv.Quote(parts[0]))
 		}
@@ -192,7 +195,11 @@ func parseEntry(e string) (Action, error) {
 		if _, ok := HandLocation(hand); err != nil || !ok {
 			return Action{}, errors.New("invalid hand " + strconv.Quote(parts[1]) + " (0 gun hand, 1 other hand, 2 both hands)")
 		}
-		a.Gun = id
+		if ref != parts[0] {
+			a.Ground = id
+		} else {
+			a.Gun = id
+		}
 		a.Hand = hand
 	default:
 		r, ok := hex.ParseRel(choice)
@@ -213,9 +220,14 @@ func (p Plan) String() string {
 		}
 		b.WriteString(strconv.Itoa(a.Card))
 		b.WriteByte(a.Side)
-		if a.Gun > 0 {
+		if a.Gun > 0 || a.Ground > 0 {
 			b.WriteByte(':')
-			b.WriteString(strconv.Itoa(a.Gun))
+			if a.Ground > 0 {
+				b.WriteByte('g')
+				b.WriteString(strconv.Itoa(a.Ground))
+			} else {
+				b.WriteString(strconv.Itoa(a.Gun))
+			}
 			b.WriteByte(':')
 			b.WriteString(strconv.Itoa(a.Hand))
 		} else if a.Opt != "" && !(a.Code == cards.Shoot && a.Opt == OptNothing) {
@@ -300,11 +312,13 @@ func (p Plan) Validate(c Character) error {
 				return errors.New("choose a backward direction")
 			}
 		case def.Choice.NeedsGun():
-			if a.Gun == 0 {
+			if a.Gun == 0 && a.Ground == 0 {
 				return errors.New("choose the gun to draw")
 			}
-			if i := c.Guns.Find(a.Gun); i < 0 || c.Guns[i].Location != Holstered {
-				return errors.New("that gun is not in a holster")
+			if a.Gun != 0 { // a gun on the ground is checked against the hex when the action executes
+				if i := c.Guns.Find(a.Gun); i < 0 || c.Guns[i].Location != Holstered {
+					return errors.New("that gun is not in a holster")
+				}
 			}
 			if a.Hand != HandGun { // the other hands come with two-handed guns and brawling
 				return errors.New("only the gun hand can draw for now")
@@ -316,7 +330,7 @@ func (p Plan) Validate(c Character) error {
 			if a.Dir != "" {
 				return errors.New("that action takes no direction")
 			}
-			if a.Gun != 0 {
+			if a.Gun != 0 || a.Ground != 0 {
 				return errors.New("that action takes no gun")
 			}
 		}

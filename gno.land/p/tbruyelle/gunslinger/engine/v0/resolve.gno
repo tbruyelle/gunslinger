@@ -14,7 +14,7 @@ const (
 	EvFlip         = "flip"          // Down, Action (empty for a DROP penalty)
 	EvDelay        = "delay"         // N gained, Reason, Card drawn (0 for crawl), Result penalty, Endurance crossed off, Delay = running total once this card is counted
 	EvCancel       = "cancel"        // Action, Reason
-	EvDraw         = "draw"          // Gun drawn from From (holster) to To (hand) and cocked
+	EvDraw         = "draw"          // Gun drawn from From (holster, or "ground" with N = its ground id) to To (hand) and cocked
 	EvCock         = "cock"          // Gun cocked
 	EvUncock       = "uncock"        // Gun uncocked
 	EvAim          = "aim"           // N = AIM points after aiming, To = the hex they sit on, Target = the seat they follow (-1 for a hex)
@@ -25,7 +25,7 @@ const (
 	EvWildShot     = "wild_shot"     // Gun went off without hitting anything: uncocked, one shell less
 	EvWound        = "wound"         // Player hit: Result = penalty kind (Kill, Stun...), N
 	EvDirection    = "direction"     // Card drawn as a direction card: To = its HEX line
-	EvDropGun      = "drop_gun"      // Gun fell from From (hand) to the hex To
+	EvDropGun      = "drop_gun"      // Gun fell from From (hand) to the hex To, N = its ground id
 	EvPassOut      = "pass_out"      // end of turn: more delay than endurance two turns in a row
 	EvSeriousCheck = "serious_check" // end of showdown: Card, N = DELAY + SERIOUS points (4 kills)
 )
@@ -45,6 +45,7 @@ const (
 	ReasonTime      = "time"        // not executed by the end of segment 5 (rule 7.53)
 	ReasonNoGun     = "no_gun"      // no gun in the box the action needs (11.3)
 	ReasonHandFull  = "hand_full"   // the destination hand already holds a gun
+	ReasonNoRoom    = "no_room"     // the character already carries MaxGuns weapons
 	ReasonNotCocked = "not_cocked"  // shooting an uncocked gun (13.1)
 	ReasonEmpty     = "empty"       // shooting a gun without shells (13.1)
 	ReasonBroken    = "broken"      // shooting an exploded gun (13.31)
@@ -170,7 +171,7 @@ func Resolve(board *hex.Board, st State, plans [NumPlayers]Plan, d Drawer) (Stat
 				continue
 			}
 			a := plans[p][idx[p]]
-			g, executed := execute(board, p, a, &st.Chars[p], &st.Chars[1-p], seg, d, &evs)
+			g, executed := execute(board, p, a, &st, &st.Chars[p], &st.Chars[1-p], seg, d, &evs)
 			gained[p] += g
 			advance(p, seg)
 			if executed && cards.IsMove(a.Code) {
@@ -611,8 +612,9 @@ func dropHand(p int, c *Character, hand, other GunLocation, seg int, st *State, 
 		}
 		dropped := *g
 		dropped.Location = Holstered
-		st.Ground = append(st.Ground, GroundGun{Hex: c.Hex, Gun: dropped})
-		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDropGun, From: hand.String(), To: c.Hex, Gun: g.Type, GunID: g.ID})
+		st.GroundSeq++
+		st.Ground = append(st.Ground, GroundGun{ID: st.GroundSeq, Hex: c.Hex, Gun: dropped})
+		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDropGun, From: hand.String(), To: c.Hex, Gun: g.Type, GunID: g.ID, N: st.GroundSeq})
 		*g = Gun{}
 	}
 	if i := c.Guns.At(BothHands); i >= 0 {
@@ -620,9 +622,10 @@ func dropHand(p int, c *Character, hand, other GunLocation, seg int, st *State, 
 	}
 }
 
-// execute runs one action other than a shot, mutating c. It returns the
-// delay points gained and whether the action took effect.
-func execute(board *hex.Board, p int, a Action, c *Character, opp *Character, seg int, d Drawer, evs *[]Event) (gained int, executed bool) {
+// execute runs one action other than a shot, mutating c (and st for the
+// guns on the ground). It returns the delay points gained and whether the
+// action took effect.
+func execute(board *hex.Board, p int, a Action, st *State, c *Character, opp *Character, seg int, d Drawer, evs *[]Event) (gained int, executed bool) {
 	cancel := func(reason string) (int, bool) {
 		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvCancel, Action: a.Code, Reason: reason})
 		return gained, false
@@ -673,10 +676,41 @@ func execute(board *hex.Board, p int, a Action, c *Character, opp *Character, se
 		gained += drawDelay(p, c, seg, ReasonLeap, d, evs)
 		return gained, true
 	case cards.DrawAndCock:
-		// Take the chosen gun from its holster to the gun hand and cock it.
-		slot := c.Guns.Find(a.Gun)
 		dest, ok := HandLocation(a.Hand)
-		if slot < 0 || c.Guns[slot].Location != Holstered || !ok {
+		if !ok {
+			return cancel(ReasonNoGun)
+		}
+		if a.Ground > 0 {
+			// Pick a weapon up from the hex into the hand and cock it (11.1,
+			// 11.11): it gets a fresh id on this character's sheet.
+			gi := -1
+			for i, gg := range st.Ground {
+				if gg.ID == a.Ground && gg.Hex == c.Hex {
+					gi = i
+				}
+			}
+			if gi < 0 {
+				return cancel(ReasonNoGun)
+			}
+			if c.Guns.At(dest) >= 0 {
+				return cancel(ReasonHandFull)
+			}
+			slot := c.Guns.Free()
+			if slot < 0 {
+				return cancel(ReasonNoRoom)
+			}
+			g := st.Ground[gi].Gun
+			g.ID = c.Guns.NextID()
+			g.Location = dest
+			g.Cocked = true
+			c.Guns[slot] = g
+			st.Ground = append(st.Ground[:gi:gi], st.Ground[gi+1:]...)
+			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: "ground", To: dest.String(), Gun: g.Type, GunID: g.ID, N: a.Ground})
+			return 0, true
+		}
+		// Take the chosen gun from its holster to the hand and cock it.
+		slot := c.Guns.Find(a.Gun)
+		if slot < 0 || c.Guns[slot].Location != Holstered {
 			return cancel(ReasonNoGun)
 		}
 		if c.Guns.At(dest) >= 0 {

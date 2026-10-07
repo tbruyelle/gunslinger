@@ -1,4 +1,4 @@
-import type { GunView } from "../chain/types";
+import type { GroundGunView, GunView } from "../chain/types";
 import { getActionDef, type CardNumber, type CardSide, type RelativeDirection } from "../rules";
 
 /** One card side in the turn plan, with its committed choice when it takes one. */
@@ -7,8 +7,9 @@ export interface PlanEntry {
   side: CardSide;
   /** Relative direction, for move and turn cards. */
   dir?: RelativeDirection;
-  /** Gun id, for Draw & Cock. */
+  /** Gun id, for Draw & Cock; or the ground id of a gun lying in the hex to pick up. */
   gun?: number;
+  groundGun?: number;
   /** Destination hand for Draw & Cock: 0 gun hand, 1 other hand, 2 both hands. */
   hand?: number;
   /** What a Cock/Aim/Shoot does, or a Shoot (shoot or nothing). */
@@ -65,15 +66,16 @@ export function gunInFiringBox(guns: GunView[]): GunView | undefined {
 
 /**
  * Whether a side can be picked now: implemented, Sprint only after a Run on
- * the previous turn, Draw & Cock only with a holstered gun and a free gun
- * hand, Cock/Aim/Shoot and Shoot only with a gun in hand (guns is the state
- * the plan leaves before the card, so a Draw & Cock earlier in the plan counts).
+ * the previous turn, Draw & Cock only with a free gun hand and a holstered
+ * gun or a weapon lying in the hex (groundHere), Cock/Aim/Shoot and Shoot
+ * only with a gun in hand (guns is the state the plan leaves before the
+ * card, so a Draw & Cock earlier in the plan counts).
  */
-export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean, guns: GunView[] = []): boolean {
+export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean, guns: GunView[] = [], groundHere: GroundGunView[] = []): boolean {
   if (!isEnabled(entry)) return false;
   const name = getActionDef(entry).name;
   if (name === "Sprint") return ranLastTurn;
-  if (name === "Draw & Cock") return drawableGuns(guns).length > 0;
+  if (name === "Draw & Cock") return drawableGuns(guns).length > 0 || (groundHere.length > 0 && !guns.some((g) => g.location === "gun_hand"));
   if (name in SHOOT_OPTIONS) return gunInFiringBox(guns) !== undefined;
   return true;
 }
@@ -89,7 +91,10 @@ export function encodePlan(plan: PlanEntry[]): string {
         if (e.opt !== "aim" && e.opt !== "shoot") return `${base}:${e.opt}`;
         return e.target !== undefined ? `${base}:${e.opt}:@${e.target}` : `${base}:${e.opt}:${e.hex ?? ""}`;
       }
-      if (def.choiceType === "gun") return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
+      if (def.choiceType === "gun") {
+        if (e.groundGun !== undefined) return `${base}:g${e.groundGun}:${e.hand ?? HAND_GUN}`;
+        return e.gun !== undefined ? `${base}:${e.gun}:${e.hand ?? HAND_GUN}` : base;
+      }
       const needsDir = def.choiceType === "move_ahead" || def.choiceType === "move_back" || def.choiceType === "turn_ahead" || def.choiceType === "turn_back";
       return needsDir && e.dir ? `${base}:${e.dir}` : base;
     })
@@ -121,10 +126,11 @@ export function decodePlan(s: string): PlanEntry[] {
     }
     if (m[3] !== undefined) {
       if (getActionDef(entry).choiceType === "gun") {
-        const g = /^([1-9][0-9]*):([0-2])$/.exec(m[3]);
-        if (!g) throw new Error(`invalid gun choice "${m[3]}" (expected <gun id>:<hand>)`);
-        entry.gun = Number(g[1]);
-        entry.hand = Number(g[2]);
+        const g = /^(g?)([1-9][0-9]*):([0-2])$/.exec(m[3]);
+        if (!g) throw new Error(`invalid gun choice "${m[3]}" (expected <gun id>:<hand> or g<ground id>:<hand>)`);
+        if (g[1]) entry.groundGun = Number(g[2]);
+        else entry.gun = Number(g[2]);
+        entry.hand = Number(g[3]);
       } else {
         if (!ALL_DIRS.has(m[3])) throw new Error(`invalid direction "${m[3]}"`);
         entry.dir = m[3] as RelativeDirection;
@@ -144,7 +150,7 @@ export function planCost(plan: PlanEntry[]): number {
  * ranLastTurn says whether a Run was played on the previous turn; guns are
  * the character's guns, for Draw & Cock.
  */
-export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranLastTurn = true, guns: GunView[] = []): string | null {
+export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranLastTurn = true, guns: GunView[] = [], groundHere: GroundGunView[] = []): string | null {
   if (plan.length > MAX_PLAN_ENTRIES) return "too many actions in plan";
   const used = new Set<number>();
   const names = new Set<string>();
@@ -169,9 +175,13 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
         if (!e.dir || !BACK.has(e.dir)) return "choose a backward direction";
         break;
       case "gun": {
-        if (e.gun === undefined) return "choose the gun to draw";
-        const g = guns.find((x) => x.id === e.gun);
-        if (!g || g.location !== "holstered") return "that gun is not in a holster";
+        if (e.gun === undefined && e.groundGun === undefined) return "choose the gun to draw";
+        if (e.groundGun !== undefined) {
+          if (!groundHere.some((x) => x.id === e.groundGun)) return "that weapon is not in your hex";
+        } else {
+          const g = guns.find((x) => x.id === e.gun);
+          if (!g || g.location !== "holstered") return "that gun is not in a holster";
+        }
         const hand = e.hand ?? HAND_GUN;
         if (hand !== HAND_GUN) return "only the gun hand can draw for now";
         if (guns.some((x) => x.location === HAND_LOCATION[hand])) return "that hand already holds a gun";
@@ -179,7 +189,7 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
       }
       default:
         if (e.dir) return "that action takes no direction";
-        if (e.gun !== undefined) return "that action takes no gun";
+        if (e.gun !== undefined || e.groundGun !== undefined) return "that action takes no gun";
     }
   }
   if (planCost(plan) > budget) return "those actions cost more time points than you have";

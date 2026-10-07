@@ -89,16 +89,20 @@ type Character struct {
 	Leg      int
 }
 
-// GroundGun is a weapon lying in a hex (10.21).
+// GroundGun is a weapon lying in a hex (10.21). ID identifies it on the
+// ground for the whole game (plans refer to it as "g<ID>"); the gun's own
+// ID was its previous owner's and is reassigned when picked up.
 type GroundGun struct {
+	ID  int
 	Hex string
 	Gun Gun
 }
 
 // State is the whole game state the engine acts on.
 type State struct {
-	Chars  [NumPlayers]Character
-	Ground []GroundGun
+	Chars     [NumPlayers]Character
+	Ground    []GroundGun
+	GroundSeq int // last ground id handed out
 }
 
 // NewState is the fixed showdown setup ([H3]): seat 0 in the north half of

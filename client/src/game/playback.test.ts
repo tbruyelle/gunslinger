@@ -71,12 +71,18 @@ describe("snapshotAfterSegment", () => {
     expect(snapshotAfterSegment(s, evs, 5)[0].status).toBe("passed_out");
     // A gun dropped in a hex lands on the ground as it was, uncocked by its wild shot.
     const ground: GroundGunView[] = [];
-    const drops = [ev({ seg: 2, p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }), ev({ seg: 2, p: 0, kind: "drop_gun", from: "gun_hand", to: "A-F1", gun: "colt45", gunId: 1 })];
+    const drops = [ev({ seg: 2, p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }), ev({ seg: 2, p: 0, kind: "drop_gun", from: "gun_hand", to: "A-F1", gun: "colt45", gunId: 1, n: 3 })];
     const dropped = snapshotAfterSegment(s, drops, 2, ground);
     expect(dropped[0].guns).toEqual([]);
-    expect(ground).toEqual([{ hex: "A-F1", guns: [{ ...armed, location: "holstered", cocked: false, shells: 5 }] }]);
+    expect(ground).toEqual([{ id: 3, hex: "A-F1", guns: [{ ...armed, location: "holstered", cocked: false, shells: 5 }] }]);
     expect(snapshotAfterSegment(s, drops, 1, ground)[0].guns).toHaveLength(1);
     expect(ground).toHaveLength(1);
+    // Picked up again: off the ground, into the hand with its new id.
+    const pickup = [ev({ seg: 4, p: 1, kind: "draw", action: "draw_and_cock", from: "ground", to: "gun_hand", gun: "colt45", gunId: 1, n: 3 })];
+    const after = snapshotAfterSegment(s, pickup, 4, ground);
+    expect(after[1].guns).toEqual([{ ...armed, id: 1, location: "gun_hand", cocked: true, shells: 5 }]);
+    expect(ground).toEqual([]);
+    expect(describeEvent(pickup[0], ["marshal", "dude"])).toBe("dude picks up the Colt 45 from the ground into the gun hand and cocks it");
     const names = ["marshal", "dude"];
     expect(describeEvent(evs[2], names)).toBe("marshal shoots dude in A-F12 (card 6, aim time 3, range 1): VITAL hit");
     expect(describeEvent(ev({ p: 0, kind: "shot", card: 1, target: 1, to: "A-F9", hit: "-", range: 6, n: 3 }), names)).toBe("marshal shoots dude in A-F9 (card 1, aim time 3, range 6): miss");

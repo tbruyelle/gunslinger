@@ -274,6 +274,12 @@ func describeEvent(g *Game, e engine.Event) string {
 		what = who + " passes out"
 	case engine.EvSeriousCheck:
 		what = who + " draws card " + strconv.Itoa(e.Card) + " for the SERIOUS wounds: " + strconv.Itoa(e.N) + " points"
+	case engine.EvDraw:
+		if e.From == "ground" {
+			what = who + " picks up the " + e.Gun.Spec().Name + " from the ground into the " + strings.ReplaceAll(e.To, "_", " ") + " and cocks it"
+		} else {
+			what = who + " draws and cocks the " + e.Gun.Spec().Name
+		}
 	case engine.EvCancel:
 		what = who + ": " + action + " is cancelled (" + e.Reason + ")"
 	default:

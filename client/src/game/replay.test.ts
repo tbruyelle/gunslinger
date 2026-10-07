@@ -51,6 +51,9 @@ describe("replayPlan", () => {
     expect(replayPlan({ ...start, aim: 4 }, decodePlan("3b:ahead"), BOARD_A).aim).toBe(4);
     expect(replayPlan({ ...start, aim: 4, guns: [armed] }, decodePlan("5f:cock"), BOARD_A).aim).toBe(0);
     expect(replayPlan({ ...start, guns: [{ ...armed, cocked: false }] }, decodePlan("5f:cock"), BOARD_A).guns[0].cocked).toBe(true);
+    // Picking the Colt up from the ground gives it a fresh id, cocked, in the gun hand.
+    const picked = replayPlan({ ...start, guns: [] }, decodePlan("9f:g4:0"), BOARD_A, [{ id: 4, hex: "A-F1", guns: [{ ...colt, shells: 4 }] }]);
+    expect(picked.guns).toEqual([{ ...colt, id: 1, shells: 4, location: "gun_hand", cocked: true }]);
     // Draw & Cock then shoot in one plan.
     const drawn = replayPlan({ ...start, guns: [colt] }, decodePlan("9f:1:0,7f:shoot:@1"), BOARD_A);
     expect(drawn.guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: false, shells: 5 });

@@ -33,6 +33,11 @@ func SubmitPlan(cur realm, id string, plan string) int {
 	if err := pl.Validate(g.State.Chars[p]); err != nil {
 		panic("gunslinger: " + err.Error())
 	}
+	for _, a := range pl {
+		if a.Ground > 0 && !groundIn(g.State, a.Ground, g.State.Chars[p].Hex) {
+			panic("gunslinger: that weapon is not in your hex")
+		}
+	}
 	// Target-status flags for this turn, set whether or not the actions
 	// end up executing ([H12]).
 	g.State.Chars[p].PlayedFoot = pl.PlayedFoot()
@@ -152,6 +157,16 @@ func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]en
 		}
 	}
 	return out
+}
+
+// groundIn reports whether the gun with that ground id lies in the hex.
+func groundIn(st engine.State, id int, hex string) bool {
+	for _, gg := range st.Ground {
+		if gg.ID == id && gg.Hex == hex {
+			return true
+		}
+	}
+	return false
 }
 
 func lastAlive(g *Game) int {
