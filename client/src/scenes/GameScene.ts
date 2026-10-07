@@ -78,6 +78,8 @@ function aimMarkerKey(n: number): string {
 }
 /** Size of an AIM marker as a fraction of the token diameter. */
 const AIM_SIZE = 0.42;
+/** Endurance boxes a character starts with (rule 14.2); the health bar shows only below that. */
+const MAX_ENDURANCE = 20;
 /** Colour of the aim line and the shot tracer. */
 const AIM_LINE_COLOR = 0xff2020;
 
@@ -136,6 +138,12 @@ class CharacterToken {
   private recoil = 0;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
   private aim: Phaser.GameObjects.Image | null = null;
+  /** The endurance bar above the token, shown once boxes are crossed off; shown is the value it displays (tweened). */
+  private bar: { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle } | null = null;
+  private shown = MAX_ENDURANCE;
+  private barTween: Phaser.Tweens.Tween | null = null;
+  /** The sprite's resting tint (grey once out of the fight), which a hurt flash fades back to. */
+  private baseTint = 0xffffff;
 
   /** In-flight position tweens, retargeted by moveTo without touching the rotation. */
   private posTweens: Phaser.Tweens.Tween[] = [];
@@ -169,6 +177,7 @@ class CharacterToken {
     if (this.gun) list.push(this.gun);
     if (this.shells) list.push(this.shells);
     if (this.aim) list.push(this.aim);
+    if (this.bar) list.push(this.bar.bg, this.bar.fill);
     return list;
   }
 
@@ -226,6 +235,63 @@ class CharacterToken {
       const r = this.sprite.displayWidth * GUN_RADIUS;
       this.aim.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
     }
+    if (this.bar) {
+      const d = this.sprite.displayWidth;
+      const w = d * 0.9;
+      const by = y - d * 0.66;
+      this.bar.bg.setPosition(x - w / 2, by);
+      const ratio = Phaser.Math.Clamp(this.shown / MAX_ENDURANCE, 0, 1);
+      this.bar.fill.setPosition(x - w / 2 + 1, by + 1).setSize(Math.max(0, (w - 2) * ratio), this.bar.bg.height - 2);
+      this.bar.fill.setFillStyle(Phaser.Display.Color.GetColor(Math.round(220 * (1 - ratio) + 40 * ratio), Math.round(190 * ratio + 30), 30), 1);
+    }
+  }
+
+  /** Shows the endurance bar once boxes are crossed off (none at full endurance), shrinking it smoothly when it drops. */
+  setEndurance(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask) {
+    if (n >= MAX_ENDURANCE) {
+      this.bar?.bg.destroy();
+      this.bar?.fill.destroy();
+      this.bar = null;
+      this.shown = n;
+      return;
+    }
+    const d = this.sprite.displayWidth;
+    const hurt = this.bar !== null && n < this.shown; // a drop seen on screen, not the first display
+    if (!this.bar) {
+      this.bar = {
+        bg: scene.add.rectangle(0, 0, d * 0.9, Math.max(6, d * 0.09), 0x1a0f07, 0.9).setOrigin(0, 0.5).setStrokeStyle(1, 0xffe2a0, 0.9).setMask(mask).setDepth(this.depth + 4),
+        fill: scene.add.rectangle(0, 0, 1, 1, 0x40c040, 1).setOrigin(0, 0.5).setMask(mask).setDepth(this.depth + 4),
+      };
+      if (this.shown >= MAX_ENDURANCE) this.shown = MAX_ENDURANCE; // first drop: shrink from full
+    }
+    this.bar.bg.setSize(d * 0.9, Math.max(6, d * 0.09));
+    this.barTween?.stop();
+    this.barTween = scene.tweens.add({ targets: this, shown: n, duration: n < this.shown ? 500 : 250, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
+    if (hurt) this.hurtFlash(scene);
+    this.follow();
+  }
+
+  /** Flashes the token red, fading back to its resting tint: when endurance drops, and when a bullet lands. */
+  hurtFlash(scene: Phaser.Scene) {
+    const red = Phaser.Display.Color.ValueToColor(0x7a0c0a); // the blood stains' dark red
+    const base = Phaser.Display.Color.ValueToColor(this.baseTint);
+    const flash = { t: 0 };
+    scene.tweens.add({
+      targets: flash,
+      t: 1,
+      duration: 650,
+      ease: "Cubic.easeOut",
+      onUpdate: () => {
+        const c = Phaser.Display.Color.Interpolate.ColorWithColor(red, base, 100, flash.t * 100);
+        this.sprite.setTint(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+      },
+      onComplete: () => this.applyBaseTint(),
+    });
+  }
+
+  private applyBaseTint() {
+    if (this.baseTint === 0xffffff) this.sprite.clearTint();
+    else this.sprite.setTint(this.baseTint);
   }
 
   /**
@@ -292,8 +358,8 @@ class CharacterToken {
   setStatus(status: PlayerStatus) {
     const out = status !== "alive";
     this.sprite.setAlpha(out ? 0.75 : 1);
-    if (out) this.sprite.setTint(0x808080);
-    else this.sprite.clearTint();
+    this.baseTint = out ? 0x808080 : 0xffffff;
+    this.applyBaseTint();
   }
 
   /** The flinch of a hit: the token rocks quickly back and forth around its facing. */
@@ -845,6 +911,7 @@ export class GameScene extends Phaser.Scene {
         t.setOverlay(this, null, this.arrMask);
         t.setDelay(this, 0, this.arrMask);
         t.setGun(this, null, this.arrMask);
+        t.setEndurance(this, MAX_ENDURANCE, this.arrMask);
         t.setTargetAim(this, 0, this.arrMask);
       }
     }
@@ -892,6 +959,7 @@ export class GameScene extends Phaser.Scene {
       token.setOverlay(this, overlayKey(c), this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
       token.setGun(this, gunInHand(c.guns), this.arrMask);
+      token.setEndurance(this, c.endurance, this.arrMask);
       token.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
       token.setStatus(c.status);
       this.tokens.push(token);
@@ -914,6 +982,7 @@ export class GameScene extends Phaser.Scene {
       t.setOverlay(this, overlayKey(c), this.arrMask);
       t.setDelay(this, c.delay, this.arrMask);
       t.setGun(this, gunInHand(c.guns), this.arrMask);
+      t.setEndurance(this, c.endurance, this.arrMask);
       t.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
       t.setStatus(c.status);
       if (animate) {
@@ -2176,7 +2245,10 @@ export class GameScene extends Phaser.Scene {
         this.popBurst(hit ? "hit" : "missed", centre, along);
         if (hit) {
           this.spurtBlood(near, along);
-          if (atToken) this.tokens[e.target]?.flinch(this.tweens);
+          if (atToken) {
+            this.tokens[e.target]?.flinch(this.tweens);
+            this.tokens[e.target]?.hurtFlash(this);
+          }
         }
       });
       this.tweens.add({
