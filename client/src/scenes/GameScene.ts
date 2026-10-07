@@ -6,7 +6,7 @@ import { getChain, type Chain } from "../chain";
 import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
 import { userMessage } from "../chain/errors";
 import { GamePoller } from "../chain/poller";
-import { seatOf, shortAddr, type GameView, type TurnResult, type PlayerStatus, type TurnEvent, type GunView } from "../chain/types";
+import { seatOf, shortAddr, type GameView, type TurnResult, type PlayerStatus, type TurnEvent, type GunView, type GroundGunView } from "../chain/types";
 import {
   describeEvent,
   endOfTurnEvents,
@@ -85,8 +85,29 @@ const STACK_REST = 0.12;
 const STACK_SPREAD = 0.42;
 const STACK_MS = 180;
 
+/** Paints a gun icon: full colour when cocked, greyed out when not, and a red dot per loaded chamber along the bottom edge (dark once spent). */
+function paintGun(gun: GunView, img: Phaser.GameObjects.Image, dots: Phaser.GameObjects.Graphics, size: number): number {
+  img.setDisplaySize(size, size);
+  const alpha = gun.cocked ? 1 : 0.7;
+  if (gun.cocked) img.clearTint();
+  else img.setTint(0xb4b4b4);
+  dots.clear();
+  const n = Math.max(gun.capacity, gun.shells, 1);
+  const step = size / (n + 1);
+  const radius = Math.max(1.5, size * 0.055);
+  for (let i = 0; i < n; i++) {
+    const loaded = i < gun.shells;
+    dots.fillStyle(loaded ? 0xd81818 : 0x3a2510, loaded ? 1 : 0.6);
+    dots.fillCircle(-size / 2 + step * (i + 1), size * 0.4, radius);
+  }
+  return alpha;
+}
+
 /** The option buttons offered for each gun action (uncocking stays possible in the plan string, not in the menu). */
 const MENU_OPTIONS: Record<string, ShootOption[]> = { "Cock/Aim/Shoot": ["cock", "aim", "shoot"], Shoot: ["shoot"] };
+
+/** How far a gun on the ground lies from its hex centre toward the lower-right, as a fraction of the token diameter. */
+const GROUND_ASIDE = 0.28;
 
 /** Gun models with an icon in assets/guns/<type>.gif. */
 const GUN_TYPES = ["colt45"];
@@ -348,22 +369,7 @@ class CharacterToken {
     } else if (this.gun.texture.key !== key) {
       this.gun.setTexture(key);
     }
-    this.gun.setDisplaySize(size, size);
-    // Cocked: the icon in full colour; uncocked: greyed out.
-    const g = this.shells!;
-    g.clear();
-    this.gunAlpha = gun.cocked ? 1 : 0.7;
-    if (gun.cocked) this.gun.clearTint();
-    else this.gun.setTint(0xb4b4b4);
-    // One dot per chamber along the icon's bottom edge: red while loaded, dark once spent.
-    const n = Math.max(gun.capacity, gun.shells, 1);
-    const step = size / (n + 1);
-    const radius = Math.max(1.5, size * 0.055);
-    for (let i = 0; i < n; i++) {
-      const loaded = i < gun.shells;
-      g.fillStyle(loaded ? 0xd81818 : 0x3a2510, loaded ? 1 : 0.6);
-      g.fillCircle(-size / 2 + step * (i + 1), size * 0.4, radius);
-    }
+    this.gunAlpha = paintGun(gun, this.gun, this.shells!, size);
     this.follow();
   }
 
@@ -425,6 +431,8 @@ export class GameScene extends Phaser.Scene {
   private aimMode: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
   /** The AIM markers on hexes, by the seat holding the aim. */
   private aimMarkers: Map<number, Phaser.GameObjects.Image> = new Map();
+  /** The guns lying in hexes, as drawn (index = position in displayGround()). */
+  private groundIcons: { img: Phaser.GameObjects.Image; dots: Phaser.GameObjects.Graphics }[] = [];
   /** The animated dotted line shown while hovering an AIM marker or an aiming gun, with its ends. */
   private aimLine: Phaser.GameObjects.Graphics | null = null;
   private aimLineEnds: { from: { x: number; y: number }; to: { x: number; y: number } } | null = null;
@@ -691,6 +699,7 @@ export class GameScene extends Phaser.Scene {
     this.aimLine = null;
     this.aimLineEnds = null;
     this.aimMarkers = new Map();
+    this.groundIcons = [];
     this.logPopup = null;
     if (this.optMenu) this.optMenu.objects = [];
     if (this.aimMode) this.aimMode.objects = [];
@@ -757,6 +766,35 @@ export class GameScene extends Phaser.Scene {
       .image(ox + (BOARD_A.w / 2) * scale, oy + (BOARD_A.h / 2) * scale, "board_A")
       .setScale(scale)
       .setMask(this.arrMask);
+  }
+
+  /** The guns lying in hexes as they should be drawn right now: the chain's, or those dropped by the segment shown. */
+  private displayGround(): GroundGunView[] {
+    const view = this.view;
+    if (!view) return [];
+    const pb = this.playback;
+    if (!pb) return view.ground ?? [];
+    const t = pb.turns[pb.index];
+    let base: GroundGunView[];
+    if (pb.live) {
+      // The chain's ground minus what this turn dropped.
+      const dropped = t.events.filter((e) => e.kind === "drop_gun");
+      base = (view.ground ?? []).filter((g) => {
+        const i = dropped.findIndex((e) => e.to === g.hex && g.guns.some((x) => x.id === e.gunId && x.type === e.gun));
+        if (i < 0) return true;
+        dropped.splice(i, 1);
+        return false;
+      });
+    } else {
+      base = [];
+      for (let i = 0; i < pb.index; i++) {
+        const prev = pb.turns[i];
+        snapshotAfterSegment(startOfTurn(prev, this.committed), prev.events, SEGMENTS, base);
+      }
+    }
+    const ground = base.map((g) => ({ hex: g.hex, guns: g.guns.map((x) => ({ ...x })) }));
+    snapshotAfterSegment(startOfTurn(t, this.committed), t.events, pb.seg, ground);
+    return ground;
   }
 
   /** The characters as they should be drawn right now. */
@@ -835,6 +873,7 @@ export class GameScene extends Phaser.Scene {
     const chars = this.displayChars();
     this.hideAimLine();
     this.refreshAimMarkers(chars);
+    this.refreshGround(chars, this.displayGround());
     this.tokens.forEach((t, i) => {
       if (!t || !chars[i]) return;
       const c = chars[i];
@@ -865,24 +904,69 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** The seats drawn in the same hex as seat i (including i), in seat order. */
-  private stackMates(chars: CharView[], i: number): number[] {
+  /**
+   * What shares a hex, in stacking order: the tokens (by seat), then the
+   * guns lying there (by their index in the ground list). Each occupant is
+   * keyed "s<seat>" or "g<index>".
+   */
+  private occupantsAt(chars: CharView[], ground: GroundGunView[], hex: string): string[] {
     const players = this.view?.players ?? [];
-    const out: number[] = [];
+    const out: string[] = [];
     chars.forEach((c, j) => {
-      if (c && players[j]?.char && c.hex === chars[i].hex) out.push(j);
+      if (c && players[j]?.char && c.hex === hex) out.push(`s${j}`);
+    });
+    ground.forEach((g, j) => {
+      if (g.hex === hex) out.push(`g${j}`);
     });
     return out;
   }
 
+  /** The seats drawn in the same hex as seat i (including i), in seat order. */
+  private stackMates(chars: CharView[], i: number): number[] {
+    return this.occupantsAt(chars, this.displayGround(), chars[i].hex)
+      .filter((k) => k[0] === "s")
+      .map((k) => Number(k.slice(1)));
+  }
+
+  /**
+   * Where an occupant of a hex goes: the hex centre, shifted along the
+   * diagonal when the hex is shared; a gun on the ground also lies off to
+   * the lower-right side of the hex rather than in its middle.
+   */
+  private occupantScreenPos(chars: CharView[], ground: GroundGunView[], hex: string, key: string): { sx: number; sy: number } {
+    const { sx, sy } = this.hexToScreen(hex);
+    const d = this.tokenDiameter();
+    const aside = key[0] === "g" ? d * GROUND_ASIDE : 0;
+    const all = this.occupantsAt(chars, ground, hex);
+    if (all.length < 2) return { sx: sx + aside, sy: sy + aside };
+    const frac = this.spreadHex === hex ? STACK_SPREAD : STACK_REST;
+    const shift = d * frac * ((2 * all.indexOf(key)) / (all.length - 1) - 1);
+    return { sx: sx + shift + aside, sy: sy + shift + aside };
+  }
+
   /** Where seat i's token goes: its hex centre, shifted along the diagonal when it shares the hex. */
   private tokenScreenPos(chars: CharView[], i: number): { sx: number; sy: number } {
-    const c = chars[i];
-    const { sx, sy } = this.hexToScreen(c.hex);
-    const mates = this.stackMates(chars, i);
-    if (mates.length < 2) return { sx, sy };
-    const frac = this.spreadHex === c.hex ? STACK_SPREAD : STACK_REST;
-    const shift = this.tokenDiameter() * frac * ((2 * mates.indexOf(i)) / (mates.length - 1) - 1);
-    return { sx: sx + shift, sy: sy + shift };
+    return this.occupantScreenPos(chars, this.displayGround(), chars[i].hex, `s${i}`);
+  }
+
+  /** Draws the guns lying in hexes, below the tokens, with the token icon's rendering, stacked like a character sharing the hex. */
+  private refreshGround(chars: CharView[], ground: GroundGunView[]) {
+    for (const o of this.groundIcons) {
+      o.img.destroy();
+      o.dots.destroy();
+    }
+    this.groundIcons = [];
+    const size = this.tokenDiameter() * GUN_SIZE;
+    ground.forEach((g, j) => {
+      const gun = g.guns[0];
+      const key = `gun_${gun?.type}`;
+      if (!gun || !this.textures.exists(key)) return;
+      const { sx, sy } = this.occupantScreenPos(chars, ground, g.hex, `g${j}`);
+      const img = this.add.image(sx, sy, key).setOrigin(0.5).setMask(this.arrMask).setDepth(0.8);
+      const dots = this.add.graphics({ x: sx, y: sy }).setMask(this.arrMask).setDepth(0.8);
+      img.setAlpha(paintGun(gun, img, dots, size));
+      this.groundIcons.push({ img, dots });
+    });
   }
 
   /** Fans out the stack under the pointer, within the disc the spread tokens cover. */
@@ -892,12 +976,17 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const chars = this.displayChars();
+    const ground = this.displayGround();
     const radius = this.tokenDiameter() * (0.5 + STACK_SPREAD);
     let hit: string | null = null;
-    for (let i = 0; i < chars.length && hit === null; i++) {
-      if (!chars[i] || this.stackMates(chars, i).length < 2) continue;
-      const { sx, sy } = this.hexToScreen(chars[i].hex);
-      if (Phaser.Math.Distance.Between(pointer.x, pointer.y, sx, sy) <= radius) hit = chars[i].hex;
+    const hexes = new Set<string>([...chars.filter((c) => c).map((c) => c.hex), ...ground.map((g) => g.hex)]);
+    for (const hex of hexes) {
+      if (this.occupantsAt(chars, ground, hex).length < 2) continue;
+      const { sx, sy } = this.hexToScreen(hex);
+      if (Phaser.Math.Distance.Between(pointer.x, pointer.y, sx, sy) <= radius) {
+        hit = hex;
+        break;
+      }
     }
     this.setSpreadHex(hit);
   }
@@ -906,10 +995,17 @@ export class GameScene extends Phaser.Scene {
     if (hex === this.spreadHex) return;
     this.spreadHex = hex;
     const chars = this.displayChars();
+    const ground = this.displayGround();
     this.tokens.forEach((t, i) => {
-      if (!t || !chars[i] || this.stackMates(chars, i).length < 2) return;
-      const { sx, sy } = this.tokenScreenPos(chars, i);
+      if (!t || !chars[i] || this.occupantsAt(chars, ground, chars[i].hex).length < 2) return;
+      const { sx, sy } = this.occupantScreenPos(chars, ground, chars[i].hex, `s${i}`);
       t.moveTo(this.tweens, sx, sy, STACK_MS);
+    });
+    ground.forEach((g, j) => {
+      const icon = this.groundIcons[j];
+      if (!icon || this.occupantsAt(chars, ground, g.hex).length < 2) return;
+      const { sx, sy } = this.occupantScreenPos(chars, ground, g.hex, `g${j}`);
+      this.tweens.add({ targets: [icon.img, icon.dots], x: sx, y: sy, duration: STACK_MS, ease: "Cubic.easeInOut" });
     });
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { END_OF_TURN_SEG, type GunView, type TurnEvent, type TurnResult } from "../chain/types";
+import { END_OF_TURN_SEG, type GroundGunView, type GunView, type TurnEvent, type TurnResult } from "../chain/types";
 import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
@@ -69,6 +69,14 @@ describe("snapshotAfterSegment", () => {
     expect(s3[1].down).toBe(true);
     expect(s3[0].status).toBe("alive");
     expect(snapshotAfterSegment(s, evs, 5)[0].status).toBe("passed_out");
+    // A gun dropped in a hex lands on the ground as it was, uncocked by its wild shot.
+    const ground: GroundGunView[] = [];
+    const drops = [ev({ seg: 2, p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }), ev({ seg: 2, p: 0, kind: "drop_gun", from: "gun_hand", to: "A-F1", gun: "colt45", gunId: 1 })];
+    const dropped = snapshotAfterSegment(s, drops, 2, ground);
+    expect(dropped[0].guns).toEqual([]);
+    expect(ground).toEqual([{ hex: "A-F1", guns: [{ ...armed, location: "holstered", cocked: false, shells: 5 }] }]);
+    expect(snapshotAfterSegment(s, drops, 1, ground)[0].guns).toHaveLength(1);
+    expect(ground).toHaveLength(1);
     const names = ["marshal", "dude"];
     expect(describeEvent(evs[2], names)).toBe("marshal shoots dude in A-F12 (card 6, aim time 3, range 1): VITAL hit");
     expect(describeEvent(ev({ p: 0, kind: "shot", card: 1, target: 1, to: "A-F9", hit: "-", range: 6, n: 3 }), names)).toBe("marshal shoots dude in A-F9 (card 1, aim time 3, range 6): miss");

@@ -266,7 +266,9 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   (`CharacterToken.setGun`, `gunAngle`), with its shells as red dots along
   the bottom, greyed out while uncocked; the DEL badge takes the corner
   below it and the opponent's AIM marker the other top corner, all turning
-  with the token; `CharView.guns` carries
+  with the token; a gun dropped in a hex (`ground` in the JSON, `drop_gun`
+  events in playback) is drawn there with the same icon below the tokens,
+  stacked like a character sharing the hex (`occupantsAt`); `CharView.guns` carries
   the guns through the preview (Draw & Cock moves the gun) and the playback
   (`draw` and `wild_shot` events are folded, the turn's `start` JSON lists
   the guns). Clicking a token opens the **character

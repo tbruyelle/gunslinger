@@ -1,4 +1,4 @@
-import { END_OF_TURN_SEG, type GunLocation, type TurnEvent, type TurnResult } from "../chain/types";
+import { END_OF_TURN_SEG, type GroundGunView, type GunLocation, type TurnEvent, type TurnResult } from "../chain/types";
 import { copyChar, type CharView } from "./replay";
 
 export const SEGMENTS = 5;
@@ -36,9 +36,10 @@ export function startOfTurn(t: TurnResult, fallback: CharView[]): CharView[] {
 /**
  * The characters' state once every event up to and including segment seg
  * has applied: turn-start events (seg 0) always, end-of-turn events
- * (END_OF_TURN_SEG) from segment 5.
+ * (END_OF_TURN_SEG) from segment 5. When ground is given, the guns dropped
+ * in hexes by then are appended to it.
  */
-export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number): CharView[] {
+export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number, ground?: GroundGunView[]): CharView[] {
   const out = start.map(copyChar);
   for (const e of events) {
     if (e.seg === END_OF_TURN_SEG ? seg < SEGMENTS : e.seg > seg) continue;
@@ -88,6 +89,7 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
         } else if (gun && e.result === "explodes") gun.exploded = true;
         break;
       case "drop_gun":
+        if (gun && ground) ground.push({ hex: e.to, guns: [{ ...gun, location: "holstered" }] });
         c.guns = c.guns.filter((x) => x.id !== e.gunId);
         break;
       case "aim":
