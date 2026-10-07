@@ -107,6 +107,10 @@ class CharacterToken {
   /** The icon of the gun held in a hand, at the token corner above the arrow, with its shells as red dots; greyed out while uncocked. */
   private gun: Phaser.GameObjects.Image | null = null;
   private shells: Phaser.GameObjects.Graphics | null = null;
+  /** Progress of the gun icon's entrance (0 at the token centre, transparent and turning; 1 in place). */
+  private gunIn = 1;
+  /** The icon's opacity once in place (dimmed while uncocked). */
+  private gunAlpha = 1;
   /** The opponent's AIM marker when it follows this token, at the corner mirroring the gun icon. */
   private aim: Phaser.GameObjects.Image | null = null;
 
@@ -187,9 +191,12 @@ class CharacterToken {
     }
     if (this.gun) {
       const a = Phaser.Math.DegToRad(this.gunAngle());
-      const r = this.sprite.displayWidth * GUN_RADIUS;
-      this.gun.setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r);
-      this.shells?.setPosition(this.gun.x, this.gun.y);
+      const r = this.sprite.displayWidth * GUN_RADIUS * this.gunIn; // slides out from the centre on entrance
+      this.gun
+        .setPosition(x + Math.cos(a) * r, y + Math.sin(a) * r)
+        .setAlpha(this.gunAlpha * this.gunIn)
+        .setAngle((1 - this.gunIn) * 360);
+      this.shells?.setPosition(this.gun.x, this.gun.y).setAlpha(this.gunIn).setAngle(this.gun.angle);
     }
     if (this.aim) {
       const a = Phaser.Math.DegToRad(this.aimAngle());
@@ -327,6 +334,9 @@ class CharacterToken {
       this.gun.on("pointerover", () => this.onGunHover?.(true));
       this.gun.on("pointerout", () => this.onGunHover?.(false));
       this.shells = scene.add.graphics().setMask(mask).setDepth(this.depth + 3);
+      // Entrance: fades in while sliding and spinning from the token centre to its corner.
+      this.gunIn = 0;
+      scene.tweens.add({ targets: this, gunIn: 1, duration: 450, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
     } else if (this.gun.texture.key !== key) {
       this.gun.setTexture(key);
     }
@@ -334,8 +344,9 @@ class CharacterToken {
     // Cocked: the icon in full colour; uncocked: greyed out.
     const g = this.shells!;
     g.clear();
-    if (gun.cocked) this.gun.clearTint().setAlpha(1);
-    else this.gun.setTint(0xb4b4b4).setAlpha(0.7);
+    this.gunAlpha = gun.cocked ? 1 : 0.7;
+    if (gun.cocked) this.gun.clearTint();
+    else this.gun.setTint(0xb4b4b4);
     // One dot per chamber along the icon's bottom edge: red while loaded, dark once spent.
     const n = Math.max(gun.capacity, gun.shells, 1);
     const step = size / (n + 1);
