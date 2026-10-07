@@ -232,6 +232,13 @@ class CharacterToken {
     this.follow();
   }
 
+  /** Zooms the AIM marker in and out once, when the aim grows. */
+  pulseAim(tweens: Phaser.Tweens.TweenManager) {
+    if (!this.aim) return;
+    const { scaleX, scaleY } = this.aim;
+    tweens.add({ targets: this.aim, scaleX: scaleX * 1.35, scaleY: scaleY * 1.35, duration: 170, yoyo: true, ease: "Quad.easeOut" });
+  }
+
   /** Greys out a character that is out of the fight. */
   setStatus(status: PlayerStatus) {
     const out = status !== "alive";
@@ -370,8 +377,8 @@ export class GameScene extends Phaser.Scene {
   /** The target picked for each aim (a hex, or the seat of a character standing on the clicked hex); the pick overlays while one is pending. */
   private pendingAims: Map<number, { hex?: string; target?: number }> = new Map();
   private aimMode: { card: CardNumber; side: CardSide; objects: Phaser.GameObjects.GameObject[] } | null = null;
-  /** The AIM markers on the board, one per seat holding an aim. */
-  private aimMarkers: Phaser.GameObjects.GameObject[] = [];
+  /** The AIM markers on hexes, by the seat holding the aim. */
+  private aimMarkers: Map<number, Phaser.GameObjects.Image> = new Map();
   /** The animated dotted line shown while hovering an AIM marker or an aiming gun, with its ends. */
   private aimLine: Phaser.GameObjects.Graphics | null = null;
   private aimLineEnds: { from: { x: number; y: number }; to: { x: number; y: number } } | null = null;
@@ -637,7 +644,7 @@ export class GameScene extends Phaser.Scene {
     // (a destroyed Graphics would silently swallow the aim line).
     this.aimLine = null;
     this.aimLineEnds = null;
-    this.aimMarkers = [];
+    this.aimMarkers = new Map();
     this.logPopup = null;
     if (this.optMenu) this.optMenu.objects = [];
     if (this.aimMode) this.aimMode.objects = [];
@@ -1473,18 +1480,28 @@ export class GameScene extends Phaser.Scene {
 
   /** Draws the AIM markers on aimed hexes; markers following the opponent ride on its token (setTargetAim). */
   private refreshAimMarkers(chars: CharView[]) {
-    for (const o of this.aimMarkers) o.destroy();
-    this.aimMarkers = [];
+    for (const o of this.aimMarkers.values()) o.destroy();
+    this.aimMarkers = new Map();
     const size = this.tokenDiameter() * AIM_SIZE;
-    for (const c of chars) {
-      if (!c || c.aim <= 0 || this.aimOnToken(chars, chars.indexOf(c)) || !this.textures.exists(aimMarkerKey(c.aim))) continue;
+    chars.forEach((c, seat) => {
+      if (!c || c.aim <= 0 || this.aimOnToken(chars, seat) || !this.textures.exists(aimMarkerKey(c.aim))) return;
       const { sx, sy } = this.hexToScreen(c.aimHex);
       const marker = this.add.image(sx, sy, aimMarkerKey(c.aim)).setOrigin(0.5).setDisplaySize(size, size).setMask(this.arrMask).setDepth(30).setInteractive();
-      const seat = chars.indexOf(c);
       marker.on("pointerover", () => this.showAimLine(this.gunCentre(seat), { x: sx, y: sy }));
       marker.on("pointerout", () => this.hideAimLine());
-      this.aimMarkers.push(marker);
+      this.aimMarkers.set(seat, marker);
+    });
+  }
+
+  /** Zooms seat's AIM marker in and out once, wherever it sits. */
+  private pulseAim(seat: number) {
+    const marker = this.aimMarkers.get(seat);
+    if (marker) {
+      const { scaleX, scaleY } = marker;
+      this.tweens.add({ targets: marker, scaleX: scaleX * 1.35, scaleY: scaleY * 1.35, duration: 170, yoyo: true, ease: "Quad.easeOut" });
+      return;
     }
+    this.tokens[1 - seat]?.pulseAim(this.tweens);
   }
 
   /**
@@ -1871,9 +1888,29 @@ export class GameScene extends Phaser.Scene {
     if (!this.playback || !pos) return;
     this.playback.index = pos.index;
     this.playback.seg = pos.seg;
-    this.refreshTokens(true);
+    const events = eventsForSegment(this.playback.turns[pos.index].events, pos.seg);
+    const aim = events.find((e) => e.kind === "aim");
+    if (aim) {
+      // An aim taken this segment: the dotted line shows where it goes; a
+      // beat later the markers land there with a zoom pulse while the line
+      // is still on, then the line clears.
+      const target = aim.target >= 0 ? this.tokenCentre(aim.target) : this.hexCentre(aim.to);
+      const same = () => !!this.playback && this.playback.index === pos.index && this.playback.seg === pos.seg;
+      this.showAimLine(this.gunCentre(aim.p), target);
+      this.time.delayedCall(150, () => {
+        if (!same()) return;
+        this.refreshTokens(true);
+        this.showAimLine(this.gunCentre(aim.p), target); // refreshTokens cleared it
+        this.pulseAim(aim.p);
+      });
+      this.time.delayedCall(470, () => {
+        if (same()) this.hideAimLine();
+      });
+    } else {
+      this.refreshTokens(true);
+    }
     this.refreshSequencePanel();
-    this.flashShots(eventsForSegment(this.playback.turns[pos.index].events, pos.seg));
+    this.flashShots(events);
   }
 
   /**
