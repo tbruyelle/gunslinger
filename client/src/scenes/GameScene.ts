@@ -386,6 +386,12 @@ class CharacterToken {
     tweens.add({ targets: this, recoil: -28, duration: 70, yoyo: true, ease: "Quad.easeOut", onUpdate: () => this.follow() });
   }
 
+  /** Cocking the gun: the same swing as the recoil, slower. */
+  cockGun(tweens: Phaser.Tweens.TweenManager) {
+    if (!this.gun) return;
+    tweens.add({ targets: this, recoil: -28, duration: 260, yoyo: true, ease: "Sine.easeInOut", onUpdate: () => this.follow() });
+  }
+
   /** Where the gun icon sits, or the token centre without one. */
   gunCentre(): { x: number; y: number } {
     return this.gun ? { x: this.gun.x, y: this.gun.y } : { x: this.sprite.x, y: this.sprite.y };
@@ -2007,6 +2013,7 @@ export class GameScene extends Phaser.Scene {
     this.closeOptMenu();
     if (opt === "aim" || opt === "shoot") this.enterAimMode(card, side);
     this.updatePreview();
+    if (opt === "cock") this.tokens[this.myIndex]?.cockGun(this.tweens);
     this.refreshSelectionDisplay();
     this.refreshCardHighlights();
   }
@@ -2182,6 +2189,9 @@ export class GameScene extends Phaser.Scene {
       this.displayChars().forEach((c, i) => {
         if (c && c.delay !== before[i] && c.delay > 0) this.tokens[i]?.pulseBadge(this.tweens);
       });
+      for (const e of events) {
+        if (e.kind === "cock") this.tokens[e.p]?.cockGun(this.tweens);
+      }
     };
     // An aim lost this segment: its marker drifts up and fades before the state moves on.
     const lost = events.filter((e) => e.kind === "lose_aim");
