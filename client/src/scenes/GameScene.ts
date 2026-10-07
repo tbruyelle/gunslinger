@@ -246,8 +246,8 @@ class CharacterToken {
     }
   }
 
-  /** Shows the endurance bar once boxes are crossed off (none at full endurance), shrinking it smoothly when it drops. */
-  setEndurance(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask) {
+  /** Shows the endurance bar once boxes are crossed off (none at full endurance), shrinking it smoothly when it drops; animate off sets it outright. */
+  setEndurance(scene: Phaser.Scene, n: number, mask: Phaser.Display.Masks.GeometryMask, animate = true) {
     if (n >= MAX_ENDURANCE) {
       this.bar?.bg.destroy();
       this.bar?.fill.destroy();
@@ -256,7 +256,7 @@ class CharacterToken {
       return;
     }
     const d = this.sprite.displayWidth;
-    const hurt = this.bar !== null && n < this.shown; // a drop seen on screen, not the first display
+    const hurt = animate && this.bar !== null && n < this.shown; // a drop seen on screen, not the first display
     if (!this.bar) {
       this.bar = {
         bg: scene.add.rectangle(0, 0, d * 0.9, Math.max(6, d * 0.09), 0x1a0f07, 0.9).setOrigin(0, 0.5).setStrokeStyle(1, 0xffe2a0, 0.9).setMask(mask).setDepth(this.depth + 4),
@@ -266,7 +266,11 @@ class CharacterToken {
     }
     this.bar.bg.setSize(d * 0.9, Math.max(6, d * 0.09));
     this.barTween?.stop();
-    this.barTween = scene.tweens.add({ targets: this, shown: n, duration: n < this.shown ? 500 : 250, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
+    if (animate) {
+      this.barTween = scene.tweens.add({ targets: this, shown: n, duration: n < this.shown ? 500 : 250, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
+    } else {
+      this.shown = n;
+    }
     if (hurt) this.hurtFlash(scene);
     this.follow();
   }
@@ -438,8 +442,8 @@ class CharacterToken {
     this.follow();
   }
 
-  /** Shows the icon of the gun held in a hand (none when every gun is holstered), its shells as red dots along the bottom. */
-  setGun(scene: Phaser.Scene, gun: GunView | null, mask: Phaser.Display.Masks.GeometryMask) {
+  /** Shows the icon of the gun held in a hand (none when every gun is holstered), its shells as red dots along the bottom; animate plays the entrance of a new icon. */
+  setGun(scene: Phaser.Scene, gun: GunView | null, mask: Phaser.Display.Masks.GeometryMask, animate = true) {
     const key = `gun_${gun?.type}`;
     if (!gun || !scene.textures.exists(key)) {
       this.gun?.destroy();
@@ -454,8 +458,8 @@ class CharacterToken {
       this.gun.on("pointerout", () => this.onGunHover?.(false));
       this.shells = scene.add.graphics().setMask(mask).setDepth(this.depth + 3);
       // Entrance: fades in while sliding and spinning from the token centre to its corner.
-      this.gunIn = 0;
-      scene.tweens.add({ targets: this, gunIn: 1, duration: 450, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
+      this.gunIn = animate ? 0 : 1;
+      if (animate) scene.tweens.add({ targets: this, gunIn: 1, duration: 450, ease: "Cubic.easeOut", onUpdate: () => this.follow() });
     } else if (this.gun.texture.key !== key) {
       this.gun.setTexture(key);
     }
@@ -964,8 +968,8 @@ export class GameScene extends Phaser.Scene {
       };
       token.setOverlay(this, overlayKey(c), this.arrMask);
       token.setDelay(this, c.delay, this.arrMask);
-      token.setGun(this, gunInHand(c.guns), this.arrMask);
-      token.setEndurance(this, c.endurance, this.arrMask);
+      token.setGun(this, gunInHand(c.guns), this.arrMask, false); // built in place: no entrance
+      token.setEndurance(this, c.endurance, this.arrMask, false);
       token.setTargetAim(this, this.incomingAim(chars, i), this.arrMask);
       token.setStatus(c.status);
       this.tokens.push(token);
