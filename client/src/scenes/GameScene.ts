@@ -1793,13 +1793,32 @@ export class GameScene extends Phaser.Scene {
       .setDepth(35);
     emitter.explode(30);
     this.time.delayedCall(1200, () => emitter.destroy());
-    // Stains: splattered a little past the impact, fading slowly.
-    const len = Math.hypot(along.x, along.y) || 1;
-    for (let i = 0; i < 7; i++) {
-      const spread = (Math.random() - 0.5) * d * 0.8;
-      const ahead = Math.random() * d * 0.9;
-      const x = at.sx + (along.x / len) * ahead - (along.y / len) * spread;
-      const y = at.sy + (along.y / len) * ahead + (along.x / len) * spread;
+    this.bloodStains(at, 7, along);
+  }
+
+  /**
+   * Blood stains on the board under the tokens, fading slowly: splattered
+   * a little past the point along a direction, or around it without one
+   * (a wound bleeding where the character stands).
+   */
+  private bloodStains(at: { sx: number; sy: number }, count: number, along?: { x: number; y: number }) {
+    const d = this.tokenDiameter();
+    const len = along ? Math.hypot(along.x, along.y) || 1 : 1;
+    for (let i = 0; i < count; i++) {
+      let x: number;
+      let y: number;
+      if (along) {
+        const spread = (Math.random() - 0.5) * d * 0.8;
+        const ahead = Math.random() * d * 0.9;
+        x = at.sx + (along.x / len) * ahead - (along.y / len) * spread;
+        y = at.sy + (along.y / len) * ahead + (along.x / len) * spread;
+      } else {
+        // Around the token's rim, so the stains show beside the character rather than under it.
+        const a = Math.random() * Math.PI * 2;
+        const r = d * (0.4 + Math.random() * 0.4);
+        x = at.sx + Math.cos(a) * r;
+        y = at.sy + Math.sin(a) * r;
+      }
       const stain = this.add.circle(x, y, d * (0.03 + Math.random() * 0.06), 0x7a0c0a, 0.85).setMask(this.arrMask).setDepth(0.6);
       this.tweens.add({ targets: stain, alpha: 0, duration: 5000, delay: 2500 + Math.random() * 1500, onComplete: () => stain.destroy() });
     }
@@ -2194,6 +2213,11 @@ export class GameScene extends Phaser.Scene {
     else land();
     this.refreshSequencePanel();
     this.flashShots(events);
+    // SERIOUS wounds bleed where the character stands as their fatigue cards cost endurance.
+    const chars = this.displayChars();
+    for (const e of events) {
+      if (e.kind === "delay" && e.reason === "serious" && e.endurance > 0 && chars[e.p]) this.bloodStains(this.tokenScreenPos(chars, e.p), 2 * e.endurance);
+    }
   }
 
   /**
