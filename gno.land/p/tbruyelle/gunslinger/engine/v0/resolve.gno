@@ -533,7 +533,8 @@ func applyPenalties(board *hex.Board, p int, st *State, r pending, seg int, d Dr
 			c.Status = Killed
 			c.Down = true
 			c.Aim = 0
-			c.Delay = 0 // a dead character carries no delay marker
+			c.Delay = 0     // a dead character carries no delay marker
+			c.Endurance = 0 // and no endurance left
 		case Stun:
 			for i := 0; i < pen.N; i++ {
 				gained += drawCard(p, c, seg, ReasonStun, woundLine, d, evs)

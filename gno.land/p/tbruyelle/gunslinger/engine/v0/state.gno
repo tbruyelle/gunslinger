@@ -187,6 +187,7 @@ func EndShowdown(s State, d Drawer) (State, []Event) {
 			c.Down = true
 			c.Aim = 0
 			c.Delay = 0
+			c.Endurance = 0
 			evs = append(evs, Event{Seg: EndOfTurn, Player: p, Kind: EvWound, Result: string(Kill)})
 		}
 	}

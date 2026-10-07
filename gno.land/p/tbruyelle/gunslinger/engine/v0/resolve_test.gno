@@ -638,7 +638,7 @@ func TestShotKillsAndStaggerMoves(t *testing.T) {
 		t.Errorf("wounds = %v", w)
 	}
 	kid := st.Chars[1]
-	if kid.Status != Killed || !kid.Down || kid.Delay != 0 || AliveCount(st) != 1 {
+	if kid.Status != Killed || !kid.Down || kid.Delay != 0 || kid.Endurance != 0 || AliveCount(st) != 1 {
 		t.Errorf("kid = %+v", kid)
 	}
 	// The Kid's advance executed in the same segment (shots do not interfere,

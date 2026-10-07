@@ -67,6 +67,7 @@ describe("snapshotAfterSegment", () => {
     expect(s3[0].guns[0]).toEqual({ ...armed, cocked: false, shells: 5 });
     expect(s3[1].status).toBe("killed");
     expect(s3[1].down).toBe(true);
+    expect(s3[1].endurance).toBe(0);
     expect(s3[0].status).toBe("alive");
     expect(snapshotAfterSegment(s, evs, 5)[0].status).toBe("passed_out");
     // A gun dropped in a hex lands on the ground as it was, uncocked by its wild shot.
