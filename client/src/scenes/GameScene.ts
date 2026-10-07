@@ -2012,7 +2012,8 @@ export class GameScene extends Phaser.Scene {
       const near = { sx: centre.sx + Math.cos(angle) * spread, sy: centre.sy + Math.sin(angle) * spread };
       let to = near;
       if (!hit) to = this.beyondTheBoard(from, near); // a miss flies on past the target and off the board
-      const g = this.add.graphics().setMask(this.arrMask).setDepth(this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }));
+      // A miss flies over the target, so its tracer is drawn above the tokens.
+      const g = this.add.graphics().setMask(this.arrMask).setDepth(hit ? this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }) : 20);
       const bullet = { t: 0 };
       const draw = () => {
         const x = from.sx + (to.sx - from.sx) * bullet.t;
