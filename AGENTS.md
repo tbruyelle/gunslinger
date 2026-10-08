@@ -430,6 +430,8 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - when gun has no bullet: show needs to LOAD
     - when gun is jammed: show it needs to be fully loaded
     - when gun is exploded: nothing can be done except thrown or drop
+    - when player has serious
+    - allow enable/disable tooltip
   - Test other wounds:
     - Gun hand X
     - Gun ARM
@@ -441,7 +443,6 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - Drop X
     - Sun X
     - target status affects the shot
-  - Test malfunctions
   - players with Serious:
     - leave some blood behind them when moving
     - find a way to show the status on the character token
