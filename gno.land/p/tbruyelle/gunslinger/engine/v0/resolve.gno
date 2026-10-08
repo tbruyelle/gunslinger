@@ -535,6 +535,7 @@ func applyPenalties(board *hex.Board, p int, st *State, r pending, seg int, d Dr
 			c.Aim = 0
 			c.Delay = 0     // a dead character carries no delay marker
 			c.Endurance = 0 // and no endurance left
+			dropAllGuns(p, c, seg, st, evs)
 		case Stun:
 			for i := 0; i < pen.N; i++ {
 				gained += drawCard(p, c, seg, ReasonStun, woundLine, d, evs)
@@ -607,19 +608,37 @@ func directionOf(board *hex.Board, c *Character, shooter *Character, h hex.Rel) 
 // hands moves to the other hand.
 func dropHand(p int, c *Character, hand, other GunLocation, seg int, st *State, evs *[]Event) {
 	if i := c.Guns.At(hand); i >= 0 {
-		g := &c.Guns[i]
-		if g.Cocked {
-			fireHarmlessly(p, g, seg, evs)
-		}
-		dropped := *g
-		dropped.Location = Holstered
-		st.GroundSeq++
-		st.Ground = append(st.Ground, GroundGun{ID: st.GroundSeq, Hex: c.Hex, Gun: dropped})
-		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDropGun, From: hand.String(), To: c.Hex, Gun: g.Type, GunID: g.ID, N: st.GroundSeq})
-		*g = Gun{}
+		dropGun(p, c, i, true, seg, st, evs)
 	}
 	if i := c.Guns.At(BothHands); i >= 0 {
 		c.Guns[i].Location = other
+	}
+}
+
+// dropGun lets the gun in slot i fall in the character's hex, where it lies
+// unowned with a fresh ground id; fire makes a cocked gun go off as it
+// falls (a released or knocked-out gun, 10.22, 14.11).
+func dropGun(p int, c *Character, i int, fire bool, seg int, st *State, evs *[]Event) {
+	g := &c.Guns[i]
+	if fire && g.Cocked {
+		fireHarmlessly(p, g, seg, evs)
+	}
+	dropped := *g
+	dropped.Location = Holstered
+	st.GroundSeq++
+	st.Ground = append(st.Ground, GroundGun{ID: st.GroundSeq, Hex: c.Hex, Gun: dropped})
+	*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDropGun, From: g.Location.String(), To: c.Hex, Gun: g.Type, GunID: g.ID, N: st.GroundSeq})
+	*g = Gun{}
+}
+
+// dropAllGuns is what happens to the weapons of a character killed or
+// passed out (14.6): they all fall in the hex as they are, where anyone can
+// take them; nothing goes off.
+func dropAllGuns(p int, c *Character, seg int, st *State, evs *[]Event) {
+	for i := range c.Guns {
+		if c.Guns[i].Type != NoGun {
+			dropGun(p, c, i, false, seg, st, evs)
+		}
 	}
 }
 

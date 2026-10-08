@@ -641,6 +641,13 @@ func TestShotKillsAndStaggerMoves(t *testing.T) {
 	if kid.Status != Killed || !kid.Down || kid.Delay != 0 || kid.Endurance != 0 || AliveCount(st) != 1 {
 		t.Errorf("kid = %+v", kid)
 	}
+	// The dead drop their guns in the hex (14.6): the Kid had advanced to F5 that segment.
+	if kid.Guns.Count() != 0 || len(st.Ground) != 1 || st.Ground[0].Hex != "A-F5" || st.Ground[0].Gun.Type != Colt45 {
+		t.Errorf("kid guns %+v, ground %+v", kid.Guns, st.Ground)
+	}
+	if dg := ofKind(evs, 1, EvDropGun); len(dg) != 1 || dg[0].From != "holstered" || dg[0].Seg != 2 {
+		t.Errorf("drop gun = %v", dg)
+	}
 	// The Kid's advance executed in the same segment (shots do not interfere,
 	// 7.52) but the run never happens; no cancel event for the dead.
 	if m := ofKind(evs, 1, EvMove); len(m) != 1 || m[0].Seg != 2 {
@@ -841,8 +848,11 @@ func TestSeriousFatigueLegAndPassOut(t *testing.T) {
 	}
 	st.Chars[0].Delay = 4
 	st, evs = EndTurn(st) // 4 -> 2 > 1: second turn
-	if st.Chars[0].Status != PassedOut || !st.Chars[0].Down || len(evs) != 1 || evs[0].Kind != EvPassOut || AliveCount(st) != 1 {
+	if st.Chars[0].Status != PassedOut || !st.Chars[0].Down || len(evs) != 2 || evs[0].Kind != EvPassOut || evs[1].Kind != EvDropGun || AliveCount(st) != 1 {
 		t.Errorf("after two turns: %+v, %v", st.Chars[0], evs)
+	}
+	if st.Chars[0].Guns.Count() != 0 || len(st.Ground) != 1 || st.Ground[0].Hex != "A-F3" {
+		t.Errorf("passed out: guns %+v, ground %+v", st.Chars[0].Guns, st.Ground)
 	}
 	// A turn with delay back under endurance resets the count.
 	st = NewState()
@@ -861,8 +871,11 @@ func TestEndShowdownSeriousCheck(t *testing.T) {
 	if st.Chars[0].Status != Alive || st.Chars[1].Status != Killed {
 		t.Errorf("statuses: %v %v", st.Chars[0].Status, st.Chars[1].Status)
 	}
-	if len(evs) != 3 || evs[0].Kind != EvSeriousCheck || evs[0].N != 3 || evs[1].N != 4 || evs[2].Kind != EvWound || evs[2].Result != string(Kill) {
+	if len(evs) != 4 || evs[0].Kind != EvSeriousCheck || evs[0].N != 3 || evs[1].N != 4 || evs[2].Kind != EvWound || evs[2].Result != string(Kill) || evs[3].Kind != EvDropGun {
 		t.Errorf("events = %v", evs)
+	}
+	if st.Chars[1].Guns.Count() != 0 || len(st.Ground) != 1 {
+		t.Errorf("the dead keep their guns: %+v, ground %+v", st.Chars[1].Guns, st.Ground)
 	}
 	// A penalty line counts as zero.
 	st = NewState()

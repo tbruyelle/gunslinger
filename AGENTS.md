@@ -202,7 +202,9 @@ every turn start; at the end of the showdown a card's DELAY number plus the
 points kills at 4, `EndShowdown`); GUN HAND / OTHER HAND (the weapon drops in
 the hex, `State.Ground`, firing harmlessly if cocked); GUN ARM n / OTHER ARM
 n (aim time); LEG n (n fatigue cards per hex moved upright); LIGHT n (n
-fatigue cards). Endurance starts at 20 (`StartEndurance`). Fanfiring, aim transfer on a Shoot doing nothing, and picking guns up from
+fatigue cards). Endurance starts at 20 (`StartEndurance`). A character killed or passed
+out drops every weapon in the hex as it is (14.6, `drop_gun` events, no
+wild shot), where the other may pick them up. Fanfiring, aim transfer on a Shoot doing nothing, and picking guns up from
 the ground are not played.
 
 **Result deck** (`engine/v0/deck.gno`): the 108 result cards are transcribed

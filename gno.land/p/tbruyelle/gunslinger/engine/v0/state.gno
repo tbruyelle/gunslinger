@@ -161,6 +161,7 @@ func EndTurn(s State) (State, []Event) {
 			c.Down = true
 			c.Aim = 0
 			evs = append(evs, Event{Seg: EndOfTurn, Player: p, Kind: EvPassOut, Down: true})
+			dropAllGuns(p, c, EndOfTurn, &s, &evs)
 		}
 	}
 	return s, evs
@@ -189,6 +190,7 @@ func EndShowdown(s State, d Drawer) (State, []Event) {
 			c.Delay = 0
 			c.Endurance = 0
 			evs = append(evs, Event{Seg: EndOfTurn, Player: p, Kind: EvWound, Result: string(Kill)})
+			dropAllGuns(p, c, EndOfTurn, &s, &evs)
 		}
 	}
 	return s, evs
