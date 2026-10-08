@@ -91,6 +91,27 @@ export class BoardMap {
     return x >= 0 && y >= 0;
   }
 
+  /** Range between two hexes: the fewest steps between them (as the realm's Board.Distance), -1 when unknown. */
+  distance(from: string, to: string): number {
+    if (!this.hexes[from] || !this.hexes[to]) return -1;
+    if (from === to) return 0;
+    const seen = new Set([from]);
+    let ring = [from];
+    for (let d = 1; ring.length > 0; d++) {
+      const next: string[] = [];
+      for (const id of ring) {
+        for (const n of this.neighbors[id] ?? []) {
+          if (!n || seen.has(n)) continue;
+          if (n === to) return d;
+          seen.add(n);
+          next.push(n);
+        }
+      }
+      ring = next;
+    }
+    return -1;
+  }
+
   /** Every hex of the aim zone of a character at from facing f. */
   aimZone(from: string, facing: number): string[] {
     return this.ids().filter((id) => this.inAimZone(from, facing, id));

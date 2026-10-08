@@ -19,6 +19,7 @@ import {
 } from "../game/playback";
 import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled, decodePlan } from "../game/plan";
 import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
+import { COCK_AIM_SHOOT_AIM_TIME, SHOOT_AIM_TIME, shotOdds } from "../game/shotOdds";
 import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
@@ -1546,7 +1547,8 @@ export class GameScene extends Phaser.Scene {
       this.selectedDisplay.setText(`${name}: choose what to do with the gun`).setColor("#ff9944");
     } else if (this.aimMode) {
       const verb = this.pendingOpts.get(this.aimMode.card) === "shoot" ? "shoot" : "aim";
-      this.selectedDisplay.setText(`${name}: click the hex to ${verb} at`).setColor("#ff9944");
+      const odds = verb === "shoot" ? " (chance of hitting, bullseye in red)" : "";
+      this.selectedDisplay.setText(`${name}: click the hex to ${verb} at${odds}`).setColor("#ff9944");
     } else if (plan.length === 0) {
       const carry = me && me.delay > 0 ? ` (${me.delay} carried delay)` : "";
       this.selectedDisplay.setText(`${name}: select action cards, or send an empty plan to pass (0/${budget} points${carry})`).setColor("#888");
@@ -1726,21 +1728,60 @@ export class GameScene extends Phaser.Scene {
     const { scale } = this.displayTransform();
     const r = Math.max(12, HEX_HIGHLIGHT_R * scale * 3);
     const objects: Phaser.GameObjects.GameObject[] = [];
+    // When shooting, the chance of hitting each hex.
+    const shooting = this.pendingOpts.get(card) === "shoot";
+    const cardAimTime = getActionDef({ card, side }).name === "Shoot" ? SHOOT_AIM_TIME : COCK_AIM_SHOOT_AIM_TIME;
+    const opp = chars[1 - this.myIndex];
+    const markersHex = me.aimHex || (opp?.hex ?? "");
+    const fontPx = Math.round(Phaser.Math.Clamp(r * 0.62, 10, 22));
     for (const hex of BOARD_A.aimZone(me.hex, me.facing)) {
       const { sx, sy } = this.hexToScreen(hex);
+      const odds = shooting ? shotOdds(me, cardAimTime, hex, markersHex, BOARD_A) : null;
       const circle = this.add
         .circle(sx, sy, r, 0xb01010, 0.3)
         .setStrokeStyle(2, 0xff6040, 0.9)
         .setMask(this.arrMask)
         .setInteractive({ useHandCursor: true })
         .setDepth(500);
+      if (odds) {
+        const pct = this.add
+          .text(sx, sy, `${odds.hit}%`, { fontSize: `${fontPx}px`, color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 3 })
+          .setOrigin(0.5)
+          .setMask(this.arrMask)
+          .setDepth(501);
+        objects.push(pct);
+        if (odds.bullseye > 0) {
+          objects.push(
+            this.add
+              .text(sx + pct.width / 2, sy - pct.height / 2, `${odds.bullseye}`, { fontSize: `${Math.round(fontPx * 0.7)}px`, color: "#ff4030", fontStyle: "bold", stroke: "#000000", strokeThickness: 3 })
+              .setOrigin(0.2, 0.6)
+              .setMask(this.arrMask)
+              .setDepth(501),
+          );
+        }
+      }
+      let detail: Phaser.GameObjects.Text | null = null;
       circle.on("pointerover", () => {
         circle.setFillStyle(0xb01010, 0.6);
         this.showAimLine(this.gunCentre(this.myIndex), { x: sx, y: sy }); // where the aim would go
+        if (!odds) return;
+        const lines = [
+          `Hit ${odds.hit}%  ·  bullseye ${odds.bullseye}%`,
+          `range ${odds.range}  ·  aim time ${odds.aimTime}`,
+        ];
+        detail = this.add
+          .text(sx, sy - r - 6, lines.join("\n"), { fontSize: "13px", color: "#f3e7ce", backgroundColor: "#0d0704", padding: { x: 8, y: 5 }, align: "center" })
+          .setOrigin(0.5, 1)
+          .setDepth(502);
+        detail.setX(Phaser.Math.Clamp(sx, detail.width / 2 + 8, this.scale.width - detail.width / 2 - 8));
+        if (detail.y - detail.height < 4) detail.setOrigin(0.5, 0).setY(sy + r + 6);
+        objects.push(detail);
       });
       circle.on("pointerout", () => {
         circle.setFillStyle(0xb01010, 0.3);
         this.hideAimLine();
+        detail?.destroy();
+        detail = null;
       });
       circle.on("pointerup", () => this.resolveAim(hex));
       objects.push(circle);
