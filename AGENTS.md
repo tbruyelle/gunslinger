@@ -410,6 +410,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - aim & shoot
   - Advanced tutorial
 - Lobby
+  - add last turn replay when player goes back to a game
   - allow winner to remove replay to be refunded for the deposit
   - Check game list order (sort by most recent)
     - highlight almost timeouted game (display remaining time)
