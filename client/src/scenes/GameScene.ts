@@ -2499,7 +2499,17 @@ export class GameScene extends Phaser.Scene {
     const t = pb.turns[pb.index];
     const names = this.view?.players.map((p) => charName(p.char)) ?? [];
     if (pb.seg === 0) {
-      const lines = ["Plans: " + t.plans.map((p, i) => `${names[i]}: ${p || "pass"}`).join("  ·  ")];
+      // Each plan in words, as the "Plan sent" popup words it: the player,
+      // then one indented line per action.
+      const lines = t.plans.flatMap((p, i) => {
+        const who = names[i] ?? `seat ${i}`;
+        if (!p) return [`${who} passes.`];
+        try {
+          return [`${who}:`, ...decodePlan(p).map((e, k) => `    ${k + 1}. ${describePlanEntry(e, names)}`)];
+        } catch {
+          return [`${who}: ${p}`];
+        }
+      });
       lines.push(...eventsForSegment(t.events, 0).map((e) => describeEvent(e, names)));
       return lines;
     }
