@@ -39,18 +39,31 @@ const SHEET_H = 850;
 const ANIM_MS = 180;
 
 /**
- * Lets the player pick a holstered gun, or one lying in the hex, by
- * dragging it to a hand box (or clicking it, which targets the gun hand);
- * onPick gets the pick (the gun id, or the ground id) and the hand code (0
- * gun hand, 1 other hand, 2 both hands). Only the gun hand accepts drops
- * for now.
+ * Lets the player pick a gun on the sheet (holstered or in a hand), or one
+ * lying in the hex, by dragging it to a hand box (or clicking it, which
+ * takes its first destination); onPick gets the pick (the gun id, or the
+ * ground id) and the hand code (0 gun hand, 1 other hand, 2 both hands).
+ * destinations names the hand codes a pick may go to: a gun with none is
+ * not draggable, a box not listed refuses the drop.
  */
 export interface GunPick {
   prompt: string;
+  destinations: (pick: { gun?: number; ground?: number }) => number[];
   onPick: (pick: { gun?: number; ground?: number }, hand: number) => void;
 }
 
-const DROP_HANDS: { box: string; hand: number }[] = [{ box: "gun_hand", hand: 0 }];
+const DROP_HANDS: { box: string; hand: number }[] = [
+  { box: "gun_hand", hand: 0 },
+  { box: "other_hand", hand: 1 },
+  { box: "both_hands", hand: 2 },
+];
+
+/** The pick a drag reference designates: "<gun id>" or "g<ground id>". */
+function refPick(ref: string): { gun?: number; ground?: number } | null {
+  const m = /^(g?)([1-9][0-9]*)$/.exec(ref);
+  if (!m) return null;
+  return m[1] ? { ground: Number(m[2]) } : { gun: Number(m[2]) };
+}
 
 let backdrop: HTMLDivElement | null = null;
 let onClose: (() => void) | null = null;
@@ -58,8 +71,8 @@ let onClose: (() => void) | null = null;
 /**
  * Opens the character sheet as an HTML overlay above the game canvas.
  * onClosed runs once the sheet is closed, however it was closed. With pick,
- * the holstered guns can be dragged to the GUN HAND box; dropping one calls
- * onPick(slot) and closes the sheet.
+ * the guns can be dragged to the hand boxes pick.destinations allows;
+ * dropping one calls onPick and closes the sheet.
  */
 export function openCharacterSheet(d: SheetData, onClosed?: () => void, pick?: GunPick): void {
   closeCharacterSheet();
@@ -219,51 +232,65 @@ function promptBanner(text: string): string {
   );
 }
 
-/** Drag and drop (and click as a fallback) from the holstered guns to the GUN HAND box. */
+/** Drag and drop (and click as a fallback) from a gun to a hand box it may go to. */
 function wirePick(frame: HTMLElement, pick: GunPick) {
-  // A drag carries "<gun id>" for a holstered gun or "g<ground id>" for one on the ground.
   const choose = (ref: string, hand: number) => {
-    const m = /^(g?)([1-9][0-9]*)$/.exec(ref);
-    if (!m) return;
+    const p = refPick(ref);
+    if (!p || !pick.destinations(p).includes(hand)) return;
     // Record the pick before closing: the close handler treats a sheet
     // closed without a pick as a cancelled choice.
-    pick.onPick(m[1] ? { ground: Number(m[2]) } : { gun: Number(m[2]) }, hand);
+    pick.onPick(p, hand);
     closeCharacterSheet();
   };
-  const targets: HTMLElement[] = [];
-  const highlightAll = (on: boolean) => {
-    for (const t of targets) {
-      t.style.background = on ? "#E9D6A8" : "";
-      t.style.outline = on ? "3px dashed #8E2F1A" : "";
-    }
+  // dragover cannot read the drag data, so the reference dragged is kept here.
+  let dragging = "";
+  const accepts = (hand: number) => {
+    const p = refPick(dragging);
+    return !!p && pick.destinations(p).includes(hand);
+  };
+  const boxes: { target: HTMLElement; hand: number }[] = [];
+  const paint = (target: HTMLElement, mode: "off" | "open" | "over") => {
+    target.style.background = mode === "over" ? "#E9D6A8" : "";
+    target.style.outline = mode === "off" ? "" : "3px dashed #8E2F1A";
+  };
+  const highlight = (on: boolean) => {
+    for (const { target, hand } of boxes) paint(target, on && accepts(hand) ? "open" : "off");
   };
   for (const { box, hand } of DROP_HANDS) {
     const target = frame.querySelector<HTMLElement>(`[data-box="${box}"]`);
     if (!target) continue;
-    targets.push(target);
+    boxes.push({ target, hand });
     target.addEventListener("dragover", (e) => {
+      if (!accepts(hand)) return;
       e.preventDefault();
-      target.style.background = "#E9D6A8";
-      target.style.outline = "3px dashed #8E2F1A";
+      paint(target, "over");
     });
-    target.addEventListener("dragleave", () => highlightAll(false));
+    target.addEventListener("dragleave", () => {
+      if (accepts(hand)) paint(target, "open");
+    });
     target.addEventListener("drop", (e) => {
       e.preventDefault();
-      choose(e.dataTransfer?.getData("text/plain") ?? "", hand);
+      choose(e.dataTransfer?.getData("text/plain") ?? dragging, hand);
     });
   }
-  const highlight = highlightAll;
   frame.querySelectorAll<HTMLElement>("[data-drag-gun]").forEach((el) => {
     const ref = el.dataset.dragGun ?? "";
     el.addEventListener("dragstart", (e: DragEvent) => {
       e.dataTransfer?.setData("text/plain", ref);
+      dragging = ref;
       el.style.opacity = "0.5";
+      highlight(true);
     });
     el.addEventListener("dragend", () => {
       el.style.opacity = "";
+      dragging = "";
       highlight(false);
     });
-    el.addEventListener("click", () => choose(ref, DROP_HANDS[0].hand));
+    el.addEventListener("click", () => {
+      const p = refPick(ref);
+      const first = p ? pick.destinations(p)[0] : undefined;
+      if (first !== undefined) choose(ref, first);
+    });
   });
 }
 
@@ -271,7 +298,7 @@ function wirePick(frame: HTMLElement, pick: GunPick) {
 /** One gun as a small card: icon, name, cocked state and shells; draggable (with the given drag reference) when being picked. */
 function gunCard(g: GunView, draggable: string | null): string {
   return (
-    `<div${draggable ? ` draggable="true" data-drag-gun="${draggable}" title="Drag me to the gun hand"` : ""} ` +
+    `<div${draggable ? ` draggable="true" data-drag-gun="${draggable}" title="Drag me to a hand box"` : ""} ` +
     `style="display: flex; align-items: center; gap: 12px; border: 2px solid #2A1C14; border-radius: 10px; padding: 8px 14px; background: #F3E7CE; min-width: 220px${
       draggable ? "; cursor: grab; box-shadow: 0 0 0 3px #8E2F1A" : ""
     }">` +
@@ -284,14 +311,18 @@ function gunCard(g: GunView, draggable: string | null): string {
 }
 
 function gunBox(guns: GunView[], location: GunView["location"], pick?: GunPick): string {
-  const cards = guns.filter((g) => g.location === location).map((g) => gunCard(g, pick && g.location === "holstered" ? String(g.id) : null));
-  const hint = pick && location === "gun_hand" && cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">drop the gun here</div>` : "";
+  const cards = guns
+    .filter((g) => g.location === location)
+    .map((g) => gunCard(g, pick && pick.destinations({ gun: g.id }).length > 0 ? String(g.id) : null));
+  const hand = DROP_HANDS.find((d) => d.box === location)?.hand;
+  const open = pick && hand !== undefined && guns.some((g) => pick.destinations({ gun: g.id }).includes(hand));
+  const hint = open && cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">drop the gun here</div>` : "";
   return `<div data-box="${location}" style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; min-height: 60px">${cards.join("")}${hint}</div>`;
 }
 
 /** The weapons lying in the character's hex; draggable to the gun hand when being picked. */
 function groundBox(ground: GroundGunView[], pick?: GunPick): string {
-  const cards = ground.flatMap((gg) => gg.guns.map((g) => gunCard(g, pick ? `g${gg.id}` : null)));
+  const cards = ground.flatMap((gg) => gg.guns.map((g) => gunCard(g, pick && pick.destinations({ ground: gg.id }).length > 0 ? `g${gg.id}` : null)));
   const hint = cards.length === 0 ? `<div style="font-size: 16px; font-style: italic; opacity: .7">nothing on the ground here</div>` : "";
   return `<div data-box="ground" style="flex: 1; padding: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; min-height: 60px">${cards.join("")}${hint}</div>`;
 }

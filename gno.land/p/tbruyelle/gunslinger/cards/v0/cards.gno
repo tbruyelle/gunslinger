@@ -121,11 +121,11 @@ func Lookup(number int, side byte) (Side, bool) {
 }
 
 // Enabled reports whether the action is implemented by the engine: the foot
-// actions, Draw & Cock, Cock/Aim/Shoot and Shoot; loading, throwing and
+// actions, Draw & Cock, Cock/Aim/Shoot, Shoot and Load; throwing and
 // brawling come later.
 func Enabled(c Code) bool {
 	switch c {
-	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown, DrawAndCock, CockAimShoot, Shoot:
+	case Advance, BackUp, Run, SpinAround, Sprint, Turn, LeapDrop, GetUpDown, DrawAndCock, CockAimShoot, Shoot, Load:
 		return true
 	}
 	return false

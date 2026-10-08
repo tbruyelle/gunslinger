@@ -67,11 +67,11 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
           // Picked up from the hex: the gun comes off the ground list with its new id.
           const i = ground ? ground.findIndex((g) => g.id === e.n) : -1;
           const lying = i >= 0 && ground ? ground[i].guns[0] : undefined;
-          if (lying) c.guns.push({ ...lying, id: e.gunId, location: e.to as GunLocation, cocked: true });
+          if (lying) c.guns.push({ ...lying, id: e.gunId, location: e.to as GunLocation, cocked: !lying.jammed });
           if (i >= 0 && ground) ground.splice(i, 1);
         } else if (gun) {
           gun.location = e.to as GunLocation;
-          gun.cocked = true;
+          gun.cocked = !gun.jammed;
         }
         break;
       case "wild_shot":
@@ -84,6 +84,13 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
         break;
       case "cock":
         if (gun) gun.cocked = true;
+        break;
+      case "load":
+        if (gun) {
+          gun.shells = e.n;
+          gun.cocked = false;
+          if (e.result === "unjammed") gun.jammed = false;
+        }
         break;
       case "uncock":
         if (gun) gun.cocked = false;
@@ -204,8 +211,16 @@ export function describeEvent(e: TurnEvent, names: string[]): string {
     case "cancel":
       return `${who}: ${action} is cancelled (${e.reason.replace(/_/g, " ")})`;
     case "draw":
-      if (e.from === "ground") return `${who} picks up the ${GUN_NAMES[e.gun] ?? e.gun} from the ground into the ${e.to.replace(/_/g, " ")} and cocks it`;
-      return `${who} draws and cocks the ${GUN_NAMES[e.gun] ?? e.gun}`;
+    {
+      const name = GUN_NAMES[e.gun] ?? e.gun;
+      const to = e.to === "both_hands" ? "into both hands" : `to the ${e.to.replace(/_/g, " ")}`;
+      const cocks = e.result === "jammed" ? " (jammed: not cocked)" : " and cocks it";
+      if (e.from === "ground") return `${who} picks up the ${name} from the ground ${to}${cocks}`;
+      if (e.from === "holstered") return `${who} draws the ${name} ${to}${cocks}`;
+      return `${who} moves the ${name} ${to}${cocks}`;
+    }
+    case "load":
+      return `${who} loads a shell in the ${GUN_NAMES[e.gun] ?? e.gun} (${e.n} now)${e.result === "unjammed" ? ": no longer jammed" : ""}`;
     default:
       return `${who} ${e.kind}`;
   }

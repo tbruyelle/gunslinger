@@ -83,7 +83,7 @@ describe("snapshotAfterSegment", () => {
     const after = snapshotAfterSegment(s, pickup, 4, ground);
     expect(after[1].guns).toEqual([{ ...armed, id: 1, location: "gun_hand", cocked: true, shells: 5 }]);
     expect(ground).toEqual([]);
-    expect(describeEvent(pickup[0], ["marshal", "dude"])).toBe("dude picks up the Colt 45 from the ground into the gun hand and cocks it");
+    expect(describeEvent(pickup[0], ["marshal", "dude"])).toBe("dude picks up the Colt 45 from the ground to the gun hand and cocks it");
     const names = ["marshal", "dude"];
     expect(describeEvent(evs[2], names)).toBe("marshal shoots dude in A-F12 (card 6, aim time 3, range 1): VITAL hit");
     expect(describeEvent(ev({ p: 0, kind: "shot", card: 1, target: 1, to: "A-F9", hit: "-", range: 6, n: 3 }), names)).toBe("marshal shoots dude in A-F9 (card 1, aim time 3, range 6): miss");
@@ -114,7 +114,10 @@ describe("snapshotAfterSegment", () => {
     expect(describeEvent(ev({ p: 1, kind: "delay", reason: "occupied", card: 107, result: "drop" }), names)).toBe("dude draws card 107 (occupied): DROP");
     expect(describeEvent(ev({ p: 0, kind: "wild_shot", gun: "colt45", gunId: 1 }), names)).toBe("marshal's Colt 45 goes off (wild shot)");
     expect(describeEvent(events[4], names)).toBe("dude: advance is cancelled (time)");
-    expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", gun: "colt45" }), names)).toBe("marshal draws and cocks the Colt 45");
+    expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "holstered", to: "gun_hand", gun: "colt45" }), names)).toBe("marshal draws the Colt 45 to the gun hand and cocks it");
+    expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "gun_hand", to: "both_hands", result: "jammed", gun: "colt45" }), names)).toBe("marshal moves the Colt 45 into both hands (jammed: not cocked)");
+    expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "gun_hand", to: "both_hands", gun: "colt45" }), names)).toBe("marshal moves the Colt 45 into both hands and cocks it");
+    expect(describeEvent(ev({ seg: 3, p: 0, kind: "load", action: "load", n: 6, result: "unjammed", gun: "colt45" }), names)).toBe("marshal loads a shell in the Colt 45 (6 now): no longer jammed");
   });
 });
 

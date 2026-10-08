@@ -14,8 +14,8 @@ transactions with the **Adena** wallet. There is no game server.
 Current milestone: **board A only, exactly 2 players, one character each**,
 the foot actions (advance, back up, run, spin around, sprint, turn,
 leap/drop, get up/down) and the Colt 45 gun play (Draw & Cock,
-Cock/Aim/Shoot, Shoot) with the full hit, wound and penalty rules. Plans are
-submitted in clear (no commit-reveal yet); loading, throwing, brawling,
+Cock/Aim/Shoot, Shoot, Load) with the full hit, wound and penalty rules. Plans are
+submitted in clear (no commit-reveal yet); throwing, brawling,
 multi-board layouts and victory points come later.
 
 ## Tech Stack
@@ -133,9 +133,11 @@ shot at a hex hits the character standing there when it goes off and is
 wasted otherwise (`empty_hex`).
 At most 5 entries, empty = pass. Example `1f:ahead_left,2f:ahead,3f`. Rules
 (engine `Plan.Validate`): one side per card, dir required for move/turn
-cards and in the right set, no choice otherwise, Draw & Cock needs that gun
-to be holstered, the gun hand as destination (the other hands come later)
-and that hand free, gun actions need a valid option (whether a gun is in
+cards and in the right set, no choice otherwise, Draw & Cock needs a gun of
+the sheet (holstered or in a hand, not already in the box named) or one
+on the ground, the gun hand or both hands as destination (the other hand
+comes later) and that box free (`Guns.Blocked`: BOTH HANDS takes both
+hands), Load takes no choice, gun actions need a valid option (whether a gun is in
 hand is checked when the action executes, so Draw & Cock + Shoot works in
 one turn), total cost ≤ 5 − carried delay, Run needs Advance, Sprint needs
 Run in the same plan **and** a Run played on the previous turn
@@ -166,7 +168,13 @@ events (SERIOUS fatigue, aim lost on the first reveal) and `EndOfTurn` (6)
 for those after segment 5 (cancels, passing out, the serious-wound check).
 
 **Guns and shooting** (rules 11–14, Colt 45 only). Draw & Cock moves a
-holstered gun to the gun hand, cocked. Cock/Aim/Shoot cocks, uncocks, aims
+gun (from a holster or a hand) to the gun hand or both hands, cocked.
+**Load** (11.2, 27.2) needs the gun in BOTH HANDS: one shell (up to the Ammo
+limit, else `full`), the gun uncocks (`load` event, N = shells); a jammed
+gun can neither shoot nor be cocked (`jammed`) until completely reloaded:
+Draw & Cock moves it uncocked (`draw` Result `jammed`), the client offers
+no gun card for it, and the load that fills it clears the jam (Result
+`unjammed`, 13.31); an exploded gun cannot be loaded. Cock/Aim/Shoot cocks, uncocks, aims
 or shoots; Shoot shoots or does nothing. Aims and shots name a target the
 same way (11.31). **Aiming** puts 2 AIM points (max
 8) on the target named, a character (the markers then follow it wherever
@@ -186,9 +194,9 @@ obstacles or line of sight yet. **A shot** draws a result card: a MALFUNCTION
 whose Handloaded line says no effect is replaced; a misfire cancels the shot
 and a second MALFUNCTION jams (shells 0) or blows up the gun. A FIRE card's
 hit chart is read at aim time (card aim time + AIM points − GUN ARM / OTHER
-ARM wounds) and range; off the chart is a miss; a
-shot at a target out of the aim zone is cancelled before any card is drawn
-(the gun stays cocked and loaded). Target Status (13.6): Move (foot action played or dropped this turn)
+ARM wounds) and range; off the chart is a miss, and so is a
+shot at a target out of the aim zone, which still draws its card and spends
+the shell (11.32, 13.2). Target Status (13.6): Move (foot action played or dropped this turn)
 and Run turn a bullseye into the card's lesser hit and any other hit into a
 miss; Down turns any hit but a bullseye into a miss. A bullseye becomes a
 VITAL hit (the shooter's best choice). The shooter then uncocks, spends a
@@ -300,10 +308,13 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   endurance track lists the weapons lying in the character's hex, which a
   Draw & Cock can drag to the gun hand like a holstered gun. Every character starts with a loaded, uncocked Colt 45
   in the holster (`engine.startingGuns`). **Draw & Cock** (card 9 front) is
-  the first gun action: picking it opens the sheet in pick mode, where the
-  holstered gun is dragged (or clicked) into the GUN HAND box; the plan then
-  carries the gun id and hand (`9f:1:0`) and the resolution moves and cocks the gun
-  (`draw` event). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: Cock,
+  the first gun action: picking it opens the sheet in pick mode, where a
+  gun (holstered, in a hand, or on the ground) is dragged (or clicked) into
+  the GUN HAND or BOTH HANDS box, only the boxes it may go to accepting it
+  (`GunPick.destinations`, `drawDestinations`); the plan then
+  carries the gun id and hand (`9f:1:0`, `9f:1:2`) and the resolution moves and cocks the gun
+  (`draw` event). **Load** (card 8 front) is playable with a gun in both
+  hands that has room (`loadableGun`). **Cock/Aim/Shoot** and **Shoot** open a column of option buttons beside my token (`openOptMenu`: Cock,
   Aim, Shoot; `pendingOpts`; with the gun uncocked only Cock is enabled,
   cocked only Aim and Shoot; the Shoot card goes straight to its target;
   uncocking and a Shoot doing nothing are only reachable through the plan
@@ -321,7 +332,7 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   shows AIM, endurance (boxes above the ones left are crossed off) and the
   permanent wounds. During playback a bullet flies from the shooter's gun
   icon for each shot (`flashShots`), shaking the view; a miss flies on off
-  the board; `assets/hit.png` or `missed.png` bursts beside the target. Loading, throwing and brawling stay disabled.
+  the board; `assets/hit.png` or `missed.png` bursts beside the target (`jammed.png` beside the shooter on a jam). Throwing and brawling stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`. Without `VITE_GAS_WANTED` every
@@ -454,7 +465,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - check 3 players in the same hex
   - Commit-reveal for plans (`PhaseCommit`/`PhaseRevaeal` reserved): secret
     simultaneous selection and dice seeded from revealed salts.
-  - More guns and brawling: enable Load, Throw and the brawling cards;
+  - More guns and brawling: enable Throw and the brawling cards;
     other IMPACT TABLE lines (only the Colt's line B is in `impact.gno`);
     fanfire; aim at hexes and aim transfer; pick guns up from the ground
     (`State.Ground` is exposed as `ground` in the JSON); line of sight and

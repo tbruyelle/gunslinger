@@ -52,7 +52,7 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap, 
       if (!g) continue;
       switch (e.opt) {
         case "cock":
-          g.cocked = true;
+          if (!g.jammed) g.cocked = true;
           break;
         case "uncock":
           g.cocked = false;
@@ -63,7 +63,7 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap, 
           s.aimHex = e.hex ?? ""; // "" when the markers follow a character
           break;
         case "shoot":
-          if (g.cocked && g.shells > 0) {
+          if (g.cocked && g.shells > 0 && !g.jammed) {
             g.cocked = false;
             g.shells--;
           }
@@ -74,17 +74,27 @@ export function replayPlan(start: CharView, plan: PlanEntry[], board: BoardMap, 
       continue;
     }
     if (def.choiceType === "gun") {
-      // Draw & Cock: the holstered gun, or the one picked up from the hex, goes to the chosen hand, cocked.
+      // Draw & Cock: the gun (from a holster or a hand), or the one picked up from the hex, goes to the chosen box, cocked.
       const loc = HAND_LOCATIONS[e.hand ?? 0];
       if (e.groundGun !== undefined) {
         const lying = groundHere.find((x) => x.id === e.groundGun)?.guns[0];
-        if (lying && loc) s.guns.push({ ...lying, id: Math.max(0, ...s.guns.map((x) => x.id)) + 1, location: loc, cocked: true });
+        if (lying && loc) s.guns.push({ ...lying, id: Math.max(0, ...s.guns.map((x) => x.id)) + 1, location: loc, cocked: !lying.jammed });
         continue;
       }
-      const g = s.guns.find((x) => x.id === e.gun && x.location === "holstered");
-      if (g && loc) {
+      const g = s.guns.find((x) => x.id === e.gun);
+      if (g && loc && g.location !== loc) {
         g.location = loc;
-        g.cocked = true;
+        g.cocked = !g.jammed; // a jammed gun stays uncocked until completely reloaded
+      }
+      continue;
+    }
+    if (def.name === "Load") {
+      // One shell into the gun in both hands, which uncocks it; a jammed gun is cleared once full (13.31).
+      const g = s.guns.find((x) => x.location === "both_hands");
+      if (g && !g.exploded && g.shells < g.capacity) {
+        g.shells++;
+        g.cocked = false;
+        if (g.jammed && g.shells === g.capacity) g.jammed = false;
       }
       continue;
     }

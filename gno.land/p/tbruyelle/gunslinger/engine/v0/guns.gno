@@ -81,7 +81,7 @@ type Gun struct {
 	Location GunLocation
 	Cocked   bool
 	Shells   int
-	Jammed   bool // every shell crossed off; fires again once fully reloaded (13.31)
+	Jammed   bool // every shell crossed off; fires again once completely reloaded (13.31)
 	Exploded bool // cannot fire for the rest of the game (13.31)
 }
 
@@ -144,6 +144,21 @@ func (g Guns) Firing() int {
 		}
 	}
 	return -1
+}
+
+// Blocked reports whether a gun other than the one in slot except holds
+// loc, or a hand box overlapping it: BOTH HANDS takes the gun hand and the
+// other hand, and either hand is taken by a gun in BOTH HANDS.
+func (g Guns) Blocked(loc GunLocation, except int) bool {
+	for i, gun := range g {
+		if i == except || gun.Type == NoGun || gun.Location == Holstered {
+			continue
+		}
+		if gun.Location == loc || gun.Location == BothHands || loc == BothHands {
+			return true
+		}
+	}
+	return false
 }
 
 // Free returns an empty slot, or -1 when the character carries MaxGuns.

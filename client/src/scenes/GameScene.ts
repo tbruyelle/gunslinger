@@ -17,7 +17,7 @@ import {
   stepForward,
   type ReplayPos,
 } from "../game/playback";
-import { MAX_ACTION_POINTS, canPlay, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled, decodePlan } from "../game/plan";
+import { MAX_ACTION_POINTS, canPlay, drawDestinations, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled, decodePlan } from "../game/plan";
 import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
 import { COCK_AIM_SHOOT_AIM_TIME, SHOOT_AIM_TIME, shotOdds } from "../game/shotOdds";
 import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
@@ -664,7 +664,7 @@ export class GameScene extends Phaser.Scene {
     for (const n of AIM_MARKERS) {
       if (!this.textures.exists(`aim_${n}`)) this.load.image(`aim_${n}`, `aim${n}.gif`);
     }
-    for (const key of ["missed", "hit"]) {
+    for (const key of ["missed", "hit", "jammed"]) {
       if (!this.textures.exists(key)) this.load.image(key, `${key}.png`);
     }
   }
@@ -1631,11 +1631,17 @@ export class GameScene extends Phaser.Scene {
     if (guns.length === 0 && ground.length === 0) return;
     let picked = false;
     this.input.enabled = false;
-    const what = guns.length > 0 && ground.length > 0 ? "a gun from the holster or the ground" : guns.length > 0 ? "your gun from the holster" : "the gun from the ground";
+    const planned = this.plannedGuns();
+    const what = guns.length > 0 && ground.length > 0 ? "your gun or the one on the ground" : guns.length > 0 ? "your gun" : "the gun from the ground";
     this.openSheet(
       this.myIndex,
       {
-        prompt: `Draw & Cock: drag ${what} to the gun hand`,
+        prompt: `Draw & Cock: drag ${what} to the gun hand, or to both hands to load it`,
+        destinations: (pick) => {
+          if (pick.ground !== undefined) return ground.some((g) => g.id === pick.ground) ? drawDestinations(planned) : [];
+          const gun = planned.find((g) => g.id === pick.gun);
+          return gun ? drawDestinations(planned, gun) : [];
+        },
         onPick: (pick, hand) => {
           picked = true;
           this.pendingGuns.set(card, { ...pick, hand });
@@ -1903,11 +1909,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * A "HIT!" or "MISSED!" burst beside a token, off to the side of the
+   * A "HIT!", "MISSED!" or "JAMMED!" burst beside a token, off to the side of the
    * bullet's path (perpendicular to it, on whichever side has more room):
    * pops up, holds, fades.
    */
-  private popBurst(key: "hit" | "missed", at: { sx: number; sy: number }, along: { x: number; y: number }) {
+  private popBurst(key: "hit" | "missed" | "jammed", at: { sx: number; sy: number }, along: { x: number; y: number }) {
     if (!this.textures.exists(key)) return;
     const d = this.tokenDiameter();
     const len = Math.hypot(along.x, along.y) || 1;
@@ -2036,7 +2042,8 @@ export class GameScene extends Phaser.Scene {
       this.resolveOpt(opts[0]);
       return;
     }
-    const enabled = (o: ShootOption) => !gun || (o === "cock" ? !gun.cocked : o === "nothing" ? true : gun.cocked);
+    // A jammed gun cannot be cocked until completely reloaded (13.31).
+    const enabled = (o: ShootOption) => !gun || (o === "cock" ? !gun.cocked && !gun.jammed : o === "nothing" ? true : gun.cocked);
     const labels: Record<ShootOption, string> = { cock: "Cock", uncock: "Uncock", aim: "Aim", shoot: "Shoot", nothing: "Do nothing" };
     const objects: Phaser.GameObjects.GameObject[] = [];
     const center = me ? this.tokenScreenPos(chars, this.myIndex) : { sx: this.cw / 2, sy: HUD_H + this.arrH / 2 };
@@ -2317,10 +2324,19 @@ export class GameScene extends Phaser.Scene {
   private flashShots(events: TurnEvent[]) {
     const chars = this.displayChars();
     for (const e of events) {
+      if (e.kind === "malfunction" && e.result === "jams" && chars[e.p]) {
+        // A jam: no bullet, the "JAMMED!" burst pops beside the shooter, off
+        // the line towards what it shot at.
+        const shot = events.find((x) => x.kind === "shot" && x.p === e.p);
+        const at = this.tokenScreenPos(chars, e.p);
+        const aimAt = shot ? (shot.target >= 0 && chars[shot.target] ? this.tokenScreenPos(chars, shot.target) : this.hexToScreen(shot.to)) : null;
+        const along = aimAt && (aimAt.sx !== at.sx || aimAt.sy !== at.sy) ? { x: aimAt.sx - at.sx, y: aimAt.sy - at.sy } : { x: 1, y: 0 };
+        this.popBurst("jammed", at, along);
+        continue;
+      }
       if (e.kind !== "shot" || !chars[e.p]) continue;
-      // Turns resolved before out-of-zone shots were cancelled recorded them
-      // as misses; no bullet left the gun.
-      if (e.reason === "out_of_zone") continue;
+      // No bullet leaves the gun on a misfire (13.3, whether it then jams or blows up).
+      if (e.reason === "misfire") continue;
       // The bullet leaves the shooter's gun icon, like the aim line.
       const gun = this.gunCentre(e.p);
       const from = { sx: gun.x, sy: gun.y };

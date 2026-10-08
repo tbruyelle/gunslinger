@@ -704,17 +704,14 @@ func TestShotStatusAndOutOfZone(t *testing.T) {
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(Miss) {
 		t.Errorf("shot = %v", sh)
 	}
-	// Out of the aim zone: the shot is cancelled, no card drawn, the gun
-	// still cocked and loaded.
+	// Out of the aim zone: the shot fires (card drawn, shell spent) but misses
+	// (11.32, 13.2).
 	st = armed(0)
 	st.Chars[0].Facing = hex.N
 	seq = Sequence{6, 7}
 	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
-	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonOutOfZone || len(ofKind(evs, 0, EvShot)) != 0 {
-		t.Errorf("cancels = %v, events = %v", c, evs)
-	}
-	if g := st.Chars[0].Guns[0]; g.Shells != 6 || !g.Cocked || len(seq) != 2 {
-		t.Errorf("gun = %+v, cards left = %v", g, seq)
+	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Reason != ReasonOutOfZone || sh[0].Hit != string(Miss) || sh[0].Card != 6 || st.Chars[0].Guns[0].Shells != 5 || st.Chars[0].Guns[0].Cocked {
+		t.Errorf("shot = %v, gun = %+v", sh, st.Chars[0].Guns[0])
 	}
 	// Not cocked, empty: cancelled.
 	st = armed(0)
@@ -1002,5 +999,69 @@ func TestPickUpFromTheGround(t *testing.T) {
 	}
 	if c := ofKind(evs, 1, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
 		t.Errorf("cancels = %v", c)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	// Draw & Cock moves the gun from the gun hand to both hands, cocked.
+	st := armed(0)
+	st, evs := resolve(t, st, "9f:1:2", "")
+	if d := ofKind(evs, 0, EvDraw); len(d) != 1 || d[0].From != "gun_hand" || d[0].To != "both_hands" || st.Chars[0].Guns[0].Location != BothHands {
+		t.Fatalf("draws = %v, guns = %+v", d, st.Chars[0].Guns)
+	}
+	// A load adds a shell and uncocks; a full gun cancels the load.
+	st.Chars[0].Guns[0].Shells = 4
+	st, evs = resolve(t, st, "8f", "")
+	if l := ofKind(evs, 0, EvLoad); len(l) != 1 || l[0].N != 5 || l[0].Seg != 3 || st.Chars[0].Guns[0].Shells != 5 || st.Chars[0].Guns[0].Cocked {
+		t.Errorf("loads = %v, gun = %+v", l, st.Chars[0].Guns[0])
+	}
+	st.Chars[0].Guns[0].Shells = 6
+	st, evs = resolve(t, st, "8f", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonFull {
+		t.Errorf("cancels = %v", c)
+	}
+	// Both hands still fire a one-handed gun.
+	st.Chars[0].Guns[0].Cocked = true
+	seq := Sequence{1}
+	_, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
+	if len(ofKind(evs, 0, EvShot)) != 1 {
+		t.Errorf("no shot from both hands: %v", evs)
+	}
+	// Not in both hands: cancelled; an exploded gun cannot be loaded.
+	st = armed(0)
+	st.Chars[0].Guns[0].Shells = 3
+	_, evs = resolve(t, st, "8f", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonNoGun {
+		t.Errorf("cancels = %v", c)
+	}
+	st.Chars[0].Guns[0].Location, st.Chars[0].Guns[0].Exploded = BothHands, true
+	_, evs = resolve(t, st, "8f", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonBroken {
+		t.Errorf("cancels = %v", c)
+	}
+}
+
+func TestJammedGunReload(t *testing.T) {
+	// A jammed gun cannot fire until completely reloaded (13.31).
+	st := armed(0)
+	g := &st.Chars[0].Guns[0]
+	g.Location, g.Shells, g.Jammed, g.Cocked = BothHands, 5, true, false
+	st, evs := resolve(t, st, "7f:shoot:@1", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonJammed {
+		t.Errorf("cancels = %v", c)
+	}
+	// Nor be cocked, by Cock/Aim/Shoot or by Draw & Cock moving it.
+	st, evs = resolve(t, st, "5f:cock", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonJammed || st.Chars[0].Guns[0].Cocked {
+		t.Errorf("cancels = %v, gun = %+v", c, st.Chars[0].Guns[0])
+	}
+	st, evs = resolve(t, st, "9f:1:0", "")
+	if d := ofKind(evs, 0, EvDraw); len(d) != 1 || st.Chars[0].Guns[0].Cocked || st.Chars[0].Guns[0].Location != GunHand {
+		t.Errorf("draws = %v, gun = %+v", d, st.Chars[0].Guns[0])
+	}
+	st.Chars[0].Guns[0].Location = BothHands
+	st, evs = resolve(t, st, "8f", "")
+	if l := ofKind(evs, 0, EvLoad); len(l) != 1 || l[0].Result != LoadUnjammed || st.Chars[0].Guns[0].Jammed || st.Chars[0].Guns[0].Shells != 6 {
+		t.Errorf("loads = %v, gun = %+v", l, st.Chars[0].Guns[0])
 	}
 }

@@ -110,7 +110,7 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 		SubmitPlan(cross(cur), id, "1x")
 	})
 	uassert.AbortsWithMessage(t, cur, "gunslinger: that action is not available yet", func() {
-		SubmitPlan(cross(cur), id, "8f")
+		SubmitPlan(cross(cur), id, "8b")
 	})
 
 	r := SubmitPlan(cross(cur), id, "1f:ahead,2f:ahead")
@@ -339,7 +339,7 @@ func TestDrawAndCock(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
 	testing.SetRealm(testing.NewUserRealm(alice))
-	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is not in a holster", func() {
+	uassert.AbortsWithMessage(t, cur, "gunslinger: you have no such gun", func() {
 		SubmitPlan(cross(cur), id, "9f:2:0")
 	})
 	SubmitPlan(cross(cur), id, "9f:1:0")
@@ -352,9 +352,9 @@ func TestDrawAndCock(cur realm, t *testing.T) {
 	js := GameJSON(id)
 	uassert.True(t, strings.Contains(js, `"location":"gun_hand","cocked":true,"shells":6`), js)
 	uassert.True(t, strings.Contains(js, `{"seg":3,"p":0,"kind":"draw","action":"draw_and_cock","from":"holstered","to":"gun_hand","facing":0,"down":false,"n":0,"delay":0,"reason":"","card":0,"result":"","endurance":0,"target":0,"hit":"","range":0,"gun":"colt45","gunId":1}`), js)
-	// Drawing again: nothing left in the holster.
+	// Drawing again into the gun hand: the gun is already there.
 	testing.SetRealm(testing.NewUserRealm(alice))
-	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is not in a holster", func() {
+	uassert.AbortsWithMessage(t, cur, "gunslinger: that gun is already there", func() {
 		SubmitPlan(cross(cur), id, "9f:1:0")
 	})
 }

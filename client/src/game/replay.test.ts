@@ -61,6 +61,20 @@ describe("replayPlan", () => {
     expect(drawn.guns[0]).toEqual({ ...colt, location: "gun_hand", cocked: false, shells: 5 });
   });
 
+  it("moves a gun into both hands, then loads it", () => {
+    const colt = { id: 1, type: "colt45", name: "Colt 45", location: "gun_hand" as const, cocked: true, shells: 0, capacity: 6, jammed: true, exploded: false };
+    const both = replayPlan({ ...start, guns: [{ ...colt, jammed: false }] }, decodePlan("9f:1:2"), BOARD_A);
+    expect(both.guns[0]).toMatchObject({ location: "both_hands", cocked: true });
+    // A jammed gun moves but stays uncocked, and Cock does nothing on it.
+    const jammed = replayPlan({ ...start, guns: [{ ...colt, cocked: false }] }, decodePlan("9f:1:2"), BOARD_A);
+    expect(jammed.guns[0]).toMatchObject({ location: "both_hands", cocked: false });
+    expect(replayPlan({ ...start, guns: [{ ...colt, cocked: false }] }, decodePlan("5f:cock"), BOARD_A).guns[0].cocked).toBe(false);
+    const loaded = replayPlan({ ...start, guns: [{ ...colt, location: "both_hands" }] }, decodePlan("8f"), BOARD_A);
+    expect(loaded.guns[0]).toMatchObject({ shells: 1, cocked: false, jammed: true });
+    const full = replayPlan({ ...start, guns: [{ ...colt, location: "both_hands", shells: 5 }] }, decodePlan("8f"), BOARD_A);
+    expect(full.guns[0]).toMatchObject({ shells: 6, jammed: false });
+  });
+
   it("stays put on an off-board move", () => {
     const end = replayPlan({ ...start, hex: "A-F12" }, decodePlan("1f:ahead"), BOARD_A);
     expect(end.hex).toBe("A-F12");

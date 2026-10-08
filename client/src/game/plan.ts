@@ -42,13 +42,34 @@ export const MAX_ACTION_POINTS = 5;
 export const MAX_AIM = 8;
 export const MAX_PLAN_ENTRIES = 5;
 
-/** Actions the realm implements so far: the foot actions and Draw & Cock. */
-export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down", "Draw & Cock", "Cock/Aim/Shoot", "Shoot"]);
+/** Actions the realm implements so far: the foot actions and the gun actions. */
+export const ENABLED_ACTIONS = new Set(["Advance", "Back Up", "Run", "Spin Around", "Sprint", "Turn", "Leap/Drop", "Get Up/Down", "Draw & Cock", "Cock/Aim/Shoot", "Shoot", "Load"]);
 
-/** The holstered guns a Draw & Cock may take, given the character's guns. */
+/** The boxes a Draw & Cock can put a gun in for now (the other hand comes with a second gun). */
+export const DRAW_HANDS = [HAND_GUN, HAND_BOTH];
+
+/**
+ * Whether a gun other than except holds loc or a hand box overlapping it
+ * (BOTH HANDS takes both hands), as the realm's Guns.Blocked.
+ */
+export function handBlocked(guns: GunView[], loc: GunView["location"], except?: number): boolean {
+  return guns.some((g) => g.id !== except && g.location !== "holstered" && (g.location === loc || g.location === "both_hands" || loc === "both_hands"));
+}
+
+/** The boxes (hand codes) a Draw & Cock can move gun to: not where it is, and free. */
+export function drawDestinations(guns: GunView[], gun?: GunView): number[] {
+  return DRAW_HANDS.filter((h) => HAND_LOCATION[h] !== gun?.location && !handBlocked(guns, HAND_LOCATION[h], gun?.id));
+}
+
+/** The guns on the sheet a Draw & Cock can move: holstered or in hand, with a free box to go to. */
 export function drawableGuns(guns: GunView[]): GunView[] {
-  if (guns.some((g) => g.location === "gun_hand")) return [];
-  return guns.filter((g) => g.location === "holstered");
+  return guns.filter((g) => drawDestinations(guns, g).length > 0);
+}
+
+/** The gun a Load would load: the one in BOTH HANDS, if it is not blown up and has room for a shell. */
+export function loadableGun(guns: GunView[]): GunView | undefined {
+  const g = guns.find((x) => x.location === "both_hands");
+  return g && !g.exploded && g.shells < g.capacity ? g : undefined;
 }
 
 const AHEAD = new Set<RelativeDirection>(["ahead_left", "ahead", "ahead_right"]);
@@ -66,17 +87,23 @@ export function gunInFiringBox(guns: GunView[]): GunView | undefined {
 
 /**
  * Whether a side can be picked now: implemented, Sprint only after a Run on
- * the previous turn, Draw & Cock only with a free gun hand and a holstered
- * gun or a weapon lying in the hex (groundHere), Cock/Aim/Shoot and Shoot
- * only with a gun in hand (guns is the state the plan leaves before the
+ * the previous turn, Draw & Cock only with a gun that can move to a free
+ * hand box or a weapon lying in the hex (groundHere), Cock/Aim/Shoot and Shoot
+ * only with a gun in hand that is not jammed, Load only with a gun in both
+ * hands that has room (guns is the state the plan leaves before the
  * card, so a Draw & Cock earlier in the plan counts).
  */
 export function canPlay(entry: { card: CardNumber; side: CardSide }, ranLastTurn: boolean, guns: GunView[] = [], groundHere: GroundGunView[] = []): boolean {
   if (!isEnabled(entry)) return false;
   const name = getActionDef(entry).name;
   if (name === "Sprint") return ranLastTurn;
-  if (name === "Draw & Cock") return drawableGuns(guns).length > 0 || (groundHere.length > 0 && !guns.some((g) => g.location === "gun_hand"));
-  if (name in SHOOT_OPTIONS) return gunInFiringBox(guns) !== undefined;
+  if (name === "Draw & Cock") return drawableGuns(guns).length > 0 || (groundHere.length > 0 && drawDestinations(guns).length > 0);
+  if (name in SHOOT_OPTIONS) {
+    // A jammed gun can neither be cocked nor fire until completely reloaded (13.31).
+    const g = gunInFiringBox(guns);
+    return g !== undefined && !(g.jammed && !g.cocked);
+  }
+  if (name === "Load") return loadableGun(guns) !== undefined;
   return true;
 }
 
@@ -176,15 +203,17 @@ export function validatePlan(plan: PlanEntry[], budget = MAX_ACTION_POINTS, ranL
         break;
       case "gun": {
         if (e.gun === undefined && e.groundGun === undefined) return "choose the gun to draw";
+        const hand = e.hand ?? HAND_GUN;
+        if (!DRAW_HANDS.includes(hand)) return "only the gun hand or both hands can take a gun for now";
+        let g: GunView | undefined;
         if (e.groundGun !== undefined) {
           if (!groundHere.some((x) => x.id === e.groundGun)) return "that weapon is not in your hex";
         } else {
-          const g = guns.find((x) => x.id === e.gun);
-          if (!g || g.location !== "holstered") return "that gun is not in a holster";
+          g = guns.find((x) => x.id === e.gun);
+          if (!g) return "you have no such gun";
+          if (g.location === HAND_LOCATION[hand]) return "that gun is already there";
         }
-        const hand = e.hand ?? HAND_GUN;
-        if (hand !== HAND_GUN) return "only the gun hand can draw for now";
-        if (guns.some((x) => x.location === HAND_LOCATION[hand])) return "that hand already holds a gun";
+        if (handBlocked(guns, HAND_LOCATION[hand], g?.id)) return "that hand already holds a gun";
         break;
       }
       default:

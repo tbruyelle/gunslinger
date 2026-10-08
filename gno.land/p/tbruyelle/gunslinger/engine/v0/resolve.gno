@@ -14,7 +14,8 @@ const (
 	EvFlip         = "flip"          // Down, Action (empty for a DROP penalty)
 	EvDelay        = "delay"         // N gained, Reason, Card drawn (0 for crawl), Result penalty, Endurance crossed off, Delay = running total once this card is counted
 	EvCancel       = "cancel"        // Action, Reason
-	EvDraw         = "draw"          // Gun drawn from From (holster, or "ground" with N = its ground id) to To (hand) and cocked
+	EvDraw         = "draw"          // Gun moved from From (holster, a hand, or "ground" with N = its ground id) to To (a hand) and cocked, unless jammed (Result "jammed")
+	EvLoad         = "load"          // a shell loaded in the gun in both hands, N shells now, uncocked; Result "unjammed" when that completes a jammed gun
 	EvCock         = "cock"          // Gun cocked
 	EvUncock       = "uncock"        // Gun uncocked
 	EvAim          = "aim"           // N = AIM points after aiming, To = the hex they sit on, Target = the seat they follow (-1 for a hex)
@@ -48,6 +49,8 @@ const (
 	ReasonNoRoom    = "no_room"     // the character already carries MaxGuns weapons
 	ReasonNotCocked = "not_cocked"  // shooting an uncocked gun (13.1)
 	ReasonEmpty     = "empty"       // shooting a gun without shells (13.1)
+	ReasonJammed    = "jammed"      // shooting or cocking a jammed gun not completely reloaded yet (13.31)
+	ReasonFull      = "full"        // loading a gun already holding its Ammo limit (10.42)
 	ReasonBroken    = "broken"      // shooting an exploded gun (13.31)
 	ReasonNoTarget  = "no_target"   // the opponent is out of the fight (12.6)
 	ReasonOutOfZone = "out_of_zone" // the opponent is in the blind zone (8.32, 12.41)
@@ -66,6 +69,20 @@ const (
 	MalfMisfire   = "misfire"    // the shot is cancelled (13.3)
 	MalfNoPenalty = "no_penalty" // second draw was a FIRE: the gun is fine (13.32)
 )
+
+// LoadUnjammed is the Result of a load that completes a jammed gun (13.31).
+const LoadUnjammed = "unjammed"
+
+// DrawJammed is the Result of a Draw & Cock that moves a jammed gun: it is
+// not cocked (13.31).
+const DrawJammed = "jammed"
+
+func jammedResult(g Gun) string {
+	if g.Jammed {
+		return DrawJammed
+	}
+	return ""
+}
 
 // Event is one thing that happened during resolution, in order. Seg is 0
 // for turn-start events and EndOfTurn for those after segment 5.
@@ -381,8 +398,9 @@ func fireHarmlessly(p int, g *Gun, seg int, evs *[]Event) {
 }
 
 // shoot resolves a shot (13): the gun must be cocked, loaded and in a box it
-// fires from, and the target (the opponent, or a hex) in the aim zone,
-// else the action is cancelled. A MALFUNCTION with no effect is replaced; a
+// fires from, else the action is cancelled; the target is hit only inside
+// the aim zone, a shot out of it still draws its card and misses (11.32,
+// 13.1, 13.2). A MALFUNCTION with no effect is replaced; a
 // misfire cancels the shot and a second draw may jam or blow up the gun.
 // The shooter then uncocks, spends a shell and loses the aim (13.9). It
 // returns the IMPACT TABLE results of a hit, inflicted at the end of the
@@ -400,6 +418,8 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 	switch {
 	case g.Exploded:
 		return cancel(ReasonBroken)
+	case g.Jammed:
+		return cancel(ReasonJammed)
 	case g.Shells == 0:
 		return cancel(ReasonEmpty)
 	case !g.Cocked:
@@ -426,11 +446,9 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 		aim -= c.OtherArm
 	}
 	rng := board.Distance(c.Hex, at)
-	// A shot only goes off at a target in the aim zone (8.32), like an aim:
-	// otherwise nothing is drawn, the gun stays cocked and loaded.
-	if !board.InAimZone(c.Hex, c.Facing, at) {
-		return cancel(ReasonOutOfZone)
-	}
+	// Out of the aim zone the shot automatically misses, but the card is
+	// drawn all the same (11.32, 13.1, 13.2).
+	inZone := board.InAimZone(c.Hex, c.Facing, at)
 
 	// Draw (13.2): a MALFUNCTION with no effect is replaced; a misfire
 	// cancels the shot and draws again for the gun (13.3, 13.31).
@@ -469,6 +487,8 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 	switch {
 	case misfire:
 		ev.Reason = ReasonMisfire
+	case !inZone:
+		ev.Reason = ReasonOutOfZone
 	case !onTarget:
 		ev.Reason = ReasonEmptyHex
 	default:
@@ -724,24 +744,50 @@ func execute(board *hex.Board, p int, a Action, st *State, c *Character, opp *Ch
 			g := st.Ground[gi].Gun
 			g.ID = c.Guns.NextID()
 			g.Location = dest
-			g.Cocked = true
+			g.Cocked = !g.Jammed // a jammed gun cannot be cocked until completely reloaded (13.31)
 			c.Guns[slot] = g
 			st.Ground = append(st.Ground[:gi:gi], st.Ground[gi+1:]...)
-			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: "ground", To: dest.String(), Gun: g.Type, GunID: g.ID, N: a.Ground})
+			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: "ground", To: dest.String(), Gun: g.Type, GunID: g.ID, N: a.Ground, Result: jammedResult(g)})
 			return 0, true
 		}
-		// Take the chosen gun from its holster to the hand and cock it.
+		// Move the chosen gun from its box (a holster, or a hand) to the
+		// one named and cock it (11.1).
 		slot := c.Guns.Find(a.Gun)
-		if slot < 0 || c.Guns[slot].Location != Holstered {
+		if slot < 0 || c.Guns[slot].Location == dest {
 			return cancel(ReasonNoGun)
 		}
-		if c.Guns.At(dest) >= 0 {
+		if c.Guns.Blocked(dest, slot) {
 			return cancel(ReasonHandFull)
 		}
 		g := &c.Guns[slot]
+		from := g.Location
 		g.Location = dest
-		g.Cocked = true
-		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: Holstered.String(), To: dest.String(), Gun: g.Type, GunID: g.ID})
+		g.Cocked = !g.Jammed // a jammed gun cannot be cocked until completely reloaded (13.31)
+		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvDraw, Action: a.Code, From: from.String(), To: dest.String(), Gun: g.Type, GunID: g.ID, Result: jammedResult(*g)})
+		return 0, true
+	case cards.Load:
+		// One shell into the gun in BOTH HANDS (11.2, 27.2), which uncocks
+		// it; a jammed gun fires again once completely reloaded (13.31).
+		slot := c.Guns.At(BothHands)
+		if slot < 0 {
+			return cancel(ReasonNoGun)
+		}
+		g := &c.Guns[slot]
+		if g.Exploded {
+			return cancel(ReasonBroken)
+		}
+		capacity := g.Type.Spec().Capacity
+		if g.Shells >= capacity {
+			return cancel(ReasonFull)
+		}
+		g.Shells++
+		g.Cocked = false
+		ev := Event{Seg: seg, Player: p, Kind: EvLoad, Action: a.Code, N: g.Shells, Gun: g.Type, GunID: g.ID}
+		if g.Jammed && g.Shells == capacity {
+			g.Jammed = false
+			ev.Result = LoadUnjammed
+		}
+		*evs = append(*evs, ev)
 		return 0, true
 	case cards.CockAimShoot, cards.Shoot:
 		if a.Opt == OptNothing {
@@ -755,6 +801,9 @@ func execute(board *hex.Board, p int, a Action, st *State, c *Character, opp *Ch
 		g := &c.Guns[slot]
 		switch a.Opt {
 		case OptCock:
+			if g.Jammed { // not before it is completely reloaded (13.31)
+				return cancel(ReasonJammed)
+			}
 			g.Cocked = true
 			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvCock, Action: a.Code, Gun: g.Type, GunID: g.ID})
 		case OptUncock:

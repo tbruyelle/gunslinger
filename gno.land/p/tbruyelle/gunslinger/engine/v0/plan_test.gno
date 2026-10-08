@@ -110,7 +110,8 @@ func TestValidate(t *testing.T) {
 		{"2b:ahead_right", 0, "backward direction"},
 		{"3f:ahead", 0, "takes no direction"},
 		{"4b:back", 0, "takes no direction"},
-		{"8f", 0, "not available"},
+		{"8f", 0, ""},
+		{"8b", 0, "not available"},
 		{"6b", 0, "not available"},
 		{"12b", 0, "not available"},
 		{"5f:cock", 0, ""},
@@ -124,13 +125,13 @@ func TestValidate(t *testing.T) {
 		{"9f:1:0,5f:shoot:@1,7f:shoot:@1", 0, "more time points"},
 		{"5f:aim:A-F6,6f:aim:A-F6,7f:shoot:@1", 1, "more time points"},
 		{"9f", 0, "choose the gun"},
-		{"9f:2:0", 0, "not in a holster"},
-		{"9f:1:1", 0, "only the gun hand"},
-		{"9f:1:2", 0, "only the gun hand"},
+		{"9f:2:0", 0, "no such gun"},
+		{"9f:1:1", 0, "only the gun hand or both hands"},
+		{"9f:1:2", 0, ""},
 		{"9f:1:0", 0, ""},
 		{"1f:ahead,9f:1:0", 0, ""},
 		{"9f:g1:0", 0, ""},
-		{"9f:g1:1", 0, "only the gun hand"},
+		{"9f:g1:1", 0, "only the gun hand or both hands"},
 		{"1f:ahead,2f:ahead,3f,4b,9f:g1:0", 0, "more time points"},
 	}
 	for _, tt := range tests {
@@ -172,12 +173,21 @@ func TestDrawAndCockPlan(t *testing.T) {
 	if d := mustPlan(t, "1f:ahead")[0]; d.Gun != 0 || d.Hand != -1 {
 		t.Error("direction entries have no gun")
 	}
-	// Nothing to draw once the gun is already in hand.
+	// A gun already in the gun hand can move to both hands (to load it),
+	// not to where it already is.
 	c := Character{Guns: startingGuns()}
 	c.Guns[0].Location = GunHand
-	if err := p.Validate(c); err == nil || !strings.Contains(err.Error(), "not in a holster") {
+	if err := p.Validate(c); err == nil || !strings.Contains(err.Error(), "already there") {
 		t.Errorf("drawing a gun already in hand: %v", err)
 	}
+	if err := mustPlan(t, "9f:1:2").Validate(c); err != nil {
+		t.Errorf("gun hand to both hands: %v", err)
+	}
+	c.Guns[0].Location = BothHands
+	if err := p.Validate(c); err != nil {
+		t.Errorf("both hands to gun hand: %v", err)
+	}
+	c.Guns[0].Location = GunHand
 	// A second holstered gun cannot be drawn while the hand is busy.
 	c.Guns[1] = Gun{ID: c.Guns.NextID(), Type: Colt45, Location: Holstered, Shells: 6}
 	if c.Guns[1].ID != 2 || c.Guns.Find(2) != 1 || c.Guns.Find(9) != -1 {
@@ -185,6 +195,11 @@ func TestDrawAndCockPlan(t *testing.T) {
 	}
 	if err := mustPlan(t, "9f:2:0").Validate(c); err == nil || !strings.Contains(err.Error(), "already holds") {
 		t.Errorf("drawing with a full hand: %v", err)
+	}
+	// A gun in both hands takes both hands.
+	c.Guns[0].Location = BothHands
+	if err := mustPlan(t, "9f:2:0").Validate(c); err == nil || !strings.Contains(err.Error(), "already holds") {
+		t.Errorf("drawing while both hands hold a gun: %v", err)
 	}
 	// A direction card given a slot token is a parse error.
 	if _, err := ParsePlan("3b:0"); err == nil || !strings.Contains(err.Error(), "invalid direction") {

@@ -4,7 +4,7 @@ export type Phase = "waiting" | "planning" | "finished";
 export type PlayerStatus = "alive" | "out" | "killed" | "passed_out";
 export type EventKind =
   | "move" | "turn" | "flip" | "delay" | "cancel" | "draw" | "wild_shot"
-  | "cock" | "uncock" | "aim" | "lose_aim" | "nothing" | "shot" | "malfunction" | "wound" | "direction" | "drop_gun" | "pass_out" | "serious_check";
+  | "cock" | "uncock" | "load" | "aim" | "lose_aim" | "nothing" | "shot" | "malfunction" | "wound" | "direction" | "drop_gun" | "pass_out" | "serious_check";
 
 /** Seg of the events recorded after segment 5 (cancels, passing out, the serious-wound check); turn-start events have seg 0. */
 export const END_OF_TURN_SEG = 6;

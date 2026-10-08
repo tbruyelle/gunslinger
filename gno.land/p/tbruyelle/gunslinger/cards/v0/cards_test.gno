@@ -67,7 +67,7 @@ func TestEnabledAndKinds(t *testing.T) {
 		for _, side := range [2]Side{c.Front, c.Back} {
 			if Enabled(side.Code) {
 				enabled[side.Code] = true
-				if side.Kind != KindFoot && !(side.Kind == KindHand && (side.Code == DrawAndCock || IsShooting(side.Code))) {
+				if side.Kind != KindFoot && !(side.Kind == KindHand && (side.Code == DrawAndCock || side.Code == Load || IsShooting(side.Code))) {
 					t.Errorf("enabled action %s is neither a foot action nor a gun action", side.Code)
 				}
 			}
@@ -79,8 +79,8 @@ func TestEnabledAndKinds(t *testing.T) {
 			}
 		}
 	}
-	if len(enabled) != 11 {
-		t.Errorf("%d enabled actions, want 11: %v", len(enabled), enabled)
+	if len(enabled) != 12 {
+		t.Errorf("%d enabled actions, want 12: %v", len(enabled), enabled)
 	}
 	if !ChoiceGun.NeedsGun() || ChoiceMoveAhead.NeedsGun() || ChoiceGun.NeedsRel() {
 		t.Error("NeedsGun")

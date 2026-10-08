@@ -315,15 +315,20 @@ func (p Plan) Validate(c Character) error {
 			if a.Gun == 0 && a.Ground == 0 {
 				return errors.New("choose the gun to draw")
 			}
+			if a.Hand == HandOther { // the other hand comes with a second gun
+				return errors.New("only the gun hand or both hands can take a gun for now")
+			}
+			dest, _ := HandLocation(a.Hand)
+			slot := -1
 			if a.Gun != 0 { // a gun on the ground is checked against the hex when the action executes
-				if i := c.Guns.Find(a.Gun); i < 0 || c.Guns[i].Location != Holstered {
-					return errors.New("that gun is not in a holster")
+				if slot = c.Guns.Find(a.Gun); slot < 0 {
+					return errors.New("you have no such gun")
+				}
+				if c.Guns[slot].Location == dest {
+					return errors.New("that gun is already there")
 				}
 			}
-			if a.Hand != HandGun { // the other hands come with two-handed guns and brawling
-				return errors.New("only the gun hand can draw for now")
-			}
-			if dest, _ := HandLocation(a.Hand); c.Guns.At(dest) >= 0 {
+			if c.Guns.Blocked(dest, slot) {
 				return errors.New("that hand already holds a gun")
 			}
 		default:

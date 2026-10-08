@@ -279,10 +279,26 @@ func describeEvent(g *Game, e engine.Event) string {
 	case engine.EvSeriousCheck:
 		what = who + " draws card " + strconv.Itoa(e.Card) + " for the SERIOUS wounds: " + strconv.Itoa(e.N) + " points"
 	case engine.EvDraw:
-		if e.From == "ground" {
-			what = who + " picks up the " + e.Gun.Spec().Name + " from the ground into the " + strings.ReplaceAll(e.To, "_", " ") + " and cocks it"
-		} else {
-			what = who + " draws and cocks the " + e.Gun.Spec().Name
+		to := "to the " + strings.ReplaceAll(e.To, "_", " ")
+		if e.To == engine.BothHands.String() {
+			to = "into both hands"
+		}
+		cocks := " and cocks it"
+		if e.Result == engine.DrawJammed {
+			cocks = " (jammed: not cocked)"
+		}
+		switch e.From {
+		case "ground":
+			what = who + " picks up the " + e.Gun.Spec().Name + " from the ground " + to + cocks
+		case engine.Holstered.String():
+			what = who + " draws the " + e.Gun.Spec().Name + " " + to + cocks
+		default:
+			what = who + " moves the " + e.Gun.Spec().Name + " " + to + cocks
+		}
+	case engine.EvLoad:
+		what = who + " loads a shell in the " + e.Gun.Spec().Name + " (" + strconv.Itoa(e.N) + " now)"
+		if e.Result == engine.LoadUnjammed {
+			what += ": no longer jammed"
 		}
 	case engine.EvCancel:
 		what = who + ": " + action + " is cancelled (" + e.Reason + ")"
