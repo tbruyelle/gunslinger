@@ -1749,15 +1749,17 @@ export class GameScene extends Phaser.Scene {
         .setMask(this.arrMask)
         .setInteractive({ useHandCursor: true })
         .setDepth(500);
+      // The chance shows on the hovered hex only.
+      const labels: Phaser.GameObjects.Text[] = [];
       if (odds) {
         const pct = this.add
           .text(sx, sy, `${odds.hit}%`, { fontSize: `${fontPx}px`, color: "#ffffff", fontStyle: "bold", stroke: "#000000", strokeThickness: 3 })
           .setOrigin(0.5)
           .setMask(this.arrMask)
           .setDepth(501);
-        objects.push(pct);
+        labels.push(pct);
         if (odds.bullseye > 0) {
-          objects.push(
+          labels.push(
             this.add
               .text(sx + pct.width / 2, sy - pct.height / 2, `${odds.bullseye}`, { fontSize: `${Math.round(fontPx * 0.7)}px`, color: "#ff4030", fontStyle: "bold", stroke: "#000000", strokeThickness: 3 })
               .setOrigin(0.2, 0.6)
@@ -1765,11 +1767,14 @@ export class GameScene extends Phaser.Scene {
               .setDepth(501),
           );
         }
+        for (const l of labels) l.setVisible(false);
+        objects.push(...labels);
       }
       let detail: Phaser.GameObjects.Text | null = null;
       circle.on("pointerover", () => {
         circle.setFillStyle(0xb01010, 0.6);
         this.showAimLine(this.gunCentre(this.myIndex), { x: sx, y: sy }); // where the aim would go
+        for (const l of labels) l.setVisible(true);
         if (!odds) return;
         const lines = [
           `Hit ${odds.hit}%  ·  bullseye ${odds.bullseye}%`,
@@ -1786,6 +1791,7 @@ export class GameScene extends Phaser.Scene {
       circle.on("pointerout", () => {
         circle.setFillStyle(0xb01010, 0.3);
         this.hideAimLine();
+        for (const l of labels) l.setVisible(false);
         detail?.destroy();
         detail = null;
       });
@@ -2071,8 +2077,9 @@ export class GameScene extends Phaser.Scene {
         box.on("pointerout", () => box.setFillStyle(0x8e2f1a, 1));
         box.on("pointerup", () => this.resolveOpt(o));
       } else {
-        box.setAlpha(0.35);
-        text.setAlpha(0.35);
+        // Dimmed but opaque, so nothing on the board shows through it.
+        box.setFillStyle(0x3a1d12, 1).setStrokeStyle(3, 0x6b5a3a, 1);
+        text.setColor("#8a7a66");
       }
       objects.push(box, text);
     });
@@ -2335,8 +2342,9 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       if (e.kind !== "shot" || !chars[e.p]) continue;
-      // No bullet leaves the gun on a misfire (13.3, whether it then jams or blows up).
-      if (e.reason === "misfire") continue;
+      // A misfire shows as a missed shot, unless the second card jams or blows
+      // up the gun: then no bullet, the jam has its own burst.
+      if (e.reason === "misfire" && events.some((x) => x.kind === "malfunction" && x.p === e.p && (x.result === "jams" || x.result === "explodes"))) continue;
       // The bullet leaves the shooter's gun icon, like the aim line.
       const gun = this.gunCentre(e.p);
       const from = { sx: gun.x, sy: gun.y };

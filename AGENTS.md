@@ -320,7 +320,7 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   uncocking and a Shoot doing nothing are only reachable through the plan
   string). Aim then highlights the aim zone (`BoardMap.aimZone`,
   same axial maths as the realm) and the clicked hex goes into the plan
-  (`pendingAims`, `5f:aim:A-F6`). When shooting, each hex of the zone shows the chance
+  (`pendingAims`, `5f:aim:A-F6`). When shooting, the hovered hex of the zone shows the chance
   of hitting it (`game/shotOdds.ts` over `rules/hitChance.ts`, the players'
   aid table `percent_hit.png`: hit % per aim time 1–9 and range 0–12 out of
   the 108 cards, bullseye % in red; Target Status not counted), with range

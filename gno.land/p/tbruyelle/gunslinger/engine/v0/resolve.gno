@@ -453,6 +453,7 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 	// Draw (13.2): a MALFUNCTION with no effect is replaced; a misfire
 	// cancels the shot and draws again for the gun (13.3, 13.31).
 	var card ResultCard
+	var malfs []Event // logged after the shot
 	misfire := false
 	for tries := 0; tries < DeckSize; tries++ {
 		card = d.Draw()
@@ -460,11 +461,11 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 			break
 		}
 		if !card.Malf.Handloaded { // the Colt 45 takes handloaded shells (26.2)
-			*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: card.N, Result: MalfNoEffect, Gun: g.Type, GunID: g.ID})
+			malfs = append(malfs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: card.N, Result: MalfNoEffect, Gun: g.Type, GunID: g.ID})
 			continue
 		}
 		misfire = true
-		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: card.N, Result: MalfMisfire, Gun: g.Type, GunID: g.ID})
+		malfs = append(malfs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: card.N, Result: MalfMisfire, Gun: g.Type, GunID: g.ID})
 		second := d.Draw()
 		result := MalfNoPenalty
 		if !second.IsFire() {
@@ -476,7 +477,7 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 				g.Exploded = true
 			}
 		}
-		*evs = append(*evs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: second.N, Result: result, Gun: g.Type, GunID: g.ID})
+		malfs = append(malfs, Event{Seg: seg, Player: p, Kind: EvMalfunction, Card: second.N, Result: result, Gun: g.Type, GunID: g.ID})
 		break
 	}
 	hit := Miss
@@ -498,7 +499,9 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 		}
 	}
 	ev.Hit = string(hit)
+	// The shot first, then the MALFUNCTION cards it drew.
 	*evs = append(*evs, ev)
+	*evs = append(*evs, malfs...)
 
 	// After the shot (13.9), even on a misfire.
 	g.Cocked = false
