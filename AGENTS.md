@@ -382,6 +382,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - aim & shoot
   - Advanced tutorial
 - Lobby
+  - allow winner to remove replay to be refunded for the deposit
   - Check game list order (sort by most recent)
     - highlight almost timeouted game (display remaining time)
   - Top players list leaderboard
@@ -405,6 +406,8 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - Stagger X
     - Drop X
     - Sun X
+    - target status affects the shot
+  - Test malfunctions
   - players with Serious:
     - leave some blood behind them when moving
     - find a way to show the status on the character token
