@@ -34,8 +34,8 @@ func SubmitPlan(cur realm, id string, plan string) int {
 		panic("gunslinger: " + err.Error())
 	}
 	for _, a := range pl {
-		if a.Ground > 0 && !groundIn(g.State, a.Ground, g.State.Chars[p].Hex) {
-			panic("gunslinger: that weapon is not in your hex")
+		if a.Ground > 0 && !groundExists(g.State, a.Ground) {
+			panic("gunslinger: there is no such weapon on the ground")
 		}
 	}
 	// Target-status flags for this turn, set whether or not the actions
@@ -159,10 +159,12 @@ func snapshot(cs [engine.NumPlayers]engine.Character) (out [engine.NumPlayers]en
 	return out
 }
 
-// groundIn reports whether the gun with that ground id lies in the hex.
-func groundIn(st engine.State, id int, hex string) bool {
+// groundExists reports whether a gun with that ground id lies somewhere on
+// the board; whether it is in the character's hex is checked when the
+// action executes, since the character may walk to it first.
+func groundExists(st engine.State, id int) bool {
 	for _, gg := range st.Ground {
-		if gg.ID == id && gg.Hex == hex {
+		if gg.ID == id {
 			return true
 		}
 	}

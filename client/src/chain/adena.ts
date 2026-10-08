@@ -2,6 +2,9 @@ import type { ChainConfig } from "../config";
 import { ChainError, type ChainErrorKind } from "./errors";
 
 /** Response envelope of every injected Adena method. */
+/** Gas limit sent with every call when VITE_GAS_WANTED is not set. */
+export const DEFAULT_GAS_WANTED = 100_000_000;
+
 export interface AdenaResponse<D> {
   code: number;
   status: "success" | "failure";
@@ -138,7 +141,12 @@ class AdenaWallet implements Wallet {
         throw new ChainError("wrong-account", "Adena is on another account", shortAddr(current));
       }
       const params: ContractParams = { messages: [{ type: "/vm.m_call", value: call }], memo: "" };
-      if (this.cfg.gasWanted) params.gasWanted = this.cfg.gasWanted;
+      // Left to itself Adena simulates the call and uses the result as the gas
+      // limit, with no margin. A SubmitPlan that resolves the turn shuffles the
+      // deck from a seed that includes the block height, so the real block can
+      // draw more cards than the simulation and run out of gas. A fixed, ample
+      // limit avoids that (the dev chain allows 10e9 per block).
+      params.gasWanted = this.cfg.gasWanted ?? DEFAULT_GAS_WANTED;
       if (this.cfg.gasFee) params.gasFee = this.cfg.gasFee;
       // Adena's defaults: it shows its result screen and a notification after
       // broadcasting, and answers the page once the result screen is closed.

@@ -1419,10 +1419,14 @@ export class GameScene extends Phaser.Scene {
     return this.preview?.guns ?? this.myGuns();
   }
 
-  /** The weapons lying in my character's hex, where the plan leaves it. */
+  /**
+   * The weapons lying in my character's hex, where the plan leaves it, as
+   * the chain has them (a pick-up planned this turn must still find its gun
+   * here, so the preview's lifting of it does not apply).
+   */
   private groundHere(): GroundGunView[] {
     const me = this.preview ?? (this.myIndex >= 0 ? this.committed[this.myIndex] : null);
-    return me ? this.displayGround().filter((g) => g.hex === me.hex) : [];
+    return me ? (this.view?.ground ?? []).filter((g) => g.hex === me.hex) : [];
   }
 
   /** My character's guns, as the chain shows them. */

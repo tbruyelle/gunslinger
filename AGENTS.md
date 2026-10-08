@@ -119,8 +119,9 @@ gun hand; hands: 0 gun hand, 1 other hand, 2 both hands; every gun has a
 stable id on its owner's sheet, the starting Colt is 1) or `g<ground
 id>:<hand>` to pick up a weapon lying in the character's hex (`9f:g2:0`;
 ground ids are stable for the game, `ground[].id` in the JSON; the realm
-rejects a gun that is not in the hex, and the pick-up gives the gun a fresh
-id on the new sheet, the first player winning a contested gun, 11.11), or for the gun actions
+rejects an unknown ground id, the hex is checked when the action executes
+so a character may walk to the gun first, and the pick-up gives the gun a
+fresh id on the new sheet, the first player winning a contested gun, 11.11), or for the gun actions
 the option: Cock/Aim/Shoot `5f:cock|uncock`, `5f:aim:<target>` or
 `5f:shoot:<target>`, Shoot `7f:shoot:<target>` or a bare `7f` (does nothing,
 keeps the aim); a target is a hex of the aim zone (`A-F6`) or a character
@@ -304,7 +305,11 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   the board; `assets/hit.png` or `missed.png` bursts beside the target. Loading, throwing and brawling stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
-  optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`.
+  optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`. Without `VITE_GAS_WANTED` every
+  call goes out with a fixed 100M gas limit (`DEFAULT_GAS_WANTED`): Adena's
+  own estimate has no margin, and a `SubmitPlan` that resolves the turn can
+  use more gas than its simulation since the deck seed includes the block
+  height.
 
 ### Manual end-to-end test
 1. Two accounts in Adena; `ADENA_ADDRS="g1... g1..." make gnodev` (premines
