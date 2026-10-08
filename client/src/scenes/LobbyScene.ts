@@ -2,11 +2,12 @@ import Phaser from "phaser";
 import { CHAR_ARROW_DIR } from "../rules";
 import { CONFIG } from "../config";
 import { initChain, resetChain, type Chain } from "../chain";
-import { subscribeAccountChanged, subscribeNetworkChanged } from "../chain/adena";
+import { subscribeAccountChanged, subscribeNetworkChanged, subscribeWalletLocked, walletLocked } from "../chain/adena";
 import { userMessage } from "../chain/errors";
 import { formatCoins } from "../chain/rpc";
 import { shortAddr, type GameSummary, type GamesView } from "../chain/types";
 import { showToast } from "../ui/toast";
+import { installWalletNotices } from "../ui/walletNotices";
 import { attachTooltip } from "../ui/tooltip";
 
 /** All character tokens, for the picker that will come back later. */
@@ -147,8 +148,12 @@ export class LobbyScene extends Phaser.Scene {
       resetChain();
       this.chain = await initChain(CONFIG);
       this.status = "ready";
+      installWalletNotices();
       if (this.unsubscribe.length === 0) {
         this.unsubscribe.push(
+          subscribeWalletLocked(() => {
+            if (this.scene.isActive() && this.screen === "lobby") this.buildAll();
+          }),
           subscribeAccountChanged(() => {
             if (this.scene.isActive() && this.screen === "lobby") void this.connect();
           }),
@@ -274,6 +279,11 @@ export class LobbyScene extends Phaser.Scene {
         if (this.accountPanel) void this.loadBalance(addr);
         this.buildAll();
       });
+      if (walletLocked()) {
+        this.add
+          .text(t.x - t.width - 14, TOPBAR_H / 2, "Adena locked", { fontSize: "13px", color: "#ffffff", backgroundColor: "#7a1f1f", padding: { x: 8, y: 3 } })
+          .setOrigin(1, 0.5);
+      }
       if (this.accountPanel) this.buildAccountPanel(addr);
     } else if (this.status === "connecting") {
       this.add.text(w - 16, TOPBAR_H / 2, "Connecting to Adena…", { fontSize: "14px", color: DIM_STR }).setOrigin(1, 0.5);

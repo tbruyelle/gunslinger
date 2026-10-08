@@ -1,10 +1,10 @@
 import type { ChainConfig } from "../config";
 import { ChainError, type ChainErrorKind } from "./errors";
 
-/** Response envelope of every injected Adena method. */
 /** Gas limit sent with every call when VITE_GAS_WANTED is not set. */
 export const DEFAULT_GAS_WANTED = 100_000_000;
 
+/** Response envelope of every injected Adena method. */
 export interface AdenaResponse<D> {
   code: number;
   status: "success" | "failure";
@@ -60,6 +60,9 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** How long a wallet popup may stay unanswered before the app gives up on it. */
 export const WALLET_TIMEOUT_MS = 3 * 60_000;
+
+/** How long a wallet call may stay unanswered before the page says it is waiting for Adena. */
+export const WALLET_NOTICE_MS = 6_000;
 
 /** Rejects with a ChainError("timeout") if the promise takes longer than ms. */
 export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
@@ -136,6 +139,7 @@ class AdenaWallet implements Wallet {
     inFlight++;
     try {
       const current = await currentAccount(this.adena);
+      notifyLocked(current === null);
       if (current === null) throw new ChainError("locked", "Adena is locked");
       if (current !== this.address) {
         throw new ChainError("wrong-account", "Adena is on another account", shortAddr(current));
@@ -151,11 +155,21 @@ class AdenaWallet implements Wallet {
       // Adena's defaults: it shows its result screen and a notification after
       // broadcasting, and answers the page once the result screen is closed.
       // The realm client also watches the chain, so that wait costs nothing.
-      const res = await withTimeout(
-        this.adena.DoContract(params, { withNotification: true, isVisibleResult: true }),
-        WALLET_TIMEOUT_MS,
-        "No answer from Adena",
-      );
+      // Adena's popup can open behind the browser window or on another
+      // screen (or land on its unlock page), and the page has nothing to show
+      // meanwhile: past a few seconds, say what the wallet is waiting for.
+      const notice = setTimeout(() => notifyWaiting(true), WALLET_NOTICE_MS);
+      let res: AdenaResponse<{ hash: string }>;
+      try {
+        res = await withTimeout(
+          this.adena.DoContract(params, { withNotification: true, isVisibleResult: true }),
+          WALLET_TIMEOUT_MS,
+          "No answer from Adena",
+        );
+      } finally {
+        clearTimeout(notice);
+        notifyWaiting(false);
+      }
       if (res.status === "failure" || !res.data?.hash) throw adenaError(res, "checktx");
       return { hash: res.data.hash };
     } finally {
@@ -201,6 +215,10 @@ export async function connectWallet(cfg: ChainConfig): Promise<Wallet> {
 
 // Adena's On() cannot unsubscribe, so it is registered once and fanned out.
 const accountListeners = new Set<(address: string) => void>();
+const lockListeners = new Set<(locked: boolean) => void>();
+const waitingListeners = new Set<(waiting: boolean) => void>();
+let lastLocked = false;
+let waiting = false;
 const networkListeners = new Set<(chainId: string) => void>();
 let listening = false;
 let lastSeenAddress: string | null = null;
@@ -213,6 +231,18 @@ function notifyAccount(address: string) {
   if (address === lastSeenAddress) return;
   lastSeenAddress = address;
   accountListeners.forEach((cb) => cb(address));
+}
+
+function notifyLocked(locked: boolean) {
+  if (locked === lastLocked) return;
+  lastLocked = locked;
+  lockListeners.forEach((cb) => cb(locked));
+}
+
+function notifyWaiting(w: boolean) {
+  if (w === waiting) return;
+  waiting = w;
+  waitingListeners.forEach((cb) => cb(w));
 }
 
 function listen() {
@@ -228,9 +258,10 @@ function listen() {
 function pollAccounts() {
   if (accountPoll || !window.adena) return;
   accountPoll = setInterval(async () => {
-    if (accountListeners.size === 0 || document.hidden || !window.adena || inFlight > 0) return;
+    if (accountListeners.size + lockListeners.size === 0 || document.hidden || !window.adena || inFlight > 0) return;
     try {
       const acc = await window.adena.GetAccount();
+      notifyLocked(acc.status === "failure" && acc.type === "WALLET_LOCKED");
       if (acc.status === "success" && acc.data?.address) notifyAccount(acc.data.address);
       else if (acc.status === "failure" && acc.type === "NOT_CONNECTED") notifyAccount("");
     } catch {
@@ -245,6 +276,32 @@ export function subscribeAccountChanged(cb: (address: string) => void): () => vo
   pollAccounts();
   accountListeners.add(cb);
   return () => accountListeners.delete(cb);
+}
+
+/**
+ * Calls cb when Adena gets locked or unlocked (seen by the account poll, so
+ * within a few seconds); returns an unsubscribe function. A locked Adena
+ * answers every call from the page with WALLET_LOCKED.
+ */
+export function subscribeWalletLocked(cb: (locked: boolean) => void): () => void {
+  pollAccounts();
+  lockListeners.add(cb);
+  return () => lockListeners.delete(cb);
+}
+
+/** Whether the account poll last saw Adena locked. */
+export function walletLocked(): boolean {
+  return lastLocked;
+}
+
+/**
+ * Calls cb(true) when a wallet call has been waiting for Adena for a few
+ * seconds (WALLET_NOTICE_MS) and cb(false) once it answers; returns an
+ * unsubscribe function.
+ */
+export function subscribeWalletWaiting(cb: (waiting: boolean) => void): () => void {
+  waitingListeners.add(cb);
+  return () => waitingListeners.delete(cb);
 }
 
 /** Calls cb when the user switches network in Adena; returns an unsubscribe function. */

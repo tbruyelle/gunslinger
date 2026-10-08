@@ -254,7 +254,15 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   `doContract` first checks `GetAccount` (re-establishing if needed) and
   throws `wrong-account` when Adena moved to another account. Account
   switches are detected through `On("changedAccount")` **and** a 3 s
-  `GetAccount` poll, since the event is not always delivered.
+  `GetAccount` poll, since the event is not always delivered. The same poll
+  tracks the lock (`GetAccount` answers `WALLET_LOCKED`):
+  `ui/walletNotices.ts` toasts "locked"/"unlocked" and the lobby top bar
+  shows an "Adena locked" badge; a call left unanswered for
+  `WALLET_NOTICE_MS` (6 s) shows "Waiting for Adena…" until it answers.
+- `ui/toast.ts`: toasts are DOM elements over the canvas, because the
+  scenes rebuild their display list (`children.removeAll`) on every refresh,
+  which destroyed Phaser toasts the moment they appeared; identical texts
+  replace each other.
 - `chain/poller.ts`: polls `json/game/{id}` every `VITE_POLL_MS` (2 s) and
   fires on `rev` change; backs off on errors; pauses when the tab is hidden.
 - `LobbyScene`: splash screen with an **Enter** button (skipped when a game

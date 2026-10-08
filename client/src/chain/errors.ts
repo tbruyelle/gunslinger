@@ -27,7 +27,7 @@ export function userMessage(e: unknown): string {
       case "no-wallet":
         return "Adena wallet not detected. Install it, then reload.";
       case "locked":
-        return "Adena is locked. Unlock it and try again.";
+        return "Adena is locked. Open the Adena extension, unlock it, then try again.";
       case "rejected":
         return "Transaction cancelled.";
       case "wrong-network":
