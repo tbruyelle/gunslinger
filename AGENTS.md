@@ -174,7 +174,8 @@ limit, else `full`), the gun uncocks (`load` event, N = shells); a jammed
 gun can neither shoot nor be cocked (`jammed`) until completely reloaded:
 Draw & Cock moves it uncocked (`draw` Result `jammed`), the client offers
 no gun card for it, and the load that fills it clears the jam (Result
-`unjammed`, 13.31); an exploded gun cannot be loaded. Cock/Aim/Shoot cocks, uncocks, aims
+`unjammed`, 13.31); an exploded gun cannot be loaded, cocked, aimed or
+fired (`broken`). Cock/Aim/Shoot cocks, uncocks, aims
 or shoots; Shoot shoots or does nothing. Aims and shots name a target the
 same way (11.31). **Aiming** puts 2 AIM points (max
 8) on the target named, a character (the markers then follow it wherever
@@ -332,7 +333,7 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   shows AIM, endurance (boxes above the ones left are crossed off) and the
   permanent wounds. During playback a bullet flies from the shooter's gun
   icon for each shot (`flashShots`), shaking the view; a miss flies on off
-  the board; `assets/hit.png` or `missed.png` bursts beside the target (`jammed.png` beside the shooter on a jam). Throwing and brawling stay disabled.
+  the board; `assets/hit.png` or `missed.png` bursts beside the target (`jammed.png` or `exploded.png` beside the shooter when the second MALFUNCTION jams or blows up the gun; an exploded gun's icon is struck through in red and no gun card can use it). Throwing and brawling stay disabled.
 - Config: `client/.env.local` (see `.env.example`): `VITE_RPC_URL`,
   `VITE_CHAIN_ID`, `VITE_CHAIN_NAME`, `VITE_REALM_PATH`, `VITE_POLL_MS`,
   optional `VITE_GAS_WANTED`/`VITE_GAS_FEE`. Without `VITE_GAS_WANTED` every
@@ -423,9 +424,12 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - chose number of turns (min 10 max 30)
     - move timeout in the same form
 - Showdown
-  - Status animation:
-    - MOVE
-    - RUN
+  - show tips (or highlight a card with some text)
+    - when no gun: show need to draw and cock
+    - when gun uncocked: show needs to be cocked
+    - when gun has no bullet: show needs to LOAD
+    - when gun is jammed: show it needs to be fully loaded
+    - when gun is exploded: nothing can be done except thrown or drop
   - Test other wounds:
     - Gun hand X
     - Gun ARM

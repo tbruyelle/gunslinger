@@ -103,6 +103,12 @@ function paintGun(gun: GunView, img: Phaser.GameObjects.Image, dots: Phaser.Game
     dots.fillStyle(loaded ? 0xd81818 : 0x3a2510, loaded ? 1 : 0.6);
     dots.fillCircle(-size / 2 + step * (i + 1), size * 0.4, radius);
   }
+  if (gun.exploded) {
+    // Blown up (13.31): a red strike across the icon, the gun is useless.
+    const r = size * 0.45;
+    dots.lineStyle(Math.max(2, size * 0.1), 0xd81818, 1);
+    dots.lineBetween(-r, r, r, -r);
+  }
   return alpha;
 }
 
@@ -664,7 +670,7 @@ export class GameScene extends Phaser.Scene {
     for (const n of AIM_MARKERS) {
       if (!this.textures.exists(`aim_${n}`)) this.load.image(`aim_${n}`, `aim${n}.gif`);
     }
-    for (const key of ["missed", "hit", "jammed"]) {
+    for (const key of ["missed", "hit", "jammed", "exploded"]) {
       if (!this.textures.exists(key)) this.load.image(key, `${key}.png`);
     }
   }
@@ -1915,11 +1921,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * A "HIT!", "MISSED!" or "JAMMED!" burst beside a token, off to the side of the
+   * A "HIT!", "MISSED!", "JAMMED!" or "EXPLODED!" burst beside a token, off to the side of the
    * bullet's path (perpendicular to it, on whichever side has more room):
    * pops up, holds, fades.
    */
-  private popBurst(key: "hit" | "missed" | "jammed", at: { sx: number; sy: number }, along: { x: number; y: number }) {
+  private popBurst(key: "hit" | "missed" | "jammed" | "exploded", at: { sx: number; sy: number }, along: { x: number; y: number }) {
     if (!this.textures.exists(key)) return;
     const d = this.tokenDiameter();
     const len = Math.hypot(along.x, along.y) || 1;
@@ -2331,14 +2337,14 @@ export class GameScene extends Phaser.Scene {
   private flashShots(events: TurnEvent[]) {
     const chars = this.displayChars();
     for (const e of events) {
-      if (e.kind === "malfunction" && e.result === "jams" && chars[e.p]) {
-        // A jam: no bullet, the "JAMMED!" burst pops beside the shooter, off
-        // the line towards what it shot at.
+      if (e.kind === "malfunction" && (e.result === "jams" || e.result === "explodes") && chars[e.p]) {
+        // A jam or an explosion: no bullet, the "JAMMED!" or "EXPLODED!"
+        // burst pops beside the shooter, off the line towards what it shot at.
         const shot = events.find((x) => x.kind === "shot" && x.p === e.p);
         const at = this.tokenScreenPos(chars, e.p);
         const aimAt = shot ? (shot.target >= 0 && chars[shot.target] ? this.tokenScreenPos(chars, shot.target) : this.hexToScreen(shot.to)) : null;
         const along = aimAt && (aimAt.sx !== at.sx || aimAt.sy !== at.sy) ? { x: aimAt.sx - at.sx, y: aimAt.sy - at.sy } : { x: 1, y: 0 };
-        this.popBurst("jammed", at, along);
+        this.popBurst(e.result === "jams" ? "jammed" : "exploded", at, along);
         continue;
       }
       if (e.kind !== "shot" || !chars[e.p]) continue;

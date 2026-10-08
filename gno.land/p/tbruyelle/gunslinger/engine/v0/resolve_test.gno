@@ -1039,6 +1039,15 @@ func TestLoad(t *testing.T) {
 	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonBroken {
 		t.Errorf("cancels = %v", c)
 	}
+	// Nor cocked or aimed.
+	_, evs = resolve(t, st, "5f:cock", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonBroken {
+		t.Errorf("cancels = %v", c)
+	}
+	_, evs = resolve(t, st, "5f:aim:@1", "")
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonBroken || len(ofKind(evs, 0, EvAim)) != 0 {
+		t.Errorf("cancels = %v", c)
+	}
 }
 
 func TestJammedGunReload(t *testing.T) {

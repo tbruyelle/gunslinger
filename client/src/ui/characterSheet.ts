@@ -305,7 +305,9 @@ function gunCard(g: GunView, draggable: string | null): string {
     `<img src="/guns/${escapeHtml(g.type)}.gif" alt="" style="width: 56px; height: 56px; image-rendering: pixelated; flex: none">` +
     `<div>` +
     `<div style="font-family: Rye, Georgia, serif; font-size: 22px; letter-spacing: 1px">${escapeHtml(g.name)}</div>` +
-    `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells</div>` +
+    `<div style="font-size: 16px; font-weight: 700">${g.cocked ? "cocked" : "uncocked"} · ${g.shells}/${g.capacity} shells${
+      g.exploded ? ` · <span style="color: #b0121a">EXPLODED</span>` : g.jammed ? ` · <span style="color: #b0121a">JAMMED</span>` : ""
+    }</div>` +
     `</div></div>`
   );
 }

@@ -140,5 +140,7 @@ describe("validatePlan", () => {
     expect(canPlay({ card: 5, side: "front" }, true, [{ ...inBoth, jammed: true }])).toBe(false);
     expect(canPlay({ card: 7, side: "front" }, true, [{ ...inBoth, jammed: true }])).toBe(false);
     expect(canPlay({ card: 5, side: "front" }, true, [inBoth])).toBe(true);
+    expect(canPlay({ card: 5, side: "front" }, true, [{ ...inBoth, cocked: true, exploded: true }])).toBe(false);
+    expect(canPlay({ card: 7, side: "front" }, true, [{ ...inBoth, cocked: true, exploded: true }])).toBe(false);
   });
 });

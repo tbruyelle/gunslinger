@@ -51,7 +51,7 @@ const (
 	ReasonEmpty     = "empty"       // shooting a gun without shells (13.1)
 	ReasonJammed    = "jammed"      // shooting or cocking a jammed gun not completely reloaded yet (13.31)
 	ReasonFull      = "full"        // loading a gun already holding its Ammo limit (10.42)
-	ReasonBroken    = "broken"      // shooting an exploded gun (13.31)
+	ReasonBroken    = "broken"      // using or loading an exploded gun (13.31)
 	ReasonNoTarget  = "no_target"   // the opponent is out of the fight (12.6)
 	ReasonOutOfZone = "out_of_zone" // the opponent is in the blind zone (8.32, 12.41)
 	ReasonReveal    = "reveal"      // revealing an action other than Turn or a gun action (12.44)
@@ -802,6 +802,9 @@ func execute(board *hex.Board, p int, a Action, st *State, c *Character, opp *Ch
 			return cancel(ReasonNoGun)
 		}
 		g := &c.Guns[slot]
+		if g.Exploded { // useless for the rest of the game (13.31)
+			return cancel(ReasonBroken)
+		}
 		switch a.Opt {
 		case OptCock:
 			if g.Jammed { // not before it is completely reloaded (13.31)
