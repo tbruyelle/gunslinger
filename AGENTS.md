@@ -186,8 +186,9 @@ obstacles or line of sight yet. **A shot** draws a result card: a MALFUNCTION
 whose Handloaded line says no effect is replaced; a misfire cancels the shot
 and a second MALFUNCTION jams (shells 0) or blows up the gun. A FIRE card's
 hit chart is read at aim time (card aim time + AIM points − GUN ARM / OTHER
-ARM wounds) and range; off the chart, or the target out of the aim zone, is a
-miss. Target Status (13.6): Move (foot action played or dropped this turn)
+ARM wounds) and range; off the chart is a miss; a
+shot at a target out of the aim zone is cancelled before any card is drawn
+(the gun stays cocked and loaded). Target Status (13.6): Move (foot action played or dropped this turn)
 and Run turn a bullseye into the card's lesser hit and any other hit into a
 miss; Down turns any hit but a bullseye into a miss. A bullseye becomes a
 VITAL hit (the shooter's best choice). The shooter then uncocks, spends a

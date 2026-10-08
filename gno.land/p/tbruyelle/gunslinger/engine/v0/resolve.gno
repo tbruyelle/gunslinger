@@ -381,8 +381,8 @@ func fireHarmlessly(p int, g *Gun, seg int, evs *[]Event) {
 }
 
 // shoot resolves a shot (13): the gun must be cocked, loaded and in a box it
-// fires from, else the action is cancelled; the target is the opponent,
-// hit only inside the aim zone. A MALFUNCTION with no effect is replaced; a
+// fires from, and the target (the opponent, or a hex) in the aim zone,
+// else the action is cancelled. A MALFUNCTION with no effect is replaced; a
 // misfire cancels the shot and a second draw may jam or blow up the gun.
 // The shooter then uncocks, spends a shell and loses the aim (13.9). It
 // returns the IMPACT TABLE results of a hit, inflicted at the end of the
@@ -426,7 +426,11 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 		aim -= c.OtherArm
 	}
 	rng := board.Distance(c.Hex, at)
-	inZone := board.InAimZone(c.Hex, c.Facing, at)
+	// A shot only goes off at a target in the aim zone (8.32), like an aim:
+	// otherwise nothing is drawn, the gun stays cocked and loaded.
+	if !board.InAimZone(c.Hex, c.Facing, at) {
+		return cancel(ReasonOutOfZone)
+	}
 
 	// Draw (13.2): a MALFUNCTION with no effect is replaced; a misfire
 	// cancels the shot and draws again for the gun (13.3, 13.31).
@@ -465,8 +469,6 @@ func shoot(board *hex.Board, p int, c *Character, target int, t *Character, a Ac
 	switch {
 	case misfire:
 		ev.Reason = ReasonMisfire
-	case !inZone:
-		ev.Reason = ReasonOutOfZone
 	case !onTarget:
 		ev.Reason = ReasonEmptyHex
 	default:

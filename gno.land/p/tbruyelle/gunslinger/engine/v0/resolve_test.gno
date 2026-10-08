@@ -704,13 +704,17 @@ func TestShotStatusAndOutOfZone(t *testing.T) {
 	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Hit != string(Miss) {
 		t.Errorf("shot = %v", sh)
 	}
-	// Out of the aim zone: the shot fires (card drawn, shell spent) but misses.
+	// Out of the aim zone: the shot is cancelled, no card drawn, the gun
+	// still cocked and loaded.
 	st = armed(0)
 	st.Chars[0].Facing = hex.N
-	seq = Sequence{6}
+	seq = Sequence{6, 7}
 	st, evs = resolveWith(t, st, "7f:shoot:@1", "", &seq)
-	if sh := ofKind(evs, 0, EvShot); len(sh) != 1 || sh[0].Reason != ReasonOutOfZone || sh[0].Hit != string(Miss) || st.Chars[0].Guns[0].Shells != 5 {
-		t.Errorf("shot = %v", sh)
+	if c := ofKind(evs, 0, EvCancel); len(c) != 1 || c[0].Reason != ReasonOutOfZone || len(ofKind(evs, 0, EvShot)) != 0 {
+		t.Errorf("cancels = %v, events = %v", c, evs)
+	}
+	if g := st.Chars[0].Guns[0]; g.Shells != 6 || !g.Cocked || len(seq) != 2 {
+		t.Errorf("gun = %+v, cards left = %v", g, seq)
 	}
 	// Not cocked, empty: cancelled.
 	st = armed(0)

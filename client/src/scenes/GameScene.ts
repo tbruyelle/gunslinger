@@ -2318,6 +2318,9 @@ export class GameScene extends Phaser.Scene {
     const chars = this.displayChars();
     for (const e of events) {
       if (e.kind !== "shot" || !chars[e.p]) continue;
+      // Turns resolved before out-of-zone shots were cancelled recorded them
+      // as misses; no bullet left the gun.
+      if (e.reason === "out_of_zone") continue;
       // The bullet leaves the shooter's gun icon, like the aim line.
       const gun = this.gunCentre(e.p);
       const from = { sx: gun.x, sy: gun.y };
