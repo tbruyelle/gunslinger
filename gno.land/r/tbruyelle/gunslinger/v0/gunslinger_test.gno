@@ -150,11 +150,11 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 	uassert.Equal(t, "1f:ahead,2f:ahead", lt.Plans[0])
 	uassert.Equal(t, "5b", lt.Plans[1])
 	uassert.Equal(t, 64, len(lt.Seed))
-	uassert.Equal(t, "A-F3", lt.Start[0].Hex)
-	uassert.Equal(t, "A-F9", lt.Start[1].Hex)
+	uassert.Equal(t, "A-F3", lt.Start()[0].Hex)
+	uassert.Equal(t, "A-F9", lt.Start()[1].Hex)
 	// Alice advanced F3->F4 on segment 2 and ran F4->F5 on segment 3;
 	// Bob dropped on segment 3.
-	uassert.Equal(t, 3, len(lt.Events))
+	uassert.Equal(t, 3, len(lt.Events()))
 	uassert.Equal(t, "A-F5", g.State.Chars[0].Hex)
 	uassert.Equal(t, "A-F9", g.State.Chars[1].Hex)
 	uassert.True(t, g.State.Chars[1].Down)
@@ -388,13 +388,14 @@ func TestShootout(cur realm, t *testing.T) {
 	SubmitPlan(cross(cur), id, "7f")
 	lt := g.lastTurn()
 	var shot *engine.Event
-	for i := range lt.Events {
-		if lt.Events[i].Kind == engine.EvShot {
-			shot = &lt.Events[i]
+	evs := lt.Events()
+	for i := range evs {
+		if evs[i].Kind == engine.EvShot {
+			shot = &evs[i]
 		}
 	}
 	if shot == nil {
-		t.Fatalf("no shot event: %v", lt.Events)
+		t.Fatalf("no shot event: %v", evs)
 	}
 	uassert.Equal(t, 0, shot.Player)
 	uassert.Equal(t, 1, shot.Target)
@@ -406,7 +407,7 @@ func TestShootout(cur realm, t *testing.T) {
 	uassert.Equal(t, 0, g.State.Chars[0].Aim)
 	uassert.False(t, g.State.Chars[0].Guns[0].Cocked)
 	uassert.True(t, g.State.Chars[0].Guns[0].Shells <= 5)
-	uassert.True(t, len(lt.Cards) >= 1)
+	uassert.True(t, len(lt.Cards()) >= 1)
 	uassert.True(t, strings.Contains(GameJSON(id), `"kind":"shot"`))
 	uassert.True(t, strings.Contains(Render("game/"+id), "shoots dude in A-F9 (card "))
 }
@@ -426,7 +427,7 @@ func TestAutoPass(cur realm, t *testing.T) {
 	lt := g.lastTurn()
 	uassert.Equal(t, "", lt.Plans[0])
 	uassert.Equal(t, "1f:ahead", lt.Plans[1])
-	uassert.False(t, lt.Start[0].PlayedFoot)
+	uassert.False(t, lt.Start()[0].PlayedFoot)
 	uassert.Equal(t, 2, g.State.Chars[0].Delay) // 5 -> 2: she can play 3 points now
 	uassert.False(t, g.Submitted[0])
 	uassert.False(t, g.Submitted[1])

@@ -83,8 +83,11 @@ Plans[2], Submitted[2], LastTurn *TurnResult, Winner, EndReason, Rev,
 CreatedAt, UpdatedAt}` stored in an `avl.Tree` by zero-padded `seqid`;
 `byPlayer` (address → ids) and `openGames` indexes. `Rev` is bumped on every
 change and is what clients poll. Every resolved turn is kept in `Turns`
-(`TurnResult{Turn, Start, Plans, Seed, Cards, Events}`, at most MaxTurns;
-`Cards` is the trace of the result cards drawn that turn, in order).
+(`TurnResult{Turn, Plans, Seed, StartEnc, CardsEnc, EventsEnc}`, at most
+MaxTurns; the start snapshot, the cards drawn and the events are stored in
+the engine's compact text encodings, `engine/v0/encode.gno`, read back
+through `Start()`, `Cards()`, `Events()`: as structs a turn cost over 17 KB
+of storage deposit, encoded about a tenth).
 
 ### Crossing functions (called with MsgCall, args are strings)
 | Function | Notes |

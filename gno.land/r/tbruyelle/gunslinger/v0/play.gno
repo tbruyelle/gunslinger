@@ -110,7 +110,7 @@ func resolveTurn(g *Game) string {
 		evs = append(evs, endEvs...)
 	}
 	seedHex := enchex.EncodeToString(seed[:])
-	g.Turns = append(g.Turns, &TurnResult{Turn: g.Turn, Start: start, Plans: g.Plans, Seed: seedHex, Cards: deck.Drawn(), Events: evs})
+	g.Turns = append(g.Turns, newTurnResult(g.Turn, start, g.Plans, seedHex, deck.Drawn(), evs))
 	g.State = st
 	g.Plans = [engine.NumPlayers]string{}
 	g.Submitted = [engine.NumPlayers]bool{}

@@ -127,15 +127,16 @@ func renderGame(res *mux.ResponseWriter, req *mux.Request) {
 	for _, r := range g.Turns {
 		res.Write(md.H3("Turn " + strconv.Itoa(r.Turn)))
 		res.Write(md.Paragraph("Plans: " + md.InlineCode(orPass(r.Plans[0])) + " vs " + md.InlineCode(orPass(r.Plans[1]))))
-		if len(r.Cards) > 0 {
-			cards := make([]string, len(r.Cards))
-			for i, n := range r.Cards {
+		if drawn := r.Cards(); len(drawn) > 0 {
+			cards := make([]string, len(drawn))
+			for i, n := range drawn {
 				cards[i] = strconv.Itoa(n)
 			}
 			res.Write(md.Paragraph("Result cards drawn: " + strings.Join(cards, ", ")))
 		}
-		items := make([]string, 0, len(r.Events))
-		for _, e := range r.Events {
+		evs := r.Events()
+		items := make([]string, 0, len(evs))
+		for _, e := range evs {
 			items = append(items, describeEvent(g, e))
 		}
 		if len(items) == 0 {

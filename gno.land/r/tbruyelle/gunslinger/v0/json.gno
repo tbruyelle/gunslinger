@@ -189,7 +189,7 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 	b.WriteString(`{"turn":` + strconv.Itoa(r.Turn))
 	b.WriteString(`,"seed":` + quote(r.Seed))
 	b.WriteString(`,"cards":[`)
-	for i, n := range r.Cards {
+	for i, n := range r.Cards() {
 		if i > 0 {
 			b.WriteByte(',')
 		}
@@ -203,14 +203,14 @@ func writeTurnResult(b *strings.Builder, r *TurnResult) {
 		b.WriteString(quote(p))
 	}
 	b.WriteString(`],"events":[`)
-	for i, e := range r.Events {
+	for i, e := range r.Events() {
 		if i > 0 {
 			b.WriteByte(',')
 		}
 		writeEvent(b, e)
 	}
 	b.WriteString(`],"start":[`)
-	for i, c := range r.Start {
+	for i, c := range r.Start() {
 		if i > 0 {
 			b.WriteByte(',')
 		}

@@ -61,15 +61,30 @@ type Player struct {
 // TurnResult is the outcome of one resolved turn, kept so the client can
 // replay it: the state the turn started from, the plans, and what happened.
 // Seed lets anyone re-run the resolution; Cards is the trace of the result
-// cards drawn from the deck it shuffles, in order.
+// cards drawn from the deck it shuffles, in order. The start snapshot, the
+// cards and the events are kept in the engine's compact text encodings: as
+// structs they cost a hundred times more storage (see engine/encode.gno).
 type TurnResult struct {
-	Turn   int
-	Start  [engine.NumPlayers]engine.Character
-	Plans  [engine.NumPlayers]string
-	Seed   string
-	Cards  []int
-	Events []engine.Event
+	Turn      int
+	Plans     [engine.NumPlayers]string
+	Seed      string
+	StartEnc  string // engine.EncodeChars
+	CardsEnc  string // engine.EncodeInts
+	EventsEnc string // engine.EncodeEvents
 }
+
+func newTurnResult(turn int, start [engine.NumPlayers]engine.Character, plans [engine.NumPlayers]string, seed string, cards []int, evs []engine.Event) *TurnResult {
+	return &TurnResult{Turn: turn, Plans: plans, Seed: seed, StartEnc: engine.EncodeChars(start), CardsEnc: engine.EncodeInts(cards), EventsEnc: engine.EncodeEvents(evs)}
+}
+
+// Start is the state of both seats when the turn began.
+func (r *TurnResult) Start() [engine.NumPlayers]engine.Character { return engine.DecodeChars(r.StartEnc) }
+
+// Cards is the result cards drawn during the turn, in order.
+func (r *TurnResult) Cards() []int { return engine.DecodeInts(r.CardsEnc) }
+
+// Events is what happened during the turn, in order.
+func (r *TurnResult) Events() []engine.Event { return engine.DecodeEvents(r.EventsEnc) }
 
 // Game is one showdown.
 type Game struct {
