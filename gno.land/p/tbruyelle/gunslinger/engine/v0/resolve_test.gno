@@ -1074,3 +1074,44 @@ func TestJammedGunReload(t *testing.T) {
 		t.Errorf("loads = %v, gun = %+v", l, st.Chars[0].Guns[0])
 	}
 }
+
+func TestEventSteps(t *testing.T) {
+	// Segment 1: the marshal's shot goes first, then the Kid's turn.
+	// Segment 3: the marshal advances, then the Kid aims at him. The
+	// occupied-hex delay and the combat results close their segment; the
+	// action left over is cancelled after segment 5, outside any step.
+	st := armed(0)
+	st.Chars[1].Guns[0].Location = GunHand
+	st.Chars[1].Guns[0].Cocked = true
+	st.Chars[0].Hex, st.Chars[1].Hex = "A-F5", "A-F7"
+	_, evs := resolve(t, st, "7f:shoot:@1,1f:ahead,2f:ahead", "3b:ahead_left,5f:aim:@0,9f:1:2")
+	want := map[string]int{
+		EvShot + "0": StepShots,
+		EvTurn + "1": StepAction + 1,
+		EvMove + "0": StepAction,
+		EvAim + "1":  StepAction + 1,
+	}
+	for _, e := range evs {
+		key := e.Kind + string(rune('0'+e.Player))
+		if step, ok := want[key]; ok && e.Step != step {
+			t.Errorf("%s of seat %d at seg %d: step %d, want %d", e.Kind, e.Player, e.Seg, e.Step, step)
+		}
+		if (e.Kind == EvWound || e.Reason == ReasonOccupied) && e.Step != StepEnd {
+			t.Errorf("%+v: step %d, want StepEnd", e, e.Step)
+		}
+		if (e.Seg == 0 || e.Seg == EndOfTurn) && e.Step != 0 {
+			t.Errorf("%+v: step %d outside the segments", e, e.Step)
+		}
+	}
+	for _, k := range []string{EvShot + "0", EvTurn + "1", EvMove + "0", EvAim + "1"} {
+		found := false
+		for _, e := range evs {
+			if e.Kind+string(rune('0'+e.Player)) == k {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no %s event in %v", k, evs)
+		}
+	}
+}

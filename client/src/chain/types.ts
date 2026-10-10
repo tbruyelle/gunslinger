@@ -90,7 +90,18 @@ export interface TurnEvent {
   /** Gun type and id for gun events ("" and 0 otherwise). */
   gun: string;
   gunId: number;
+  /**
+   * The part of the segment the event belongs to, in resolution order:
+   * STEP_SHOTS, each seat's action (STEP_ACTION + seat), then STEP_END;
+   * 0 outside the segments and for turns recorded before steps existed.
+   */
+  step: number;
 }
+
+/** Steps of a segment (engine StepShots, StepEnd, StepAction). */
+export const STEP_SHOTS = 1;
+export const STEP_END = 2;
+export const STEP_ACTION = 3;
 
 /** A character's state when a turn began. */
 export interface StartChar extends WoundFields {

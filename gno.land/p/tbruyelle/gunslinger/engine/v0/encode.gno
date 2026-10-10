@@ -27,7 +27,7 @@ func EncodeEvents(evs []Event) string {
 			strconv.Itoa(e.Seg), strconv.Itoa(e.Player), e.Kind, string(e.Action), e.From, e.To,
 			strconv.Itoa(int(e.Facing)), boolStr(e.Down), strconv.Itoa(e.N), strconv.Itoa(e.Delay),
 			e.Reason, strconv.Itoa(e.Card), e.Result, strconv.Itoa(e.Endurance), strconv.Itoa(e.Target),
-			e.Hit, strconv.Itoa(e.Range), string(e.Gun), strconv.Itoa(e.GunID),
+			e.Hit, strconv.Itoa(e.Range), string(e.Gun), strconv.Itoa(e.GunID), strconv.Itoa(e.Step),
 		}, "|"))
 	}
 	return b.String()
@@ -42,14 +42,17 @@ func DecodeEvents(s string) []Event {
 	evs := make([]Event, 0, len(recs))
 	for _, r := range recs {
 		f := strings.Split(r, "|")
-		if len(f) != 19 {
+		if len(f) == 19 {
+			f = append(f, "0") // recorded before steps existed: no step
+		}
+		if len(f) != 20 {
 			continue
 		}
 		evs = append(evs, Event{
 			Seg: atoi(f[0]), Player: atoi(f[1]), Kind: f[2], Action: cards.Code(f[3]), From: f[4], To: f[5],
 			Facing: hex.Dir(atoi(f[6])), Down: f[7] == "1", N: atoi(f[8]), Delay: atoi(f[9]),
 			Reason: f[10], Card: atoi(f[11]), Result: f[12], Endurance: atoi(f[13]), Target: atoi(f[14]),
-			Hit: f[15], Range: atoi(f[16]), Gun: GunType(f[17]), GunID: atoi(f[18]),
+			Hit: f[15], Range: atoi(f[16]), Gun: GunType(f[17]), GunID: atoi(f[18]), Step: atoi(f[19]),
 		})
 	}
 	return evs

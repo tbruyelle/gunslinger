@@ -57,7 +57,7 @@ const WOUND_AFTER_SHOT_MS = 350;
 /** A miss ricochets once the bullet has passed the target. */
 const RICOCHET_AFTER_SHOT_MS = 350;
 
-/** The sounds of one segment's events, in the order they happen. */
+/** The sounds of one step's events, in the order they happen. */
 export function soundsForEvents(events: TurnEvent[]): SoundCue[] {
   const cues: SoundCue[] = [];
   const bled = new Set<number>();

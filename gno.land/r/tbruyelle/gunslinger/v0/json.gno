@@ -23,7 +23,7 @@ const listLimit = 50
 //	 "ground":[{"id" (ground id, "g<id>" in a plan),"hex","guns":[{..}]}],
 //	 "winner","endReason","createdAt","updatedAt","timeoutAt",
 //	 "lastTurn":null|{"turn","seed","cards":[result card numbers drawn, in order],"plans":[..],
-//	             "events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","endurance","target","hit","range","gun","gunId"}],
+//	             "events":[{"seg","p","kind","action","from","to","facing","down","n","delay","reason","card","result","endurance","target","hit","range","gun","gunId","step"}],
 //	             "start":[{"hex","facing","down","delay","status","aim","aimHex","endurance","serious","gunArm","otherArm","leg","guns":[..]},..]}}
 //
 // Times are unix seconds; winner and events[].p are seat indexes, -1 for none.
@@ -246,6 +246,7 @@ func writeEvent(b *strings.Builder, e engine.Event) {
 	b.WriteString(`,"range":` + strconv.Itoa(e.Range))
 	b.WriteString(`,"gun":` + quote(string(e.Gun)))
 	b.WriteString(`,"gunId":` + strconv.Itoa(e.GunID))
+	b.WriteString(`,"step":` + strconv.Itoa(e.Step))
 	b.WriteByte('}')
 }
 

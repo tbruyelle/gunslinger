@@ -12,6 +12,7 @@ import {
   endOfTurnEvents,
   eventsForSegment,
   snapshotAfterSegment,
+  splitSteps,
   startOfTurn,
   stepBack,
   stepForward,
@@ -84,6 +85,12 @@ const AIM_SIZE = 0.42;
 const MAX_ENDURANCE = 20;
 /** Colour of the aim line and the shot tracer. */
 const AIM_LINE_COLOR = 0xff2020;
+/** How long a step of the replay takes to land: the tokens' move (refreshTokens). */
+const STEP_MOVE_MS = 450;
+/** The extra beat a step with shots takes for the bullets and their bursts. */
+const STEP_SHOT_MS = 250;
+/** The pause between segments in auto play. */
+const AUTO_GAP_MS = 450;
 /** The tracer a bullet leaves behind it. */
 const SHOT_LINE_COLOR = 0xffffff;
 
@@ -553,7 +560,10 @@ export class GameScene extends Phaser.Scene {
 
   // Playback of the last resolved turn
   // Replay of resolved turns: a turn that just resolved (live) or the history.
-  private playback: { turns: TurnResult[]; index: number; seg: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
+  // cut: an index into the turn's events where the shown state stops (a
+  // segment shown up to one of its steps), null for the whole segment;
+  // anim counts the positions shown, so a step left over from one stops.
+  private playback: { turns: TurnResult[]; index: number; seg: number; cut: number | null; anim: number; live: boolean; auto: Phaser.Time.TimerEvent | null } | null = null;
   /** The plan being built when a history replay was opened, restored on close. */
   /** The plan sent this turn, shown while waiting: known from sending it, else read back from the chain. */
   private sentPlan: { turn: number; plan: string } | null = null;
@@ -896,7 +906,7 @@ export class GameScene extends Phaser.Scene {
     }
     const t = pb.turns[pb.index];
     const ground = this.groundBefore();
-    snapshotAfterSegment(startOfTurn(t, this.committed), t.events, pb.seg, ground);
+    snapshotAfterSegment(startOfTurn(t, this.committed), t.events, pb.seg, ground, pb.cut ?? undefined);
     return ground;
   }
 
@@ -929,7 +939,7 @@ export class GameScene extends Phaser.Scene {
   private displayChars(): CharView[] {
     if (this.playback) {
       const t = this.playback.turns[this.playback.index];
-      return snapshotAfterSegment(startOfTurn(t, this.committed), t.events, this.playback.seg, this.groundBefore());
+      return snapshotAfterSegment(startOfTurn(t, this.committed), t.events, this.playback.seg, this.groundBefore(), this.playback.cut ?? undefined);
     }
     return this.committed.map((c, i) => (i === this.myIndex && this.preview ? this.preview : c));
   }
@@ -2284,7 +2294,7 @@ export class GameScene extends Phaser.Scene {
   private startPlayback(turns: TurnResult[], live: boolean) {
     this.stopAuto();
     this.clearSelection();
-    this.playback = { turns, index: 0, seg: 0, live, auto: null };
+    this.playback = { turns, index: 0, seg: 0, cut: null, anim: 0, live, auto: null };
     this.mode = "playback";
     this.refreshTokens(true);
     this.refreshPanels();
@@ -2310,12 +2320,43 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private stepTo(pos: ReplayPos | null) {
-    if (!this.playback || !pos) return;
-    this.playback.index = pos.index;
-    this.playback.seg = pos.seg;
-    const events = eventsForSegment(this.playback.turns[pos.index].events, pos.seg);
-    const same = () => !!this.playback && this.playback.index === pos.index && this.playback.seg === pos.seg;
+  /**
+   * Shows a segment of the replay. Moving forward, its steps play one after
+   * the other, as they resolved: the shots, each seat's action in seat
+   * order, then the end of the segment (penalties, aims lost); otherwise it
+   * lands in one go. done runs once the last step has played, unless
+   * another position was shown meanwhile.
+   */
+  private stepTo(pos: ReplayPos | null, opts: { stepwise?: boolean; done?: () => void } = {}) {
+    const pb = this.playback;
+    if (!pb || !pos) return;
+    pb.index = pos.index;
+    pb.seg = pos.seg;
+    const gen = ++pb.anim;
+    const same = () => this.playback === pb && pb.anim === gen;
+    const all = pb.turns[pos.index].events;
+    const events = eventsForSegment(all, pos.seg);
+    const parts = opts.stepwise && events.length > 0 ? splitSteps(events) : [events];
+    this.refreshSequencePanel();
+    const play = (k: number) => {
+      if (!same()) return;
+      // Shown up to this step: the next one's first event and all that follows wait.
+      pb.cut = k + 1 < parts.length ? all.indexOf(parts[k + 1][0]) : null;
+      const ms = this.animateStep(parts[k], same);
+      this.time.delayedCall(ms, () => {
+        if (!same()) return;
+        if (k + 1 < parts.length) play(k + 1);
+        else opts.done?.();
+      });
+    };
+    play(0);
+  }
+
+  /**
+   * Animates one step of a segment from what the tokens show to the state
+   * after it, and returns how long that takes in ms.
+   */
+  private animateStep(events: TurnEvent[], same: () => boolean): number {
     const after = this.displayChars();
     // DEL badges: one that goes away drifts up and fades first; one that
     // appears or changes pulses once the new state is shown.
@@ -2333,12 +2374,12 @@ export class GameScene extends Phaser.Scene {
         if (e.kind === "cock") this.tokens[e.p]?.cockGun(this.tweens);
       }
     };
-    // An aim lost this segment: its marker drifts up and fades before the state moves on.
+    // An aim lost this step: its marker drifts up and fades before the state moves on.
     const lost = events.filter((e) => e.kind === "lose_aim");
     const fade = lost.length > 0 || vanishing.length > 0 ? 400 : 0;
     for (const e of lost) this.fadeAim(e.p, fade);
-    // An aim taken this segment gets its line and pulse, unless the same
-    // segment takes it away again (a hit's DROP, say): nothing to land then.
+    // An aim taken this step gets its line and pulse, unless the same
+    // step takes it away again: nothing to land then.
     const aim = events.find((e) => e.kind === "aim" && (after[e.p]?.aim ?? 0) > 0);
     const land = () => {
       if (!same()) return;
@@ -2346,13 +2387,14 @@ export class GameScene extends Phaser.Scene {
         settle();
         return;
       }
-      // An aim taken this segment: the dotted line shows where it goes; a
-      // beat later the markers land there with a zoom pulse while the line
-      // is still on, then the line clears.
+      // The dotted line shows where the aim goes, from where the tokens
+      // stand; a beat later the markers land there with a zoom pulse while
+      // the line is still on, then the line clears.
       // Both ends are fixed up front: the gun may be gone from the token by the
-      // end of the segment (dropped by a hit), which would jump the line.
+      // end of the step (dropped by a hit), which would jump the line.
       const from = this.gunCentre(aim.p);
-      const target = aim.target >= 0 ? this.tokenCentre(aim.target) : this.hexCentre(aim.to);
+      const sprite = aim.target >= 0 ? this.tokens[aim.target]?.sprite : undefined;
+      const target = sprite ? { x: sprite.x, y: sprite.y } : aim.target >= 0 ? this.tokenCentre(aim.target) : this.hexCentre(aim.to);
       this.showAimLine(from, target);
       this.time.delayedCall(150, () => {
         if (!same()) return;
@@ -2366,7 +2408,6 @@ export class GameScene extends Phaser.Scene {
     };
     if (fade > 0) this.time.delayedCall(fade, land);
     else land();
-    this.refreshSequencePanel();
     this.flashShots(events);
     this.playSounds(events);
     // SERIOUS wounds bleed where the character stands as their fatigue cards cost endurance.
@@ -2374,12 +2415,16 @@ export class GameScene extends Phaser.Scene {
     for (const e of events) {
       if (e.kind === "delay" && e.reason === "serious" && e.endurance > 0 && chars[e.p]) this.bloodStains(this.tokenScreenPos(chars, e.p), 2 * e.endurance);
     }
+    // The tokens move in 450 ms once settled; a shot's bullet and burst need a beat more.
+    const shots = events.some((e) => e.kind === "shot");
+    return fade + (aim ? 150 : 0) + STEP_MOVE_MS + (shots ? STEP_SHOT_MS : 0);
   }
 
   /**
    * A bullet flying from the shooter to the target for each shot of the
-   * segment: a red tracer grows from the shooter with a bright head, then
-   * fades out. Drawn under the tokens like the aim line.
+   * step, and off in a random direction for each wild shot: a tracer grows
+   * from the gun with a bright head, then fades out. Drawn under the tokens
+   * like the aim line, a miss above them.
    */
   private flashShots(events: TurnEvent[]) {
     const chars = this.displayChars();
@@ -2392,6 +2437,17 @@ export class GameScene extends Phaser.Scene {
         const aimAt = shot ? (shot.target >= 0 && chars[shot.target] ? this.tokenScreenPos(chars, shot.target) : this.hexToScreen(shot.to)) : null;
         const along = aimAt && (aimAt.sx !== at.sx || aimAt.sy !== at.sy) ? { x: aimAt.sx - at.sx, y: aimAt.sy - at.sy } : { x: 1, y: 0 };
         this.popBurst(e.result === "jams" ? "jammed" : "exploded", at, along);
+        continue;
+      }
+      if (e.kind === "wild_shot" && chars[e.p]) {
+        // A gun going off by itself (a WILD SHOT penalty): the bullet flies
+        // off in a random direction, past the board's edge, hitting nothing.
+        const gun = this.gunCentre(e.p);
+        const from = { sx: gun.x, sy: gun.y };
+        const angle = Math.random() * Math.PI * 2;
+        this.flyTracer(from, this.beyondTheBoard(from, { sx: from.sx + Math.cos(angle), sy: from.sy + Math.sin(angle) }), 20);
+        this.tokens[e.p]?.kickGun(this.tweens);
+        this.cameras.main.shake(120, 0.0025);
         continue;
       }
       if (e.kind !== "shot" || !chars[e.p]) continue;
@@ -2415,22 +2471,8 @@ export class GameScene extends Phaser.Scene {
       let to = near;
       if (!hit) to = this.beyondTheBoard(from, near); // a miss flies on past the target and off the board
       // A miss flies over the target, so its tracer is drawn above the tokens.
-      const g = this.add.graphics().setMask(this.arrMask).setDepth(hit ? this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }) : 20);
-      const bullet = { t: 0 };
-      const draw = () => {
-        const x = from.sx + (to.sx - from.sx) * bullet.t;
-        const y = from.sy + (to.sy - from.sy) * bullet.t;
-        g.clear();
-        g.lineStyle(2, SHOT_LINE_COLOR, 1);
-        g.beginPath();
-        g.moveTo(from.sx, from.sy);
-        g.lineTo(x, y);
-        g.strokePath();
-        g.fillStyle(0xffd860, 1);
-        g.fillCircle(x, y, 5);
-      };
+      const flight = this.flyTracer(from, to, hit ? this.lineDepth({ x: from.sx, y: from.sy }, { x: to.sx, y: to.sy }) : 20);
       const length = Math.hypot(to.sx - from.sx, to.sy - from.sy);
-      const flight = Math.min(175, 15 + length / 16);
       // The gunshot kicks the gun and shakes the view as the bullet leaves, harder on a hit.
       this.tokens[e.p]?.kickGun(this.tweens);
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);
@@ -2447,15 +2489,38 @@ export class GameScene extends Phaser.Scene {
           }
         }
       });
-      this.tweens.add({
-        targets: bullet,
-        t: 1,
-        duration: flight,
-        ease: "Linear",
-        onUpdate: draw,
-        onComplete: () => this.tweens.add({ targets: g, alpha: 0, duration: 600, delay: 150, ease: "Cubic.easeIn", onComplete: () => g.destroy() }),
-      });
     }
+  }
+
+  /**
+   * A bullet's tracer growing from from to to with a bright head, then
+   * fading out; returns the flight time in ms.
+   */
+  private flyTracer(from: { sx: number; sy: number }, to: { sx: number; sy: number }, depth: number): number {
+    const g = this.add.graphics().setMask(this.arrMask).setDepth(depth);
+    const bullet = { t: 0 };
+    const draw = () => {
+      const x = from.sx + (to.sx - from.sx) * bullet.t;
+      const y = from.sy + (to.sy - from.sy) * bullet.t;
+      g.clear();
+      g.lineStyle(2, SHOT_LINE_COLOR, 1);
+      g.beginPath();
+      g.moveTo(from.sx, from.sy);
+      g.lineTo(x, y);
+      g.strokePath();
+      g.fillStyle(0xffd860, 1);
+      g.fillCircle(x, y, 5);
+    };
+    const flight = Math.min(175, 15 + Math.hypot(to.sx - from.sx, to.sy - from.sy) / 16);
+    this.tweens.add({
+      targets: bullet,
+      t: 1,
+      duration: flight,
+      ease: "Linear",
+      onUpdate: draw,
+      onComplete: () => this.tweens.add({ targets: g, alpha: 0, duration: 600, delay: 150, ease: "Cubic.easeIn", onComplete: () => g.destroy() }),
+    });
+    return flight;
   }
 
   /** The segment's sound effects, each a random variant of its group. */
@@ -2476,7 +2541,7 @@ export class GameScene extends Phaser.Scene {
     const pb = this.playback;
     if (!pb) return;
     const pos = { index: pb.index, seg: pb.seg };
-    this.stepTo(delta > 0 ? stepForward(pos, pb.turns.length) : stepBack(pos));
+    this.stepTo(delta > 0 ? stepForward(pos, pb.turns.length) : stepBack(pos), { stepwise: delta > 0 });
   }
 
   private jumpTurn(delta: 1 | -1) {
@@ -2492,19 +2557,27 @@ export class GameScene extends Phaser.Scene {
     if (pb.auto) {
       this.stopAuto();
     } else {
-      pb.auto = this.time.addEvent({
-        delay: 900,
-        loop: true,
-        callback: () => {
-          const cur = this.playback;
-          if (!cur) return;
-          const next = stepForward({ index: cur.index, seg: cur.seg }, cur.turns.length);
-          if (next) this.stepTo(next);
-          else this.stopAuto();
-        },
-      });
+      pb.auto = this.time.delayedCall(AUTO_GAP_MS, () => this.autoStep(pb));
     }
     this.refreshSequencePanel();
+  }
+
+  /** Auto play: the next segment, then a pause once all its steps have played. */
+  private autoStep(pb: NonNullable<GameScene["playback"]>) {
+    if (this.playback !== pb || !pb.auto) return;
+    const timer = pb.auto;
+    const next = stepForward({ index: pb.index, seg: pb.seg }, pb.turns.length);
+    if (!next) {
+      this.stopAuto();
+      this.refreshSequencePanel();
+      return;
+    }
+    this.stepTo(next, {
+      stepwise: true,
+      done: () => {
+        if (this.playback === pb && pb.auto === timer) pb.auto = this.time.delayedCall(AUTO_GAP_MS, () => this.autoStep(pb));
+      },
+    });
   }
 
   private stopAuto() {

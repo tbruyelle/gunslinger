@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { END_OF_TURN_SEG, type GroundGunView, type GunView, type TurnEvent, type TurnResult } from "../chain/types";
-import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, startOfTurn, stepBack, stepForward } from "./playback";
+import { END_OF_TURN_SEG, STEP_ACTION, STEP_END, STEP_SHOTS, type GroundGunView, type GunView, type TurnEvent, type TurnResult } from "../chain/types";
+import { describeEvent, endOfTurnEvents, eventsForSegment, snapshotAfterSegment, splitSteps, startOfTurn, stepBack, stepForward } from "./playback";
 
 const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
-  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", card: 0, result: "", endurance: 0, target: 0, hit: "", range: 0, gun: "", gunId: 0, ...partial,
+  seg: 0, p: 0, kind: "move", action: "", from: "", to: "", facing: 0, down: false, n: 0, delay: 0, reason: "", card: 0, result: "", endurance: 0, target: 0, hit: "", range: 0, gun: "", gunId: 0, step: 0, ...partial,
 });
 
 const events: TurnEvent[] = [
@@ -118,6 +118,28 @@ describe("snapshotAfterSegment", () => {
     expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "gun_hand", to: "both_hands", result: "jammed", gun: "colt45" }), names)).toBe("marshal moves the Colt 45 into both hands (jammed: not cocked)");
     expect(describeEvent(ev({ seg: 3, p: 0, kind: "draw", action: "draw_and_cock", from: "gun_hand", to: "both_hands", gun: "colt45" }), names)).toBe("marshal moves the Colt 45 into both hands and cocks it");
     expect(describeEvent(ev({ seg: 3, p: 0, kind: "load", action: "load", n: 6, result: "unjammed", gun: "colt45" }), names)).toBe("marshal loads a shell in the Colt 45 (6 now): no longer jammed");
+  });
+});
+
+describe("segment steps", () => {
+  const seg = [
+    ev({ seg: 2, p: 0, kind: "shot", step: STEP_SHOTS }),
+    ev({ seg: 2, p: 0, kind: "lose_aim", step: STEP_SHOTS }),
+    ev({ seg: 2, p: 0, kind: "move", from: "A-F1", to: "A-G2", step: STEP_ACTION }),
+    ev({ seg: 2, p: 1, kind: "aim", step: STEP_ACTION + 1 }),
+    ev({ seg: 2, p: 1, kind: "wound", step: STEP_END }),
+  ];
+
+  it("splits a segment into its steps, in order", () => {
+    expect(splitSteps(seg).map((part) => part.map((e) => e.kind))).toEqual([["shot", "lose_aim"], ["move"], ["aim"], ["wound"]]);
+    expect(splitSteps([ev({ seg: 2 }), ev({ seg: 2, p: 1 })])).toHaveLength(1); // recorded before steps
+    expect(splitSteps([])).toEqual([]);
+  });
+
+  it("shows a segment up to a step", () => {
+    const all = [...events.slice(0, 2), ...seg];
+    expect(snapshotAfterSegment(start, all, 2, undefined, 4)[0].hex).toBe("A-F1"); // the shots only
+    expect(snapshotAfterSegment(start, all, 2, undefined, 5)[0].hex).toBe("A-G2"); // and the move
   });
 });
 

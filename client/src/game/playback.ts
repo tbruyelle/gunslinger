@@ -37,11 +37,13 @@ export function startOfTurn(t: TurnResult, fallback: CharView[]): CharView[] {
  * The characters' state once every event up to and including segment seg
  * has applied: turn-start events (seg 0) always, end-of-turn events
  * (END_OF_TURN_SEG) from segment 5. When ground is given, the guns dropped
- * in hexes by then are appended to it.
+ * in hexes by then are appended to it. cut, an index into events, stops
+ * before that event: the segment shown up to one of its steps.
  */
-export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number, ground?: GroundGunView[]): CharView[] {
+export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg: number, ground?: GroundGunView[], cut?: number): CharView[] {
   const out = start.map(copyChar);
-  for (const e of events) {
+  for (const [i, e] of events.entries()) {
+    if (cut !== undefined && i >= cut) break; // a step of the segment not shown yet, and all that follows
     if (e.seg === END_OF_TURN_SEG ? seg < SEGMENTS : e.seg > seg) continue;
     const c = out[e.p];
     if (!c) continue;
@@ -149,6 +151,21 @@ export function snapshotAfterSegment(start: CharView[], events: TurnEvent[], seg
 /** The events of one segment; segment 0 holds the turn-start events (fatigue, aim lost on the first reveal). */
 export function eventsForSegment(events: TurnEvent[], seg: number): TurnEvent[] {
   return events.filter((e) => e.seg === seg);
+}
+
+/**
+ * A segment's events split into the steps that resolved one after the
+ * other (shots, each seat's action in seat order, the end of the segment),
+ * as runs of the same step; a turn recorded before steps existed is one.
+ */
+export function splitSteps(events: TurnEvent[]): TurnEvent[][] {
+  const out: TurnEvent[][] = [];
+  for (const e of events) {
+    const last = out[out.length - 1];
+    if (last && last[0].step === e.step) last.push(e);
+    else out.push([e]);
+  }
+  return out;
 }
 
 /** Events recorded after segment 5: cancellations, passing out, the serious-wound check. */

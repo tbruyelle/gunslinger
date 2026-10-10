@@ -106,6 +106,25 @@ type Event struct {
 	Range     int     // the range of a shot, in hexes
 	Gun       GunType // the gun's model, for gun events
 	GunID     int     // the gun's id, for gun events
+	Step      int     // which part of the segment it belongs to (StepShots, StepEnd, StepAction+seat), 0 outside the segments
+}
+
+// Steps of a segment, in the order they resolve: the shots (7.52), each
+// seat's action in seat order, then the end of the segment (the
+// occupied-hex penalty, combat results, aims out of the zone). Events of
+// one step happened together; a replay shows the steps one after the
+// other. Turn-start and end-of-turn events have no step (0).
+const (
+	StepShots  = 1
+	StepEnd    = 2
+	StepAction = 3 // + the seat acting
+)
+
+// stamp marks the events with their step.
+func stamp(evs []Event, step int) {
+	for i := range evs {
+		evs[i].Step = step
+	}
 }
 
 // pending is the combat results a shot inflicts on a seat, applied at the
@@ -183,10 +202,12 @@ func Resolve(board *hex.Board, st State, plans [NumPlayers]Plan, d Drawer) (Stat
 			shot[p] = true
 			advance(p, seg)
 		}
+		stamp(evs[first:], StepShots)
 		for p := 0; p < NumPlayers; p++ {
 			if shot[p] || !due(p, seg) {
 				continue
 			}
+			from := len(evs)
 			a := plans[p][idx[p]]
 			g, executed := execute(board, p, a, &st, &st.Chars[p], &st.Chars[1-p], seg, d, &evs)
 			gained[p] += g
@@ -194,7 +215,9 @@ func Resolve(board *hex.Board, st State, plans [NumPlayers]Plan, d Drawer) (Stat
 			if executed && cards.IsMove(a.Code) {
 				moved[p] = true
 			}
+			stamp(evs[from:], StepAction+p)
 		}
+		end := len(evs)
 
 		// Occupied-hex penalty (9.24): when a mover ends the segment in
 		// another character's hex, both draw one delay card (once each).
@@ -230,6 +253,8 @@ func Resolve(board *hex.Board, st State, plans [NumPlayers]Plan, d Drawer) (Stat
 				loseAim(p, c, seg, ReasonOutOfZone, &evs)
 			}
 		}
+
+		stamp(evs[end:], StepEnd)
 
 		// Delay gained this segment takes effect next segment (6.1, [H6]);
 		// the events carry the running total as the cards come.

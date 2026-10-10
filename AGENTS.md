@@ -168,6 +168,11 @@ character with more delay than endurance at the end of two turns in a row
 (checked after the halving) passes out. Events have `Seg` 0 for turn-start
 events (SERIOUS fatigue, aim lost on the first reveal) and `EndOfTurn` (6)
 for those after segment 5 (cancels, passing out, the serious-wound check).
+Each event of a segment carries its `Step` (`step` in the JSON, the 20th
+encoded field; old 19-field records decode with 0): `StepShots`, then
+`StepAction`+seat for each seat's action in seat order, then `StepEnd`
+(occupied-hex penalty, combat results, aims out of the zone); 0 outside the
+segments. Replays show the steps one after the other.
 
 **Guns and shooting** (rules 11–14, Colt 45 only). Draw & Cock moves a
 gun (from a holster or a hand) to the gun hand or both hands, cocked.
@@ -287,7 +292,11 @@ calls; `testing.SkipHeights(n)` advances block time 5 s per height.
   picks; sides the realm does not play yet (`isEnabled`) are not shown at
   all, sides that cannot be picked right now are greyed out; **Send plan** → `SubmitPlan`; when `lastTurn.turn` changes, the
   resolution log is played back segment by segment (`playback.ts`) from the
-  turn's stored starting state, then the state re-syncs. **Replay** opens
+  turn's stored starting state, then the state re-syncs. Moving forward, a
+  segment plays its steps one after the other (`splitSteps`; the playback's
+  `cut` stops the shown state at a step), so a bullet flies before the
+  moves and an aim taken after a move waits for the token to get there;
+  stepping back or jumping lands a segment in one go. **Replay** opens
   the whole history (`json/history/{id}`) with turn navigation and
   play/pause. Only the last selected card can be deselected (choices are
   relative to the state before it). Tokens sharing a hex are fanned out
@@ -441,6 +450,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - chose number of turns (min 10 max 30)
     - move timeout in the same form
 - Showdown
+  - replay: when Preivous and Next are clicked, put pause
   - add warning when send plan without actions
   - make reaming points more visible
   - add winning/losing burst
