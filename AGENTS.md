@@ -24,9 +24,11 @@ multi-board layouts and victory points come later.
   toolchain through `go.mod` + `go tool` (like `~/src/aibgno`).
 - **Client**: TypeScript + Phaser 3 + Vite (port 5173), tests with vitest,
   wallet through the injected `window.adena` API.
-- **Reference rules engine**: `bga/` (separate git repo, gitignored) holds a
-  Board Game Arena PHP implementation and `bga/doc/RULES.md`, the full rules
-  transcription. Port rules from there, not from git history.
+- **Rules reference**: `bga/` (separate git repo, gitignored, private
+  `github.com/tbruyelle/gunslinger-bga`) holds an abandoned Board Game Arena
+  PHP implementation and `bga/doc/RULES.md`, the full rules transcription.
+  Read the PHP code to understand how a rule was handled, but do not copy or
+  port it; take the rules from `RULES.md`, not from git history.
 
 ## Key Commands
 
