@@ -17,10 +17,10 @@ var (
 
 func TestCreateAndJoin(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 0, 0)
+	id := CreateGame(cross(cur), "marshal", 20, 0)
 	g := getGame(id)
 	uassert.Equal(t, "waiting", g.Phase.String())
-	uassert.Equal(t, DefaultMaxTurns, g.MaxTurns)
+	uassert.Equal(t, 20, g.MaxTurns)
 	uassert.Equal(t, int64(DefaultTimeout), int64(g.Timeout))
 	uassert.Equal(t, 1, g.Turn)
 	uassert.Equal(t, 1, g.Rev)
@@ -69,8 +69,14 @@ func TestCreateValidation(cur realm, t *testing.T) {
 	uassert.AbortsWithMessage(t, cur, "gunslinger: unknown character bogus", func() {
 		CreateGame(cross(cur), "bogus", 10, 0)
 	})
-	uassert.AbortsWithMessage(t, cur, "gunslinger: maxTurns must be between 1 and 50", func() {
-		CreateGame(cross(cur), "marshal", 51, 0)
+	uassert.AbortsWithMessage(t, cur, "gunslinger: maxTurns must be between 10 and 30", func() {
+		CreateGame(cross(cur), "marshal", 31, 0)
+	})
+	uassert.AbortsWithMessage(t, cur, "gunslinger: maxTurns must be between 10 and 30", func() {
+		CreateGame(cross(cur), "marshal", 9, 0)
+	})
+	uassert.AbortsWithMessage(t, cur, "gunslinger: maxTurns must be between 10 and 30", func() {
+		CreateGame(cross(cur), "marshal", 0, 0)
 	})
 	uassert.AbortsWithMessage(t, cur, "gunslinger: timeoutMinutes must be between 5 and 43200", func() {
 		CreateGame(cross(cur), "marshal", 10, 43201)
@@ -193,9 +199,15 @@ func TestSubmitAndResolve(cur realm, t *testing.T) {
 
 func TestMaxTurnsFinish(cur realm, t *testing.T) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := CreateGame(cross(cur), "marshal", 1, 0)
+	id := CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	JoinGame(cross(cur), id, "dude")
+	for i := 0; i < 9; i++ {
+		testing.SetRealm(testing.NewUserRealm(alice))
+		SubmitPlan(cross(cur), id, "")
+		testing.SetRealm(testing.NewUserRealm(bob))
+		SubmitPlan(cross(cur), id, "")
+	}
 	testing.SetRealm(testing.NewUserRealm(alice))
 	SubmitPlan(cross(cur), id, "")
 	testing.SetRealm(testing.NewUserRealm(bob))
@@ -204,7 +216,7 @@ func TestMaxTurnsFinish(cur realm, t *testing.T) {
 	uassert.Equal(t, "finished", g.Phase.String())
 	uassert.Equal(t, "max_turns", g.EndReason)
 	uassert.Equal(t, -1, g.Winner)
-	uassert.Equal(t, 1, g.Turn)
+	uassert.Equal(t, 10, g.Turn)
 	uassert.Equal(t, 5, int(g.State.Chars[1].Facing)) // facing N, turned ahead_left: NW
 	uassert.True(t, strings.Contains(GameJSON(id), `"phase":"finished"`))
 	uassert.True(t, strings.Contains(GameJSON(id), `"timeoutAt":0`))

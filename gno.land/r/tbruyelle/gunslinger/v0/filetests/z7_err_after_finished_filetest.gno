@@ -16,9 +16,15 @@ const (
 
 func main(cur realm) {
 	testing.SetRealm(testing.NewUserRealm(alice))
-	id := gunslinger.CreateGame(cross(cur), "marshal", 1, 0)
+	id := gunslinger.CreateGame(cross(cur), "marshal", 10, 0)
 	testing.SetRealm(testing.NewUserRealm(bob))
 	gunslinger.JoinGame(cross(cur), id, "dude")
+	for i := 0; i < 9; i++ {
+		testing.SetRealm(testing.NewUserRealm(alice))
+		gunslinger.SubmitPlan(cross(cur), id, "")
+		testing.SetRealm(testing.NewUserRealm(bob))
+		gunslinger.SubmitPlan(cross(cur), id, "")
+	}
 	testing.SetRealm(testing.NewUserRealm(alice))
 	gunslinger.SubmitPlan(cross(cur), id, "")
 	testing.SetRealm(testing.NewUserRealm(bob))

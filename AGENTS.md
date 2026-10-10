@@ -92,7 +92,7 @@ of storage deposit, encoded about a tenth).
 ### Crossing functions (called with MsgCall, args are strings)
 | Function | Notes |
 |---|---|
-| `CreateGame(cur, charKey, maxTurns, timeoutMinutes) string` | seat 0; 0 turns = 10; 0 timeout = 2 days (5 min to 30 days); phase `waiting` |
+| `CreateGame(cur, charKey, maxTurns, timeoutMinutes) string` | seat 0; 10 to 30 turns (the client sends 20); 0 timeout = 2 days (5 min to 30 days); phase `waiting` |
 | `JoinGame(cur, id, charKey)` | seat 1; phase `planning` |
 | `CancelGame(cur, id)` | creator, while waiting |
 | `SubmitPlan(cur, id, plan) int` | validates, stores; the **second** plan resolves the turn in the same tx; returns Rev. A player with 5 or more delay cannot play anything and is passed automatically (`autoPass`, event `PlanPassed`), so the other plan alone resolves the turn; with both passed, turns resolve by themselves until someone can act |

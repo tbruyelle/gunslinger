@@ -21,10 +21,9 @@ const (
 	// MinTimeout and MaxTimeout bound the timeout a creator may pick.
 	MinTimeout = 5 * time.Minute
 	MaxTimeout = 30 * 24 * time.Hour
-	// DefaultMaxTurns is the game length when CreateGame gets 0.
-	DefaultMaxTurns = 10
-	// MaxMaxTurns bounds the game length.
-	MaxMaxTurns = 50
+	// MinMaxTurns and MaxMaxTurns bound the game length.
+	MinMaxTurns = 10
+	MaxMaxTurns = 30
 )
 
 // Phase is where a game stands.

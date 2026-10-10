@@ -211,7 +211,7 @@ export class LobbyScene extends Phaser.Scene {
   private createGame() {
     void this.run(async () => {
       const chain = this.chain!;
-      const r = await chain.realm.createGame(CREATOR_CHAR, 10, TIMEOUT_OPTIONS[this.timeoutIndex].minutes);
+      const r = await chain.realm.createGame(CREATOR_CHAR, 20, TIMEOUT_OPTIONS[this.timeoutIndex].minutes);
       if (r.gameID) return r.gameID;
       // The tx result was not indexed in time: the game is the newest of ours.
       const games = await chain.realm.listGames(chain.wallet.address);

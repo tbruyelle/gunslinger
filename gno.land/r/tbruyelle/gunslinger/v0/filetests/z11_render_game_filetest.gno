@@ -37,7 +37,7 @@ func main(cur realm) {
 // # Gunslinger
 // Two-player showdowns on board A, the Corral. Create a game, wait for an opponent, then submit a plan every turn. [How to play](/r/tbruyelle/gunslinger/v0:help).
 //
-// [Create a game as the marshal]($help&func=CreateGame&charKey=marshal&maxTurns=10&timeoutMinutes=0)
+// [Create a game as the marshal]($help&func=CreateGame&charKey=marshal&maxTurns=20&timeoutMinutes=0)
 //
 // ## Open games
 // No game is waiting for an opponent.

@@ -8,17 +8,14 @@ import (
 )
 
 // CreateGame opens a showdown with the caller in seat 0 playing charKey,
-// and returns the game id. maxTurns 0 means DefaultMaxTurns; timeoutMinutes
-// is the inactivity after which anyone may end the game with ClaimTimeout,
-// 0 meaning DefaultTimeout (2 days).
+// and returns the game id. maxTurns is the game length, from MinMaxTurns to
+// MaxMaxTurns; timeoutMinutes is the inactivity after which anyone may end
+// the game with ClaimTimeout, 0 meaning DefaultTimeout (2 days).
 func CreateGame(cur realm, charKey string, maxTurns int, timeoutMinutes int) string {
 	caller := cur.Previous().Address()
 	assertCharKey(charKey)
-	if maxTurns == 0 {
-		maxTurns = DefaultMaxTurns
-	}
-	if maxTurns < 1 || maxTurns > MaxMaxTurns {
-		panic("gunslinger: maxTurns must be between 1 and " + strconv.Itoa(MaxMaxTurns))
+	if maxTurns < MinMaxTurns || maxTurns > MaxMaxTurns {
+		panic("gunslinger: maxTurns must be between " + strconv.Itoa(MinMaxTurns) + " and " + strconv.Itoa(MaxMaxTurns))
 	}
 	timeout := DefaultTimeout
 	if timeoutMinutes != 0 {
