@@ -8,8 +8,9 @@ const ev = (partial: Partial<TurnEvent>): TurnEvent => ({
 });
 
 describe("soundsForEvents", () => {
+  const groups = (events: TurnEvent[]) => soundsForEvents(events).map((c) => c.group);
+
   it("maps events to sound groups", () => {
-    const groups = (events: TurnEvent[]) => soundsForEvents(events).map((c) => c.group);
     expect(groups([ev({ kind: "move" }), ev({ kind: "turn" })])).toEqual(["step", "turn"]);
     expect(groups([ev({ kind: "flip", down: true }), ev({ kind: "flip", down: false })])).toEqual(["fall"]);
     expect(groups([ev({ kind: "draw", from: "holstered" })])).toEqual(["unholster", "cock"]);
@@ -20,6 +21,13 @@ describe("soundsForEvents", () => {
     expect(groups([ev({ kind: "shot", hit: "-", reason: "misfire" }), ev({ kind: "malfunction", result: "no_penalty" })])).toEqual(["gunshot", "ricochet"]);
     expect(groups([ev({ kind: "shot", hit: "-", reason: "misfire" }), ev({ kind: "malfunction", result: "jams" })])).toEqual([]);
     expect(groups([ev({ kind: "wound", result: "stun" }), ev({ kind: "wound", result: "kill" }), ev({ kind: "pass_out" })])).toEqual(["wounded", "dead", "fall"]);
+  });
+
+  it("groans once per character when SERIOUS fatigue costs endurance", () => {
+    const serious = (p: number, endurance: number) => ev({ seg: 0, p, kind: "delay", reason: "serious", endurance });
+    expect(groups([serious(0, 2), serious(0, 1), serious(1, 0)])).toEqual(["wounded"]);
+    expect(groups([serious(0, 1), serious(1, 3)])).toEqual(["wounded", "wounded"]);
+    expect(groups([ev({ kind: "delay", reason: "sprint", endurance: 1 })])).toEqual([]);
   });
 
   it("plays wounds after the gunshot", () => {

@@ -60,6 +60,7 @@ const RICOCHET_AFTER_SHOT_MS = 350;
 /** The sounds of one segment's events, in the order they happen. */
 export function soundsForEvents(events: TurnEvent[]): SoundCue[] {
   const cues: SoundCue[] = [];
+  const bled = new Set<number>();
   for (const e of events) {
     switch (e.kind) {
       case "move":
@@ -96,6 +97,14 @@ export function soundsForEvents(events: TurnEvent[]): SoundCue[] {
         break;
       case "wound":
         cues.push({ group: e.result === "kill" ? "dead" : "wounded", delayMs: WOUND_AFTER_SHOT_MS });
+        break;
+      case "delay":
+        // SERIOUS fatigue cards at the turn start: a groan when they cost
+        // endurance, once per character however many cards it draws.
+        if (e.reason === "serious" && e.endurance > 0 && !bled.has(e.p)) {
+          bled.add(e.p);
+          cues.push({ group: "wounded", delayMs: 0 });
+        }
         break;
       case "pass_out":
         cues.push({ group: "fall", delayMs: 0 });

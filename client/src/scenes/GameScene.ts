@@ -84,6 +84,8 @@ const AIM_SIZE = 0.42;
 const MAX_ENDURANCE = 20;
 /** Colour of the aim line and the shot tracer. */
 const AIM_LINE_COLOR = 0xff2020;
+/** The tracer a bullet leaves behind it. */
+const SHOT_LINE_COLOR = 0xffffff;
 
 const STACK_REST = 0.12;
 const STACK_SPREAD = 0.42;
@@ -2400,9 +2402,12 @@ export class GameScene extends Phaser.Scene {
       const gun = this.gunCentre(e.p);
       const from = { sx: gun.x, sy: gun.y };
       // The bullet lands somewhere on the target's token, not dead centre;
-      // a shot at an empty hex goes for the hex.
+      // a shot at an empty hex goes for the hex. Shots resolve before the
+      // segment's moves (4.4, 7.52): it goes where the token still stands,
+      // not where a move of the same segment takes it.
       const atToken = e.target >= 0 && !!chars[e.target];
-      const centre = atToken ? this.tokenScreenPos(chars, e.target) : this.hexToScreen(e.to);
+      const sprite = atToken ? this.tokens[e.target]?.sprite : undefined;
+      const centre = sprite ? { sx: sprite.x, sy: sprite.y } : atToken ? this.tokenScreenPos(chars, e.target) : this.hexToScreen(e.to);
       const angle = Math.random() * Math.PI * 2;
       const spread = Math.random() * this.tokenDiameter() * 0.4;
       const hit = e.hit !== "-";
@@ -2416,7 +2421,7 @@ export class GameScene extends Phaser.Scene {
         const x = from.sx + (to.sx - from.sx) * bullet.t;
         const y = from.sy + (to.sy - from.sy) * bullet.t;
         g.clear();
-        g.lineStyle(3, AIM_LINE_COLOR, 1);
+        g.lineStyle(2, SHOT_LINE_COLOR, 1);
         g.beginPath();
         g.moveTo(from.sx, from.sy);
         g.lineTo(x, y);
@@ -2425,7 +2430,7 @@ export class GameScene extends Phaser.Scene {
         g.fillCircle(x, y, 5);
       };
       const length = Math.hypot(to.sx - from.sx, to.sy - from.sy);
-      const flight = Math.min(700, 60 + length / 4);
+      const flight = Math.min(175, 15 + length / 16);
       // The gunshot kicks the gun and shakes the view as the bullet leaves, harder on a hit.
       this.tokens[e.p]?.kickGun(this.tweens);
       this.cameras.main.shake(hit ? 250 : 120, hit ? 0.006 : 0.0025);

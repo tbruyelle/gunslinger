@@ -386,7 +386,8 @@ character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].p
 markers `aim{2,4,6,8}.gif` (from the VASSAL module), sound effects `sounds/`
 (played during turn playback: `game/sounds.ts` maps events to groups of
 variants, `GameScene.playSounds` picks one at random; a miss, misfires
-included, adds a `missed*` ricochet after the gunshot) and while planning,
+included, adds a `missed*` ricochet after the gunshot; SERIOUS fatigue
+costing endurance at the turn start plays a `serious*` groan) and while planning,
 for what the plan alone decides (`soundsForPreview`: steps, turns, going down,
 drawing, cocking, aiming, loading; shots wait for the cards, picking a
 shot's target plays `plan-shoot.wav`, a card added to the plan
@@ -440,6 +441,8 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - chose number of turns (min 10 max 30)
     - move timeout in the same form
 - Showdown
+  - add warning when send plan without actions
+  - make reaming points more visible
   - add winning/losing burst
   - show tips (or highlight a card with some text)
     - when no gun: show need to draw and cock
