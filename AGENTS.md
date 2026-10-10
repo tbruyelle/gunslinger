@@ -381,7 +381,19 @@ once combat lands); effects apply at segment end. Full rules:
 `assets/` (TTS mod dump, served by Vite): boards 1600×2232 (`board_A.png` …),
 character tokens `char_*.png` 95×95, action cards `action_card_a{1-12}[_back].png` (630×880),
 `hex_grid.json` (hex centres, scaled 2×), gun icons `guns/<type>.gif` and AIM
-markers `aim{2,4,6,8}.gif` (from the VASSAL module). `assets/local/` (VASSAL): status
+markers `aim{2,4,6,8}.gif` (from the VASSAL module), sound effects `sounds/`
+(played during turn playback: `game/sounds.ts` maps events to groups of
+variants, `GameScene.playSounds` picks one at random; a miss, misfires
+included, adds a `missed*` ricochet after the gunshot) and while planning,
+for what the plan alone decides (`soundsForPreview`: steps, turns, going down,
+drawing, cocking, aiming, loading; shots wait for the cards, picking a
+shot's target plays `plan-shoot.wav`, a card added to the plan
+`pick-card.mp3` and one taken out `pick-card-reverse.mp3`, both converted
+from `pick-card.aiff`, an option button of Cock/Aim/Shoot `select.mp3`);
+`delay1.mp3`
+plays when a DEL badge goes up, `delay1-reverse.mp3` (made with ffmpeg
+`areverse`) when it goes down (`soundsForDelay`, also on the re-sync after
+a live turn, which shows the end-of-turn halving). `assets/local/` (VASSAL): status
 overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `python scripts/fetch_assets.py` re-downloads
 (not needed, everything is present).
 
@@ -410,6 +422,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - aim & shoot
   - Advanced tutorial
 - Lobby
+  - separate games that wait for player's turn and the others
   - add last turn replay when player goes back to a game
   - allow winner to remove replay to be refunded for the deposit
   - Check game list order (sort by most recent)
@@ -425,6 +438,7 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - chose number of turns (min 10 max 30)
     - move timeout in the same form
 - Showdown
+  - add winning/losing burst
   - show tips (or highlight a card with some text)
     - when no gun: show need to draw and cock
     - when gun uncocked: show needs to be cocked
@@ -457,14 +471,12 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     - make border transparent
     - add drop weapon action cards (show waepon on the ground)
   - Character sheets
-    - allow moving to other hands and both hands
   - Aim/Shoots
     - allow move aim on Aim and Shoot cards (if more than 1, restart aim)
-    - check empty guns
-    - show chance of hit near Shoot option
     - add smoke
     - hit
-        - keep blood on the ground?
+      - add more detailed burst that just hit (vital, critical, ...)
+      - keep blood on the ground?
   - Obstacles
     - implement walls 
     - obstacles delay
@@ -484,10 +496,6 @@ overlays `state_{down,dead,passed_out}.png` drawn over the tokens, markers. `pyt
     characters per player; victory points.
   - Sounds
     - Add western music
-    - Movements/Turn
-    - Shots
-      - Hits
-      - Missed with bullet moving
       - Target screaming
     
 - Event systems

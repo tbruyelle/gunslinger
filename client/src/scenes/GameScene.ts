@@ -20,6 +20,7 @@ import {
 import { MAX_ACTION_POINTS, canPlay, drawDestinations, drawableGuns, encodePlan, planCost, validatePlan, type PlanEntry, isEnabled, decodePlan } from "../game/plan";
 import { firingGun, gunInHand, replayPlan, type CharView } from "../game/replay";
 import { COCK_AIM_SHOOT_AIM_TIME, SHOOT_AIM_TIME, shotOdds } from "../game/shotOdds";
+import { SOUND_FILES, SOUND_VOLUME, soundKey, soundsForDelay, soundsForEvents, soundsForPreview, type SoundCue, type SoundGroup } from "../game/sounds";
 import { SHOOT_OPTIONS, isShooting, type ShootOption } from "../game/plan";
 import { closeCharacterSheet, openCharacterSheet, type GunPick } from "../ui/characterSheet";
 import { showToast } from "../ui/toast";
@@ -538,6 +539,8 @@ export class GameScene extends Phaser.Scene {
   private aimLine: Phaser.GameObjects.Graphics | null = null;
   private aimLineEnds: { from: { x: number; y: number }; to: { x: number; y: number } } | null = null;
   private preview: CharView | null = null;
+  /** The encoded plan the preview was last computed for. */
+  private previewPlan = "";
   private choiceMode: {
     card: CardNumber;
     side: CardSide;
@@ -672,6 +675,12 @@ export class GameScene extends Phaser.Scene {
     }
     for (const key of ["missed", "hit", "jammed", "exploded"]) {
       if (!this.textures.exists(key)) this.load.image(key, `${key}.png`);
+    }
+    for (const [group, files] of Object.entries(SOUND_FILES)) {
+      files.forEach((file, i) => {
+        const key = soundKey(group as SoundGroup, i);
+        if (!this.cache.audio.exists(key)) this.load.audio(key, `sounds/${file}`);
+      });
     }
   }
 
@@ -1498,6 +1507,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingOpts.clear();
     this.pendingAims.clear();
     this.preview = null;
+    this.previewPlan = "";
     this.choiceMode = null;
     this.clearChoiceOverlays();
     this.closeOptMenu();
@@ -1523,12 +1533,14 @@ export class GameScene extends Phaser.Scene {
       const last = this.selectionOrder[this.selectionOrder.length - 1];
       if (!last || last.card !== card || last.side !== side) return;
       this.selectionOrder.pop();
+      this.playCues([{ group: "unpickCard", delayMs: 0 }]);
       this.pendingChoices.delete(card);
       this.pendingGuns.delete(card);
       this.pendingOpts.delete(card);
       this.pendingAims.delete(card);
     } else {
       this.selectionOrder.push({ card, side });
+      this.playCues([{ group: "pickCard", delayMs: 0 }]);
       if (isShooting({ card, side })) this.openOptMenu(card, side);
       else if (def.choiceType === "gun") this.enterGunChoice(card, side);
       else if (def.choiceType !== "none") this.enterChoiceMode(card, side, def.choiceType);
@@ -1659,7 +1671,10 @@ export class GameScene extends Phaser.Scene {
       () => {
         if (!picked && this.isSelected(card, side)) {
           const last = this.selectionOrder[this.selectionOrder.length - 1];
-          if (last && last.card === card && last.side === side) this.selectionOrder.pop();
+          if (last && last.card === card && last.side === side) {
+            this.selectionOrder.pop();
+            this.playCues([{ group: "unpickCard", delayMs: 0 }]);
+          }
           this.refreshSelectionDisplay();
           this.refreshCardHighlights();
         }
@@ -1819,6 +1834,7 @@ export class GameScene extends Phaser.Scene {
     const chars = this.displayChars();
     const seat = chars.findIndex((c, i) => c && i !== this.myIndex && c.hex === hex && c.status === "alive");
     this.pendingAims.set(this.aimMode.card, seat >= 0 ? { target: seat } : { hex });
+    if (this.pendingOpts.get(this.aimMode.card) === "shoot") this.playCues([{ group: "planShoot", delayMs: 0 }]);
     this.closeAimMode();
     this.updatePreview();
     this.refreshSelectionDisplay();
@@ -2081,7 +2097,10 @@ export class GameScene extends Phaser.Scene {
         box.setInteractive({ useHandCursor: true });
         box.on("pointerover", () => box.setFillStyle(0xb8442a, 1));
         box.on("pointerout", () => box.setFillStyle(0x8e2f1a, 1));
-        box.on("pointerup", () => this.resolveOpt(o));
+        box.on("pointerup", () => {
+          this.playCues([{ group: "select", delayMs: 0 }]);
+          this.resolveOpt(o);
+        });
       } else {
         // Dimmed but opaque, so nothing on the board shows through it.
         box.setFillStyle(0x3a1d12, 1).setStrokeStyle(3, 0x6b5a3a, 1);
@@ -2110,12 +2129,35 @@ export class GameScene extends Phaser.Scene {
     this.refreshCardHighlights();
   }
 
-  /** Recomputes where the plan leaves my character and animates the token there. */
-  private updatePreview() {
+  /**
+   * Recomputes where the plan leaves my character and animates the token
+   * there; a plan that grows plays the sounds of the step added, and lands
+   * an aim added with its line and pulse.
+   */
+  private updatePreview(withSounds = true) {
     if (this.myIndex < 0 || !this.committed[this.myIndex]) return;
     const me = this.committed[this.myIndex];
-    this.preview = replayPlan(me, this.currentPlan(), BOARD_A, this.displayGround().filter((g) => g.hex === me.hex));
+    const before = this.preview ?? me;
+    const plan = this.currentPlan();
+    this.preview = replayPlan(me, plan, BOARD_A, this.displayGround().filter((g) => g.hex === me.hex));
     this.refreshTokens(true);
+    const encoded = encodePlan(plan);
+    const prev = this.previewPlan;
+    this.previewPlan = encoded;
+    if (!withSounds || encoded.length <= prev.length || !encoded.startsWith(prev)) return;
+    this.playCues(soundsForPreview(before, this.preview));
+    if (this.preview.aim > before.aim) this.landPlannedAim();
+  }
+
+  /** An aim just added to the plan: the dotted line to its target, then the markers pulse, as in the playback. */
+  private landPlannedAim() {
+    const seat = this.myIndex;
+    const chars = this.displayChars();
+    const from = this.gunCentre(seat);
+    const target = this.aimOnToken(chars, seat) ? this.tokenCentre(1 - seat) : this.hexCentre(chars[seat].aimHex);
+    this.showAimLine(from, target);
+    this.pulseAim(seat);
+    this.time.delayedCall(320, () => this.hideAimLine());
   }
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -2280,9 +2322,11 @@ export class GameScene extends Phaser.Scene {
     const settle = () => {
       const before = this.tokens.map((t) => t?.delayShown() ?? 0);
       this.refreshTokens(true);
-      this.displayChars().forEach((c, i) => {
+      const now = this.displayChars();
+      now.forEach((c, i) => {
         if (c && c.delay !== before[i] && c.delay > 0) this.tokens[i]?.pulseBadge(this.tweens);
       });
+      this.playCues(soundsForDelay(before, now));
       for (const e of events) {
         if (e.kind === "cock") this.tokens[e.p]?.cockGun(this.tweens);
       }
@@ -2322,6 +2366,7 @@ export class GameScene extends Phaser.Scene {
     else land();
     this.refreshSequencePanel();
     this.flashShots(events);
+    this.playSounds(events);
     // SERIOUS wounds bleed where the character stands as their fatigue cards cost endurance.
     const chars = this.displayChars();
     for (const e of events) {
@@ -2405,6 +2450,20 @@ export class GameScene extends Phaser.Scene {
         onUpdate: draw,
         onComplete: () => this.tweens.add({ targets: g, alpha: 0, duration: 600, delay: 150, ease: "Cubic.easeIn", onComplete: () => g.destroy() }),
       });
+    }
+  }
+
+  /** The segment's sound effects, each a random variant of its group. */
+  private playSounds(events: TurnEvent[]) {
+    this.playCues(soundsForEvents(events));
+  }
+
+  private playCues(cues: SoundCue[]) {
+    for (const cue of cues) {
+      const key = soundKey(cue.group, Math.floor(Math.random() * SOUND_FILES[cue.group].length));
+      const play = () => this.sound.play(key, { volume: SOUND_VOLUME[cue.group] });
+      if (cue.delayMs > 0) this.time.delayedCall(cue.delayMs, play);
+      else play();
     }
   }
 
@@ -2616,6 +2675,8 @@ export class GameScene extends Phaser.Scene {
     this.stopAuto();
     this.closeLogPopup();
     if (pb.live) this.shownResultTurn = pb.turns[pb.turns.length - 1].turn;
+    // The end of turn halves the delay: the re-synced board shows it.
+    const delays = this.displayChars().map((c) => c?.delay ?? 0);
     this.playback = null;
     const view = this.view;
     // A turn resolved while the history was open: show it live now.
@@ -2625,6 +2686,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.applyState(false);
+    if (pb.live) this.playCues(soundsForDelay(delays, this.displayChars()));
     const stash = this.stashedPlan;
     this.stashedPlan = null;
     if (stash && this.mode === "select" && view && stash.turn === view.turn) {
@@ -2633,7 +2695,7 @@ export class GameScene extends Phaser.Scene {
       this.pendingGuns = stash.guns;
       this.pendingOpts = stash.opts;
       this.pendingAims = stash.aims;
-      this.updatePreview();
+      this.updatePreview(false);
       this.refreshSelectionDisplay();
       this.refreshCardHighlights();
     }
